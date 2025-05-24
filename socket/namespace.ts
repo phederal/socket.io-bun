@@ -11,25 +11,53 @@ import type {
 	Room,
 	Handshake,
 	AckCallback,
+	EventsMap,
+	DefaultEventsMap,
+	SocketData as DefaultSocketData,
 } from '../shared/types/socket.types';
 
-export interface NamespaceReservedEvents {
-	connect: (socket: Socket) => void;
-	connection: (socket: Socket) => void;
-	disconnect: (socket: Socket, reason: string) => void;
+export interface NamespaceReservedEvents<
+	ListenEvents extends EventsMap,
+	EmitEvents extends EventsMap,
+	ServerSideEvents extends EventsMap,
+	SocketData
+> {
+	connect: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
+	connection: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
+	disconnect: (
+		socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+		reason: string
+	) => void;
 }
 
-type MiddlewareFn = (socket: Socket, next: (err?: Error) => void) => void;
+type MiddlewareFn<
+	ListenEvents extends EventsMap,
+	EmitEvents extends EventsMap,
+	ServerSideEvents extends EventsMap,
+	SocketData
+> = (
+	socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+	next: (err?: Error) => void
+) => void;
 
 /**
  * Namespace represents a pool of sockets connected under a given scope
  */
-export class Namespace extends EventEmitter {
+export class Namespace<
+	ListenEvents extends EventsMap = ClientToServerEvents,
+	EmitEvents extends EventsMap = ServerToClientEvents,
+	ServerSideEvents extends EventsMap = DefaultEventsMap,
+	SocketData = DefaultSocketData
+> extends EventEmitter {
 	public readonly name: string;
-	public readonly sockets: Map<SocketId, Socket> = new Map();
+	public readonly sockets: Map<
+		SocketId,
+		Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
+	> = new Map();
 	public readonly adapter: Adapter;
 
-	private middlewares: MiddlewareFn[] = [];
+	private middlewares: MiddlewareFn<ListenEvents, EmitEvents, ServerSideEvents, SocketData>[] =
+		[];
 	private _ids: number = 0;
 
 	constructor(public readonly server: any, name: string) {
@@ -41,9 +69,33 @@ export class Namespace extends EventEmitter {
 	/**
 	 * Add middleware to namespace
 	 */
-	use(fn: MiddlewareFn): this {
+	use(fn: MiddlewareFn<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): this {
 		this.middlewares.push(fn);
 		return this;
+	}
+
+	/**
+	 * Typed event listeners
+	 */
+	override on<
+		Ev extends keyof NamespaceReservedEvents<
+			ListenEvents,
+			EmitEvents,
+			ServerSideEvents,
+			SocketData
+		>
+	>(
+		event: Ev,
+		listener: NamespaceReservedEvents<
+			ListenEvents,
+			EmitEvents,
+			ServerSideEvents,
+			SocketData
+		>[Ev]
+	): this;
+	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
+	override on(event: string, listener: (...args: any[]) => void): this {
+		return super.on(event, listener);
 	}
 
 	/**
@@ -53,7 +105,7 @@ export class Namespace extends EventEmitter {
 		ws: ServerWebSocket<WSContext>,
 		user: any,
 		session: any
-	): Promise<Socket> {
+	): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> {
 		const socketId = user.id || this.generateSocketId();
 
 		const handshake: Handshake = {
@@ -68,7 +120,12 @@ export class Namespace extends EventEmitter {
 			auth: { user, session },
 		};
 
-		const socket = new Socket(socketId, ws, this, handshake);
+		const socket = new Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(
+			socketId,
+			ws,
+			this,
+			handshake
+		);
 
 		// Run middlewares
 		await this.runMiddlewares(socket);
@@ -89,7 +146,7 @@ export class Namespace extends EventEmitter {
 	/**
 	 * Remove socket from namespace
 	 */
-	removeSocket(socket: Socket): void {
+	removeSocket(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
 		if (this.sockets.has(socket.id)) {
 			this.sockets.delete(socket.id);
 			this.adapter.removeSocketFromAllRooms(socket.id);
@@ -100,38 +157,39 @@ export class Namespace extends EventEmitter {
 	/**
 	 * Target specific room(s) for broadcasting
 	 */
-	to(room: Room | Room[]): BroadcastOperator {
+	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator(this.adapter).to(room);
 	}
 
 	/**
 	 * Target specific room(s) - alias for to()
 	 */
-	in(room: Room | Room[]): BroadcastOperator {
+	in(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
 		return this.to(room);
 	}
 
 	/**
 	 * Exclude specific room(s) or socket(s)
 	 */
-	except(room: Room | Room[]): BroadcastOperator {
+	except(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator(this.adapter).except(room);
 	}
 
 	/**
-	 * Emit to all sockets in namespace
+	 * Typed emit to all sockets in namespace
 	 */
-	override emit<K extends keyof ServerToClientEvents>(
-		event: K,
-		...args: Parameters<ServerToClientEvents[K]>
+	override emit<Ev extends keyof EmitEvents>(
+		event: Ev,
+		...args: Parameters<EmitEvents[Ev]>
 	): boolean;
-	override emit<K extends keyof ServerToClientEvents>(
-		event: K,
-		data: Parameters<ServerToClientEvents[K]>[0],
-		ack?: AckCallback
+	override emit<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data: Parameters<EmitEvents[Ev]>[0],
+		ack: AckCallback
 	): boolean;
-	override emit<K extends keyof ServerToClientEvents>(
-		event: K,
+	override emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	override emit<Ev extends keyof EmitEvents>(
+		event: Ev,
 		dataOrArg?: any,
 		ack?: AckCallback
 	): boolean {
@@ -141,50 +199,50 @@ export class Namespace extends EventEmitter {
 	/**
 	 * Send message to all sockets
 	 */
-	send(data: any): this {
-		this.emit('message' as any, data);
+	send(...args: any[]): this {
+		this.emit('message' as any, ...args);
 		return this;
 	}
 
 	/**
 	 * Write message to all sockets - alias for send
 	 */
-	write(data: any): this {
-		return this.send(data);
+	write(...args: any[]): this {
+		return this.send(...args);
 	}
 
 	/**
 	 * Set compress flag for next emission
 	 */
-	compress(compress: boolean): BroadcastOperator {
+	compress(compress: boolean): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator(this.adapter).compress(compress);
 	}
 
 	/**
 	 * Set volatile flag for next emission
 	 */
-	get volatile(): BroadcastOperator {
+	get volatile(): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator(this.adapter).volatile;
 	}
 
 	/**
 	 * Set local flag for next emission
 	 */
-	get local(): BroadcastOperator {
+	get local(): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator(this.adapter).local;
 	}
 
 	/**
 	 * Set timeout for acknowledgements
 	 */
-	timeout(timeout: number): BroadcastOperator {
+	timeout(timeout: number): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator(this.adapter).timeout(timeout);
 	}
 
 	/**
 	 * Get all sockets in namespace
 	 */
-	fetchSockets(): Promise<Socket[]> {
+	fetchSockets(): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>[]> {
 		return Promise.resolve(Array.from(this.sockets.values()));
 	}
 
@@ -219,7 +277,9 @@ export class Namespace extends EventEmitter {
 	/**
 	 * Run middlewares for socket
 	 */
-	private async runMiddlewares(socket: Socket): Promise<void> {
+	private async runMiddlewares(
+		socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
+	): Promise<void> {
 		return new Promise((resolve, reject) => {
 			if (this.middlewares.length === 0) {
 				return resolve();
@@ -237,7 +297,6 @@ export class Namespace extends EventEmitter {
 				}
 
 				const middleware = this.middlewares[index++];
-
 				try {
 					middleware!(socket, next);
 				} catch (error) {

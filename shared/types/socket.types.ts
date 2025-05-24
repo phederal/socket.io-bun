@@ -1,32 +1,93 @@
 /**
  * Socket.IO Types for Client-Server Communication
+ * Based on Socket.IO v4+ typing standards
  */
 
-// Base event interface
+// Base event interface - events are functions that can be called
 export interface EventsMap {
 	[event: string]: (...args: any[]) => void;
 }
 
-// Default events map
+// Default events map allowing any events
 export interface DefaultEventsMap {
 	[event: string]: (...args: any[]) => void;
 }
 
-// Example client to server events (replace with your actual events)
-export interface ClientToServerEvents extends EventsMap {
+// Inter-server events for clustering (optional)
+export interface InterServerEvents extends EventsMap {
 	ping: () => void;
-	message: (data: string) => void;
-	join_room: (room: string) => void;
-	leave_room: (room: string) => void;
 }
 
-// Example server to client events (replace with your actual events)
-export interface ServerToClientEvents extends EventsMap {
-	pong: () => void;
+// Socket data type for socket.data attribute
+export interface SocketData {
+	user?: {
+		id: string;
+		name?: string;
+		email?: string;
+	};
+	session?: {
+		id: string;
+		[key: string]: any;
+	};
+	[key: string]: any;
+}
+
+// ==== Define your application events here ====
+
+// Events that clients can send to server
+export interface ClientToServerEvents extends EventsMap {
+	// Basic events
+	ping: () => void;
+
+	// Messaging
 	message: (data: string) => void;
+	chat_message: (data: { room: string; message: string }) => void;
+
+	// Room management
+	join_room: (room: string) => void;
+	leave_room: (room: string) => void;
+
+	// Example with acknowledgment
+	get_user_info: (callback: (data: { id: string; name: string }) => void) => void;
+
+	// Example with multiple parameters
+	update_position: (x: number, y: number, z: number) => void;
+
+	// Custom events for your app
+	typing_start: (room: string) => void;
+	typing_stop: (room: string) => void;
+}
+
+// Events that server can send to clients
+export interface ServerToClientEvents extends EventsMap {
+	// Basic events
+	pong: () => void;
+
+	// Messaging
+	message: (data: string) => void;
+	chat_message: (data: {
+		from: string;
+		room: string;
+		message: string;
+		timestamp: string;
+	}) => void;
+
+	// Room management
 	room_joined: (room: string) => void;
 	room_left: (room: string) => void;
+	user_joined: (data: { userId: string; room: string }) => void;
+	user_left: (data: { userId: string; room: string }) => void;
+
+	// Notifications
 	notification: (message: string) => void;
+	error: (error: { code: number; message: string }) => void;
+
+	// Real-time updates
+	position_update: (data: { userId: string; x: number; y: number; z: number }) => void;
+
+	// Typing indicators
+	user_typing: (data: { userId: string; room: string }) => void;
+	user_stopped_typing: (data: { userId: string; room: string }) => void;
 }
 
 // Socket packet structure
@@ -78,9 +139,4 @@ export interface Handshake {
 	url: string;
 	query: Record<string, string>;
 	auth: Record<string, any>;
-}
-
-// Socket data that can be attached
-export interface SocketData {
-	[key: string]: any;
 }

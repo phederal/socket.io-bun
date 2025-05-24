@@ -1,10 +1,15 @@
 /**
  * Server & WebSocket
- * Main file of backend
+ * Main file of backend with full TypeScript support
  */
 
 import { Hono } from 'hono';
 import { websocket, wsUpgrade, io } from './ws';
+import type {
+	ClientToServerEvents,
+	ServerToClientEvents,
+	SocketData,
+} from './shared/types/socket.types';
 
 // App
 const app = new Hono();
@@ -13,41 +18,98 @@ const app = new Hono();
 app.get('/ws', wsUpgrade);
 app.get('/ws/*', wsUpgrade);
 
-// Example Socket.IO usage
+// ==== Fully Typed Socket.IO Usage ====
+
+// ✅ Main namespace with full typing
 io.on('connection', (socket) => {
 	console.log(`Socket ${socket.id} connected to namespace ${socket.nsp}`);
+
+	// ✅ Typed socket.data access
+	socket.data.user = {
+		id: socket.id,
+		name: `User_${socket.id.slice(0, 8)}`,
+		email: `${socket.id}@example.com`,
+	};
 
 	// Join socket to a room based on user ID
 	socket.join(`user:${socket.id}`);
 
-	// Handle ping
+	// ✅ Fully typed event handlers with IntelliSense
 	socket.on('ping', () => {
 		socket.emit('pong');
 	});
 
-	// Handle messages
 	socket.on('message', (data) => {
+		// data is automatically typed as string
 		console.log(`Message from ${socket.id}:`, data);
 
-		// Echo back to sender
+		// Echo back to sender with typing
 		socket.emit('message', `Echo: ${data}`);
 
-		// Broadcast to all other clients
+		// Broadcast to all other clients with typing
 		socket.broadcast.emit('message', `${socket.id} says: ${data}`);
 	});
 
-	// Handle room join
-	socket.on('join_room', (room) => {
+	socket.on('chat_message', (data) => {
+		// data is automatically typed as { room: string; message: string }
+		const { room, message } = data;
+		console.log(`Chat message to ${room}:`, message);
+
+		// Typed room operations
 		socket.join(room);
-		socket.emit('room_joined', room);
-		socket.to(room).emit('notification', `${socket.id} joined room ${room}`);
+		socket.to(room).emit('chat_message', {
+			from: socket.id,
+			room,
+			message,
+			timestamp: new Date().toISOString(),
+		});
 	});
 
-	// Handle room leave
+	socket.on('join_room', (room) => {
+		// room is automatically typed as string
+		socket.join(room);
+		socket.emit('room_joined', room);
+		socket.to(room).emit('user_joined', { userId: socket.id, room });
+		console.log(`Socket ${socket.id} joined room: ${room}`);
+	});
+
 	socket.on('leave_room', (room) => {
+		// room is automatically typed as string
 		socket.leave(room);
 		socket.emit('room_left', room);
-		socket.to(room).emit('notification', `${socket.id} left room ${room}`);
+		socket.to(room).emit('user_left', { userId: socket.id, room });
+		console.log(`Socket ${socket.id} left room: ${room}`);
+	});
+
+	// ✅ Typed acknowledgments
+	socket.on('get_user_info', (callback) => {
+		// callback is automatically typed
+		callback({
+			id: socket.id,
+			name: socket.data.user?.name || 'Unknown',
+		});
+	});
+
+	// ✅ Multiple parameter events with typing
+	socket.on('update_position', (x, y, z) => {
+		// x, y, z are automatically typed as numbers
+		console.log(`Position update from ${socket.id}:`, { x, y, z });
+
+		socket.broadcast.emit('position_update', {
+			userId: socket.id,
+			x,
+			y,
+			z,
+		});
+	});
+
+	// ✅ Typing indicators
+	socket.on('typing_start', (room) => {
+		socket.to(room).emit('user_typing', { userId: socket.id, room });
+	});
+
+	socket.on('typing_stop', (room) => {
+		socket.to(room).emit('user_stopped_typing', { userId: socket.id, room });
 	});
 
 	socket.on('disconnect', (reason) => {
@@ -55,19 +117,54 @@ io.on('connection', (socket) => {
 	});
 });
 
-// Example namespace usage
+// ✅ Typed namespace example
 const chatNamespace = io.of('/chat');
 chatNamespace.on('connection', (socket) => {
 	console.log(`Socket ${socket.id} connected to chat namespace`);
 
 	socket.on('chat_message', (data) => {
-		// Broadcast to all clients in chat namespace
+		// Fully typed data parameter
+		const { room, message } = data;
+
+		// Broadcast to all clients in chat namespace with typing
 		chatNamespace.emit('chat_message', {
 			from: socket.id,
-			message: data.message,
+			room,
+			message,
 			timestamp: new Date().toISOString(),
 		});
 	});
+
+	socket.on('join_room', (room) => {
+		socket.join(room);
+		chatNamespace.to(room).emit('notification', `${socket.id} joined the chat`);
+	});
+});
+
+// ✅ Typed broadcasting examples
+setInterval(() => {
+	// Broadcast with full typing
+	io.emit('notification', 'Server heartbeat');
+	io.to('vip-users').emit('notification', 'VIP message');
+	io.except('banned-users').emit('notification', 'General announcement');
+}, 30000);
+
+// ✅ Typed middleware
+io.use((socket, next) => {
+	const auth = socket.handshake.auth;
+
+	if (!auth.token) {
+		return next(new Error('Authentication required'));
+	}
+
+	// Typed socket.data assignment
+	socket.data.session = {
+		id: auth.sessionId || 'anonymous',
+		authenticated: true,
+		connectedAt: new Date().toISOString(),
+	};
+
+	next();
 });
 
 // Run Server
@@ -104,7 +201,27 @@ if (process.env.APP_ENV === 'development') {
 	console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
 	console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
 	console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);
+	console.log(`✨ TypeScript typing enabled for all Socket.IO events`);
 }
 
-// Types (RPC)
+// ✅ Export typed instances
 export type App = typeof app;
+export { io };
+export type TypedSocket = Parameters<Parameters<typeof io.on>[1]>[0];
+
+// ✅ Utility functions with typing
+export function broadcastToRoom<K extends keyof ServerToClientEvents>(
+	room: string,
+	event: K,
+	...args: Parameters<ServerToClientEvents[K]>
+): void {
+	io.to(room).emit(event, ...args);
+}
+
+export function sendNotificationToUser(userId: string, message: string): void {
+	io.to(`user:${userId}`).emit('notification', message);
+}
+
+export function getConnectedSocketsCount(): number {
+	return io.socketsCount;
+}

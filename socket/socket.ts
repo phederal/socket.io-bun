@@ -10,7 +10,9 @@ import type {
 	AckMap,
 	DisconnectReason,
 	Handshake,
-	SocketData,
+	SocketData as DefaultSocketData,
+	EventsMap,
+	DefaultEventsMap,
 } from '../shared/types/socket.types';
 import { SocketParser } from './parser';
 import type { Namespace } from './namespace';
@@ -22,21 +24,26 @@ export interface SocketReservedEvents {
 	error: (err: Error) => void;
 }
 
-export class Socket extends EventEmitter {
+export class Socket<
+	ListenEvents extends EventsMap = ClientToServerEvents,
+	EmitEvents extends EventsMap = ServerToClientEvents,
+	ServerSideEvents extends EventsMap = DefaultEventsMap,
+	SocketData = DefaultSocketData
+> extends EventEmitter {
 	public readonly id: SocketId;
 	public readonly handshake: Handshake;
 	public readonly rooms: Set<Room> = new Set();
-	public readonly data: SocketData = {};
+	public readonly data: SocketData = {} as SocketData;
 
 	private readonly ws: ServerWebSocket<WSContext>;
-	private readonly namespace: Namespace;
+	private readonly namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	private readonly ackCallbacks: AckMap = new Map();
 	private _connected: boolean = true;
 
 	constructor(
 		id: SocketId,
 		ws: ServerWebSocket<WSContext>,
-		namespace: Namespace,
+		namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
 		handshake: Handshake
 	) {
 		super();
@@ -64,26 +71,53 @@ export class Socket extends EventEmitter {
 	}
 
 	/**
-	 * Emit event to this socket
+	 * Typed event listeners
 	 */
-	override emit<K extends keyof ServerToClientEvents>(
-		event: K,
-		...args: Parameters<ServerToClientEvents[K]>
+	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
+	override on<Ev extends keyof SocketReservedEvents>(
+		event: Ev,
+		listener: SocketReservedEvents[Ev]
+	): this;
+	override on(event: string, listener: (...args: any[]) => void): this {
+		return super.on(event, listener);
+	}
+
+	/**
+	 * Typed emit event to this socket
+	 */
+	override emit<Ev extends keyof EmitEvents>(
+		event: Ev,
+		...args: Parameters<EmitEvents[Ev]>
 	): boolean;
-	override emit<K extends keyof ServerToClientEvents>(
-		event: K,
-		data: Parameters<ServerToClientEvents[K]>[0],
-		ack?: AckCallback
+	override emit<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data: Parameters<EmitEvents[Ev]>[0],
+		ack: AckCallback
 	): boolean;
-	override emit<K extends keyof ServerToClientEvents>(
-		event: K,
+	override emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	override emit<Ev extends keyof EmitEvents>(
+		event: Ev,
 		dataOrArg?: any,
 		ack?: AckCallback
 	): boolean {
-		if (!this.connected) return false;
+		if (!this._connected) return false;
 
 		try {
 			let ackId: string | undefined;
+			let data: any;
+
+			// Handle different call signatures
+			if (typeof dataOrArg === 'function') {
+				// emit(event, ack)
+				ack = dataOrArg;
+				data = undefined;
+			} else if (typeof ack === 'function') {
+				// emit(event, data, ack)
+				data = dataOrArg;
+			} else {
+				// emit(event, ...args) or emit(event, data)
+				data = dataOrArg;
+			}
 
 			// Handle acknowledgement callback
 			if (typeof ack === 'function') {
@@ -94,12 +128,12 @@ export class Socket extends EventEmitter {
 				setTimeout(() => {
 					if (this.ackCallbacks.has(ackId!)) {
 						this.ackCallbacks.delete(ackId!);
-						ack(new Error('Acknowledgement timeout'));
+						ack!(new Error('Acknowledgement timeout'));
 					}
 				}, 10000);
 			}
 
-			const packet = SocketParser.encode(event, dataOrArg, ackId);
+			const packet = SocketParser.encode(event as any, data, ackId);
 			const result = this.ws.send(packet);
 
 			return result !== 0 && result !== -1;
@@ -155,8 +189,22 @@ export class Socket extends EventEmitter {
 	/**
 	 * Get broadcast operator for chaining
 	 */
-	get broadcast(): BroadcastOperator {
+	get broadcast(): BroadcastOperator<EmitEvents, SocketData> {
 		return this.namespace.except(this.id);
+	}
+
+	/**
+	 * Target specific room(s) for broadcasting
+	 */
+	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
+		return this.namespace.to(room);
+	}
+
+	/**
+	 * Target specific room(s) - alias for to()
+	 */
+	in(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
+		return this.to(room);
 	}
 
 	/**
@@ -208,7 +256,11 @@ export class Socket extends EventEmitter {
 		}
 
 		// Emit the event to socket listeners
-		this.emit(packet.event as any, packet.data);
+		if (packet.data !== undefined) {
+			this.emit(packet.event as any, packet.data);
+		} else {
+			this.emit(packet.event as any);
+		}
 	}
 
 	/**

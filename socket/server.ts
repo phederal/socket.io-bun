@@ -1,29 +1,52 @@
 import { EventEmitter } from 'events';
-import type { Server as BunServer, ServerWebSocketSendStatus } from 'bun';
+import type { Server as BunServer } from 'bun';
 import { Namespace } from './namespace';
 import { BroadcastOperator } from './broadcast';
 import type {
 	ServerToClientEvents,
 	ClientToServerEvents,
+	InterServerEvents,
+	SocketData,
+	EventsMap,
+	DefaultEventsMap,
 	Room,
 	AckCallback,
 } from '../shared/types/socket.types';
 
-export interface ServerReservedEvents {
+export interface ServerReservedEvents<
+	ListenEvents extends EventsMap,
+	EmitEvents extends EventsMap,
+	ServerSideEvents extends EventsMap,
+	SocketData
+> {
 	connect: (socket: any) => void;
 	connection: (socket: any) => void;
 	disconnect: (socket: any, reason: string) => void;
-	new_namespace: (namespace: Namespace) => void;
+	new_namespace: (
+		namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
+	) => void;
 }
 
-type MiddlewareFn = (socket: any, next: (err?: Error) => void) => void;
+type MiddlewareFn<SocketData = any> = (socket: any, next: (err?: Error) => void) => void;
 
 /**
- * Main Socket.IO Server class
+ * Main Socket.IO Server class with full TypeScript support
  */
-export class SocketServer extends EventEmitter {
-	public readonly sockets: Namespace;
-	private namespaces: Map<string, Namespace> = new Map();
+export class SocketServer<
+	// Events received from clients
+	ListenEvents extends EventsMap = ClientToServerEvents,
+	// Events sent to clients
+	EmitEvents extends EventsMap = ServerToClientEvents,
+	// Inter-server events
+	ServerSideEvents extends EventsMap = InterServerEvents,
+	// Socket data type
+	SocketDataType = SocketData
+> extends EventEmitter {
+	public readonly sockets: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketDataType>;
+	private namespaces: Map<
+		string,
+		Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketDataType>
+	> = new Map();
 	private bunServer?: BunServer;
 
 	constructor() {
@@ -48,14 +71,18 @@ export class SocketServer extends EventEmitter {
 			console.warn('[SocketServer] Bun server not set, cannot publish');
 			return false;
 		}
-		const res: ServerWebSocketSendStatus = this.bunServer.publish(topic, message);
-		return res > 0;
+		return this.bunServer.publish(topic, message);
 	}
 
 	/**
-	 * Get or create namespace
+	 * Get or create namespace with full typing
 	 */
-	of(name: string): Namespace {
+	of<
+		NSListenEvents extends EventsMap = ListenEvents,
+		NSEmitEvents extends EventsMap = EmitEvents,
+		NSServerSideEvents extends EventsMap = ServerSideEvents,
+		NSSocketData = SocketDataType
+	>(name: string): Namespace<NSListenEvents, NSEmitEvents, NSServerSideEvents, NSSocketData> {
 		if (name === '' || name === undefined) {
 			name = '/';
 		}
@@ -63,10 +90,20 @@ export class SocketServer extends EventEmitter {
 			name = '/' + name;
 		}
 
-		let namespace = this.namespaces.get(name);
+		let namespace = this.namespaces.get(name) as Namespace<
+			NSListenEvents,
+			NSEmitEvents,
+			NSServerSideEvents,
+			NSSocketData
+		>;
 		if (!namespace) {
-			namespace = new Namespace(this, name);
-			this.namespaces.set(name, namespace);
+			namespace = new Namespace<
+				NSListenEvents,
+				NSEmitEvents,
+				NSServerSideEvents,
+				NSSocketData
+			>(this, name);
+			this.namespaces.set(name, namespace as any);
 
 			// Forward events from namespace to server
 			namespace.on('connect', (socket) => {
@@ -89,17 +126,23 @@ export class SocketServer extends EventEmitter {
 	/**
 	 * Add middleware to default namespace
 	 */
-	use(fn: MiddlewareFn): this {
+	use(fn: MiddlewareFn<SocketDataType>): this {
 		this.sockets.use(fn);
 		return this;
 	}
 
 	/**
-	 * Listen for connections on event
+	 * Typed event listeners
 	 */
+	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
 	override on(event: 'connect' | 'connection', listener: (socket: any) => void): this;
 	override on(event: 'disconnect', listener: (socket: any, reason: string) => void): this;
-	override on(event: 'new_namespace', listener: (namespace: Namespace) => void): this;
+	override on(
+		event: 'new_namespace',
+		listener: (
+			namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketDataType>
+		) => void
+	): this;
 	override on(event: string, listener: (...args: any[]) => void): this {
 		if (event === 'connect' || event === 'connection') {
 			this.sockets.on(event, listener);
@@ -112,38 +155,39 @@ export class SocketServer extends EventEmitter {
 	/**
 	 * Target specific room(s) for broadcasting
 	 */
-	to(room: Room | Room[]): BroadcastOperator {
+	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketDataType> {
 		return this.sockets.to(room);
 	}
 
 	/**
 	 * Target specific room(s) - alias for to()
 	 */
-	in(room: Room | Room[]): BroadcastOperator {
+	in(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketDataType> {
 		return this.sockets.in(room);
 	}
 
 	/**
 	 * Exclude specific room(s) or socket(s)
 	 */
-	except(room: Room | Room[]): BroadcastOperator {
+	except(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketDataType> {
 		return this.sockets.except(room);
 	}
 
 	/**
-	 * Emit to all sockets in default namespace
+	 * Typed emit to all sockets in default namespace
 	 */
-	override emit<K extends keyof ServerToClientEvents>(
-		event: K,
-		...args: Parameters<ServerToClientEvents[K]>
+	override emit<Ev extends keyof EmitEvents>(
+		event: Ev,
+		...args: Parameters<EmitEvents[Ev]>
 	): boolean;
-	override emit<K extends keyof ServerToClientEvents>(
-		event: K,
-		data: Parameters<ServerToClientEvents[K]>[0],
-		ack?: AckCallback
+	override emit<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data: Parameters<EmitEvents[Ev]>[0],
+		ack: AckCallback
 	): boolean;
-	override emit<K extends keyof ServerToClientEvents>(
-		event: K,
+	override emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	override emit<Ev extends keyof EmitEvents>(
+		event: Ev,
 		dataOrArg?: any,
 		ack?: AckCallback
 	): boolean {
@@ -153,43 +197,43 @@ export class SocketServer extends EventEmitter {
 	/**
 	 * Send message to all sockets
 	 */
-	send(data: any): this {
-		this.sockets.send(data);
+	send(...args: any[]): this {
+		this.sockets.send(...args);
 		return this;
 	}
 
 	/**
 	 * Write message to all sockets - alias for send
 	 */
-	write(data: any): this {
-		return this.send(data);
+	write(...args: any[]): this {
+		return this.send(...args);
 	}
 
 	/**
 	 * Set compress flag for next emission
 	 */
-	compress(compress: boolean): BroadcastOperator {
+	compress(compress: boolean): BroadcastOperator<EmitEvents, SocketDataType> {
 		return this.sockets.compress(compress);
 	}
 
 	/**
 	 * Set volatile flag for next emission
 	 */
-	get volatile(): BroadcastOperator {
+	get volatile(): BroadcastOperator<EmitEvents, SocketDataType> {
 		return this.sockets.volatile;
 	}
 
 	/**
 	 * Set local flag for next emission
 	 */
-	get local(): BroadcastOperator {
+	get local(): BroadcastOperator<EmitEvents, SocketDataType> {
 		return this.sockets.local;
 	}
 
 	/**
 	 * Set timeout for acknowledgements
 	 */
-	timeout(timeout: number): BroadcastOperator {
+	timeout(timeout: number): BroadcastOperator<EmitEvents, SocketDataType> {
 		return this.sockets.timeout(timeout);
 	}
 
@@ -230,13 +274,15 @@ export class SocketServer extends EventEmitter {
 			namespace.adapter.close();
 		}
 		this.namespaces.clear();
-		super.removeAllListeners();
+		this.removeAllListeners();
 	}
 
 	/**
 	 * Get namespace by name
 	 */
-	getNamespace(name: string): Namespace | undefined {
+	getNamespace(
+		name: string
+	): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketDataType> | undefined {
 		return this.namespaces.get(name);
 	}
 
@@ -259,5 +305,10 @@ export class SocketServer extends EventEmitter {
 	}
 }
 
-// Create singleton instance
-export const io = new SocketServer();
+// Create typed singleton instance
+export const io = new SocketServer<
+	ClientToServerEvents,
+	ServerToClientEvents,
+	InterServerEvents,
+	SocketData
+>();

@@ -1,5 +1,12 @@
 import { EventEmitter } from 'events';
-import type { SocketId, Room } from '../shared/types/socket.types';
+import type {
+	SocketId,
+	Room,
+	ClientToServerEvents,
+	ServerToClientEvents,
+	DefaultEventsMap,
+	SocketData,
+} from '../shared/types/socket.types';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';
 
@@ -21,7 +28,14 @@ export class Adapter extends EventEmitter {
 	private rooms: Map<Room, Set<SocketId>> = new Map();
 	private sids: Map<SocketId, Set<Room>> = new Map();
 
-	constructor(public readonly nsp: Namespace) {
+	constructor(
+		public readonly nsp: Namespace<
+			ClientToServerEvents,
+			ServerToClientEvents,
+			DefaultEventsMap,
+			SocketData
+		>
+	) {
 		super();
 	}
 
