@@ -2,13 +2,10 @@ import { EventEmitter } from 'events';
 import type {
 	SocketId,
 	Room,
-	ClientToServerEvents,
-	ServerToClientEvents,
+	EventsMap,
 	DefaultEventsMap,
-	SocketData,
+	SocketData as DefaultSocketData,
 } from '../shared/types/socket.types';
-import type { Socket } from './socket';
-import type { Namespace } from './namespace';
 
 export interface BroadcastOptions {
 	rooms?: Set<Room>;
@@ -24,18 +21,16 @@ export interface BroadcastOptions {
 /**
  * Adapter for managing rooms and broadcasting using Bun's native pub/sub
  */
-export class Adapter extends EventEmitter {
+export class Adapter<
+	ListenEvents extends EventsMap = DefaultEventsMap,
+	EmitEvents extends EventsMap = DefaultEventsMap,
+	ServerSideEvents extends EventsMap = DefaultEventsMap,
+	SocketData = DefaultSocketData
+> extends EventEmitter {
 	private rooms: Map<Room, Set<SocketId>> = new Map();
 	private sids: Map<SocketId, Set<Room>> = new Map();
 
-	constructor(
-		public readonly nsp: Namespace<
-			ClientToServerEvents,
-			ServerToClientEvents,
-			DefaultEventsMap,
-			SocketData
-		>
-	) {
+	constructor(public readonly nsp: any) {
 		super();
 	}
 
@@ -147,9 +142,9 @@ export class Adapter extends EventEmitter {
 					const allSockets = this.getSockets();
 					for (const socketId of allSockets) {
 						if (!except.has(socketId)) {
-							const socket: Socket | undefined = this.nsp.sockets.get(socketId);
+							const socket = this.nsp.sockets.get(socketId);
 							if (socket && socket.connected) {
-								socket['ws'].send(packet);
+								socket.ws.send(packet);
 							}
 						}
 					}
@@ -168,10 +163,9 @@ export class Adapter extends EventEmitter {
 						if (roomSockets) {
 							for (const socketId of roomSockets) {
 								if (!except.has(socketId)) {
-									const socket: Socket | undefined =
-										this.nsp.sockets.get(socketId);
+									const socket = this.nsp.sockets.get(socketId);
 									if (socket && socket.connected) {
-										socket['ws'].send(packet);
+										socket.ws.send(packet);
 									}
 								}
 							}

@@ -24,14 +24,14 @@ export interface BroadcastFlags {
  */
 export class BroadcastOperator<
 	EmitEvents extends EventsMap = ServerToClientEvents,
-	SocketData = DefaultSocketData
+	SocketData extends DefaultSocketData = DefaultSocketData
 > {
 	private rooms: Set<Room> = new Set();
 	private exceptRooms: Set<Room> = new Set();
 	private exceptSockets: Set<SocketId> = new Set();
 	private flags: BroadcastFlags = {};
 
-	constructor(private adapter: Adapter) {}
+	constructor(private adapter: Adapter<any, EmitEvents, any, SocketData>) {}
 
 	/**
 	 * Target specific room(s)
@@ -156,7 +156,7 @@ export class BroadcastOperator<
 				targetSockets.forEach((socketId) => {
 					const socket = this.adapter.nsp.sockets.get(socketId);
 					if (socket) {
-						socket['ackCallbacks'].set(ackId!, (err: any, responseData: any) => {
+						socket.ackCallbacks.set(ackId!, (err: any, responseData: any) => {
 							if (err) {
 								responses.push({ socketId, error: err.message || err });
 							} else {
@@ -335,7 +335,7 @@ export class RemoteSocket<
 
 	private readonly operator: BroadcastOperator<EmitEvents, SocketData>;
 
-	constructor(adapter: Adapter, details: any) {
+	constructor(adapter: Adapter<any, EmitEvents, any, SocketData>, details: any) {
 		this.id = details.id;
 		this.handshake = details.handshake;
 		this.rooms = new Set(details.rooms);

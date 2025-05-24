@@ -32,6 +32,9 @@ export interface SocketData {
 	[key: string]: any;
 }
 
+// Base constraint for socket data - ensures it extends our base SocketData
+export type SocketDataConstraint = SocketData;
+
 // ==== Define your application events here ====
 
 // Events that clients can send to server

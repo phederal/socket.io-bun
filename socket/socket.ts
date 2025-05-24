@@ -28,7 +28,7 @@ export class Socket<
 	ListenEvents extends EventsMap = ClientToServerEvents,
 	EmitEvents extends EventsMap = ServerToClientEvents,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData = DefaultSocketData
+	SocketData extends DefaultSocketData = DefaultSocketData
 > extends EventEmitter {
 	public readonly id: SocketId;
 	public readonly handshake: Handshake;

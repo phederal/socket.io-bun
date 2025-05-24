@@ -47,14 +47,14 @@ export class Namespace<
 	ListenEvents extends EventsMap = ClientToServerEvents,
 	EmitEvents extends EventsMap = ServerToClientEvents,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData = DefaultSocketData
+	SocketData extends DefaultSocketData = DefaultSocketData
 > extends EventEmitter {
 	public readonly name: string;
 	public readonly sockets: Map<
 		SocketId,
 		Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
 	> = new Map();
-	public readonly adapter: Adapter;
+	public readonly adapter: Adapter<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 
 	private middlewares: MiddlewareFn<ListenEvents, EmitEvents, ServerSideEvents, SocketData>[] =
 		[];
@@ -63,7 +63,7 @@ export class Namespace<
 	constructor(public readonly server: any, name: string) {
 		super();
 		this.name = name;
-		this.adapter = new Adapter(this);
+		this.adapter = new Adapter<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(this);
 	}
 
 	/**
@@ -158,7 +158,7 @@ export class Namespace<
 	 * Target specific room(s) for broadcasting
 	 */
 	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator(this.adapter).to(room);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).to(room);
 	}
 
 	/**
@@ -172,7 +172,7 @@ export class Namespace<
 	 * Exclude specific room(s) or socket(s)
 	 */
 	except(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator(this.adapter).except(room);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).except(room);
 	}
 
 	/**
@@ -193,7 +193,11 @@ export class Namespace<
 		dataOrArg?: any,
 		ack?: AckCallback
 	): boolean {
-		return new BroadcastOperator(this.adapter).emit(event, dataOrArg, ack);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(
+			event,
+			dataOrArg,
+			ack
+		);
 	}
 
 	/**
@@ -215,28 +219,28 @@ export class Namespace<
 	 * Set compress flag for next emission
 	 */
 	compress(compress: boolean): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator(this.adapter).compress(compress);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).compress(compress);
 	}
 
 	/**
 	 * Set volatile flag for next emission
 	 */
 	get volatile(): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator(this.adapter).volatile;
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).volatile;
 	}
 
 	/**
 	 * Set local flag for next emission
 	 */
 	get local(): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator(this.adapter).local;
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).local;
 	}
 
 	/**
 	 * Set timeout for acknowledgements
 	 */
 	timeout(timeout: number): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator(this.adapter).timeout(timeout);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).timeout(timeout);
 	}
 
 	/**
@@ -250,21 +254,21 @@ export class Namespace<
 	 * Make all sockets join room(s)
 	 */
 	socketsJoin(room: Room | Room[]): void {
-		new BroadcastOperator(this.adapter).socketsJoin(room);
+		new BroadcastOperator<EmitEvents, SocketData>(this.adapter).socketsJoin(room);
 	}
 
 	/**
 	 * Make all sockets leave room(s)
 	 */
 	socketsLeave(room: Room | Room[]): void {
-		new BroadcastOperator(this.adapter).socketsLeave(room);
+		new BroadcastOperator<EmitEvents, SocketData>(this.adapter).socketsLeave(room);
 	}
 
 	/**
 	 * Disconnect all sockets
 	 */
 	disconnectSockets(close: boolean = false): void {
-		new BroadcastOperator(this.adapter).disconnectSockets(close);
+		new BroadcastOperator<EmitEvents, SocketData>(this.adapter).disconnectSockets(close);
 	}
 
 	/**
