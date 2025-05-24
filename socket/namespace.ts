@@ -93,10 +93,8 @@ export class Namespace<
 			SocketData
 		>[Ev]
 	): this;
-	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
-	override on(event: string, listener: (...args: any[]) => void): this;
-	override on(event: string | symbol, listener: (...args: any[]) => void): this {
-		return super.on(event, listener);
+	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this {
+		return super.on(event as string, listener);
 	}
 
 	/**
@@ -118,10 +116,8 @@ export class Namespace<
 			SocketData
 		>[Ev]
 	): this;
-	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
-	override once(event: string, listener: (...args: any[]) => void): this;
-	override once(event: string | symbol, listener: (...args: any[]) => void): this {
-		return super.once(event, listener);
+	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this {
+		return super.once(event as string, listener);
 	}
 
 	/**
@@ -206,31 +202,26 @@ export class Namespace<
 	/**
 	 * Typed emit to all sockets in namespace with proper overloads
 	 */
-	override emit<Ev extends keyof EmitEvents>(
-		event: Ev,
-		...args: Parameters<EmitEvents[Ev]>
-	): boolean;
-	override emit<Ev extends keyof EmitEvents>(
+	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
+	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
 		data: Parameters<EmitEvents[Ev]>[0],
 		ack: AckCallback
 	): boolean;
-	override emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
-	override emit(event: string | symbol, ...args: any[]): boolean;
-	override emit<Ev extends keyof EmitEvents>(
+	emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	emit<Ev extends keyof EmitEvents>(
 		event: Ev | string | symbol,
 		dataOrArg?: any,
 		ack?: AckCallback
 	): boolean {
-		if (
-			event === 'connect' ||
-			event === 'connection' ||
-			event === 'disconnect' ||
-			event === 'disconnecting'
-		) {
-			return EventEmitter.prototype.emit.call(this, event, dataOrArg);
-		}
-
+		// if (
+		// 	event === 'connect' ||
+		// 	event === 'connection' ||
+		// 	event === 'disconnect' ||
+		// 	event === 'disconnecting'
+		// ) {
+		return EventEmitter.prototype.emit.call(this, event, dataOrArg);
+		// }
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(
 			event as any,
 			dataOrArg,

@@ -107,10 +107,8 @@ export class Socket<
 	override once<Ev extends keyof SocketReservedEvents>(
 		event: Ev,
 		listener: SocketReservedEvents[Ev]
-	): this;
-	override once(event: string, listener: (...args: any[]) => void): this;
-	override once(event: string | symbol, listener: (...args: any[]) => void): this {
-		return super.once(event, listener);
+	): this {
+		return super.once(event as string, listener);
 	}
 
 	/**

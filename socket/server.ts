@@ -169,13 +169,11 @@ export class SocketServer<
 			namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
 		) => void
 	): this;
-	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
-	override on(event: string, listener: (...args: any[]) => void): this;
-	override on(event: string | symbol, listener: (...args: any[]) => void): this {
+	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this {
 		if (event === 'connect' || event === 'connection') {
 			this.sockets.on(event, listener);
 		} else {
-			super.on(event, listener);
+			super.on(event as string, listener);
 		}
 		return this;
 	}
@@ -191,8 +189,6 @@ export class SocketServer<
 			namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
 		) => void
 	): this;
-	override once(event: string, listener: (...args: any[]) => void): this;
-	// once(event: string | symbol, listener: (...args: any[]) => void): this
 	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this {
 		if (event === 'connect' || event === 'connection') {
 			this.sockets.once(event, listener);
