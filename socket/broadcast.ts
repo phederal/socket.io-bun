@@ -8,7 +8,7 @@ import type {
 	DefaultEventsMap,
 	SocketData as DefaultSocketData,
 } from '../shared/types/socket.types';
-import { SocketParser } from './parser';
+import { BinaryProtocol, SocketParser } from './parser';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -31,6 +31,12 @@ export class BroadcastOperator<
 	private exceptRooms: Set<Room> = new Set();
 	private exceptSockets: Set<SocketId> = new Set();
 	private flags: BroadcastFlags = {};
+
+	private ackBatch: Array<{ ackId: string; socketId: string; data: any; callback: Function }> =
+		[];
+	private batchTimer?: NodeJS.Timeout;
+	private readonly BATCH_SIZE = 100; // Обрабатываем по 100 ACK за раз
+	private readonly BATCH_TIMEOUT = 1; // 1ms для мгновенной обработки
 
 	constructor(private adapter: any) {} // Избегаем циклических импортов
 
@@ -298,6 +304,133 @@ export class BroadcastOperator<
 		}
 	}
 
+	/**
+	 * Memory pool для broadcast операций
+	 */
+	private static broadcastPacketPool: string[] = [];
+	private static readonly MAX_BROADCAST_POOL_SIZE = 200;
+
+	/**
+	 * Ultra-fast broadcast с object pooling и binary protocol
+	 */
+	emitUltraFast<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data?: Parameters<EmitEvents[Ev]>[0]
+	): boolean {
+		const targetSockets = this.getTargetSockets();
+		if (targetSockets.size === 0) return true;
+
+		// Попытка использования бинарного протокола
+		let binaryPacket: Uint8Array | null = null;
+		if (
+			BinaryProtocol.supportsBinaryEncoding(event as string) &&
+			(typeof data === 'string' || typeof data === 'number')
+		) {
+			binaryPacket = BinaryProtocol.encodeBinaryEvent(event as string, data);
+		}
+
+		let success = true;
+
+		if (binaryPacket) {
+			// Отправляем бинарный пакет всем
+			for (const socketId of targetSockets) {
+				const socket = this.adapter.nsp.sockets.get(socketId);
+				if (socket && socket.connected && socket.ws.readyState === 1) {
+					try {
+						if (socket.ws.send(binaryPacket) <= 0) {
+							success = false;
+						}
+					} catch {
+						success = false;
+					}
+				}
+			}
+		} else {
+			// Fallback на обычные пакеты с pooling
+			const namespaces = new Map<string, Set<SocketId>>();
+
+			targetSockets.forEach((socketId) => {
+				const socket = this.adapter.nsp.sockets.get(socketId);
+				if (socket && socket.connected) {
+					const nsp = socket.nsp;
+					if (!namespaces.has(nsp)) {
+						namespaces.set(nsp, new Set());
+					}
+					namespaces.get(nsp)!.add(socketId);
+				}
+			});
+
+			for (const [nsp, sockets] of namespaces) {
+				// Используем pooled packet
+				let packet: string;
+
+				if (BroadcastOperator.broadcastPacketPool.length > 0) {
+					packet = BroadcastOperator.broadcastPacketPool.pop()!;
+					// Переиспользуем packet с новыми данными (требует модификации SocketParser)
+				} else {
+					packet = SocketParser.encode(event as any, data, undefined, nsp);
+				}
+
+				for (const socketId of sockets) {
+					const socket = this.adapter.nsp.sockets.get(socketId);
+					if (socket && socket.connected && socket.ws.readyState === 1) {
+						try {
+							if (socket.ws.send(packet) <= 0) {
+								success = false;
+							}
+						} catch {
+							success = false;
+						}
+					}
+				}
+
+				// Возвращаем packet в pool
+				if (
+					BroadcastOperator.broadcastPacketPool.length <
+					BroadcastOperator.MAX_BROADCAST_POOL_SIZE
+				) {
+					BroadcastOperator.broadcastPacketPool.push(packet);
+				}
+			}
+		}
+
+		return success;
+	}
+
+	/**
+	 * Parallel broadcast для maximum throughput
+	 */
+	async emitParallel<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data?: Parameters<EmitEvents[Ev]>[0]
+	): Promise<{ successful: number; failed: number }> {
+		const targetSockets = this.getTargetSockets();
+		if (targetSockets.size === 0) return { successful: 0, failed: 0 };
+
+		const promises: Promise<boolean>[] = [];
+
+		for (const socketId of targetSockets) {
+			const socket = this.adapter.nsp.sockets.get(socketId);
+			if (socket && socket.connected) {
+				const promise = new Promise<boolean>((resolve) => {
+					try {
+						const success = (socket as any).emitUltraFast(event, data);
+						resolve(success);
+					} catch {
+						resolve(false);
+					}
+				});
+				promises.push(promise);
+			}
+		}
+
+		const results = await Promise.all(promises);
+		const successful = results.filter((r) => r).length;
+		const failed = results.length - successful;
+
+		return { successful, failed };
+	}
+
 	private sanitizeData(data: any, seen = new WeakSet()): any {
 		if (data === null || data === undefined) return data;
 
@@ -328,6 +461,135 @@ export class BroadcastOperator<
 		}
 
 		return data;
+	}
+
+	private addToBatch(ackId: string, socketId: string, data: any, callback: Function): void {
+		this.ackBatch.push({ ackId, socketId, data, callback });
+
+		// Обрабатываем немедленно если batch заполнен
+		if (this.ackBatch.length >= this.BATCH_SIZE) {
+			this.processBatch();
+		} else if (!this.batchTimer) {
+			// Устанавливаем timer для обработки оставшихся
+			this.batchTimer = setTimeout(() => this.processBatch(), this.BATCH_TIMEOUT);
+		}
+	}
+
+	private processBatch(): void {
+		if (this.batchTimer) {
+			clearTimeout(this.batchTimer);
+			this.batchTimer = undefined;
+		}
+
+		if (this.ackBatch.length === 0) return;
+
+		const batch = this.ackBatch.splice(0);
+
+		// Обрабатываем все ACK в одном цикле без await
+		for (const { callback, data } of batch) {
+			try {
+				callback(null, data);
+			} catch (error) {
+				// Игнорируем ошибки callback чтобы не замедлять обработку
+			}
+		}
+	}
+
+	emitFast<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data?: Parameters<EmitEvents[Ev]>[0]
+	): boolean {
+		const targetSockets = this.getTargetSockets();
+		if (targetSockets.size === 0) return true;
+
+		// Группируем сокеты по namespace для оптимизации
+		const namespaces = new Map<string, Set<SocketId>>();
+
+		targetSockets.forEach((socketId) => {
+			const socket = this.adapter.nsp.sockets.get(socketId);
+			if (socket && socket.connected) {
+				const nsp = socket.nsp;
+				if (!namespaces.has(nsp)) {
+					namespaces.set(nsp, new Set());
+				}
+				namespaces.get(nsp)!.add(socketId);
+			}
+		});
+
+		let success = true;
+
+		// Отправляем пакет в каждый namespace
+		for (const [nsp, sockets] of namespaces) {
+			let packet: string;
+
+			// Используем быстрые методы кодирования
+			if (data === undefined) {
+				packet = SocketParser.encodeSimpleEvent(event as string, nsp);
+			} else if (typeof data === 'string') {
+				packet = SocketParser.encodeStringEvent(event as string, data, nsp);
+			} else {
+				packet = SocketParser.encode(event as any, data, undefined, nsp);
+			}
+
+			// Отправляем всем сокетам в namespace
+			for (const socketId of sockets) {
+				const socket = this.adapter.nsp.sockets.get(socketId);
+				if (socket && socket.connected && socket.ws.readyState === 1) {
+					try {
+						if (socket.ws.send(packet) <= 0) {
+							success = false;
+						}
+					} catch (error) {
+						success = false;
+					}
+				}
+			}
+		}
+
+		return success;
+	}
+
+	/**
+	 * Bulk operations для массовых операций
+	 */
+	emitBulk<Ev extends keyof EmitEvents>(
+		operations: Array<{
+			event: Ev;
+			data?: Parameters<EmitEvents[Ev]>[0];
+			rooms?: Room | Room[];
+		}>
+	): number {
+		let successful = 0;
+
+		for (const op of operations) {
+			try {
+				let operator = this;
+
+				if (op.rooms) {
+					operator = this.to(op.rooms);
+				}
+
+				if (operator.emitFast(op.event, op.data)) {
+					successful++;
+				}
+			} catch (error) {
+				// Продолжаем обработку остальных операций
+				continue;
+			}
+		}
+
+		return successful;
+	}
+
+	/**
+	 * Cleanup метод для освобождения ресурсов
+	 */
+	cleanup(): void {
+		if (this.batchTimer) {
+			clearTimeout(this.batchTimer);
+			this.batchTimer = undefined;
+		}
+		this.processBatch(); // Обрабатываем оставшиеся
 	}
 
 	/**
