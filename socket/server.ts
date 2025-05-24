@@ -58,15 +58,16 @@ export class SocketServer<
 	}
 
 	get sockets(): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
-		if (!this.namespaces.has('/')) {
-			this.of('/'); // Создаст namespace с проксированием событий
-		}
-		return this.namespaces.get('/') as Namespace<
-			ListenEvents,
-			EmitEvents,
-			ServerSideEvents,
-			SocketData
-		>;
+		return this.of('/');
+		// if (!this.namespaces.has('/')) {
+		// 	this.of('/'); // Создаст namespace с проксированием событий
+		// }
+		// return this.namespaces.get('/') as Namespace<
+		// 	ListenEvents,
+		// 	EmitEvents,
+		// 	ServerSideEvents,
+		// 	SocketData
+		// >;
 	}
 
 	/**
@@ -151,15 +152,24 @@ export class SocketServer<
 	/**
 	 * Typed event listeners with proper overloads
 	 */
-	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
-	override on(event: 'connect' | 'connection', listener: (socket: SocketData) => void): this;
-	override on(event: 'disconnect', listener: (socket: SocketData, reason: string) => void): this;
+	override on(
+		event: 'connect' | 'connection',
+		listener: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void
+	): this;
+	override on(
+		event: 'disconnect',
+		listener: (
+			socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+			reason: string
+		) => void
+	): this;
 	override on(
 		event: 'new_namespace',
 		listener: (
 			namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
 		) => void
 	): this;
+	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
 	override on(event: string, listener: (...args: any[]) => void): this;
 	override on(event: string | symbol, listener: (...args: any[]) => void): this {
 		if (event === 'connect' || event === 'connection') {
@@ -173,7 +183,6 @@ export class SocketServer<
 	/**
 	 * Typed once listeners with proper overloads
 	 */
-	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
 	override once(event: 'connect' | 'connection', listener: (socket: any) => void): this;
 	override once(event: 'disconnect', listener: (socket: any, reason: string) => void): this;
 	override once(
@@ -183,11 +192,12 @@ export class SocketServer<
 		) => void
 	): this;
 	override once(event: string, listener: (...args: any[]) => void): this;
-	override once(event: string | symbol, listener: (...args: any[]) => void): this {
+	// once(event: string | symbol, listener: (...args: any[]) => void): this
+	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this {
 		if (event === 'connect' || event === 'connection') {
 			this.sockets.once(event, listener);
 		} else {
-			super.once(event, listener);
+			super.once(event as string, listener);
 		}
 		return this;
 	}
@@ -214,7 +224,7 @@ export class SocketServer<
 	}
 
 	/**
-	 * Typed emit to all sockets in default namespace with proper overloads
+	 * Typed emit to all sockets in namespace with proper overloads
 	 */
 	override emit<Ev extends keyof EmitEvents>(
 		event: Ev,
@@ -222,17 +232,10 @@ export class SocketServer<
 	): boolean;
 	override emit<Ev extends keyof EmitEvents>(
 		event: Ev,
-		data: Parameters<EmitEvents[Ev]>[0],
+		data: Parameters<EmitEvents[Ev]>,
 		ack: AckCallback
-	): boolean;
-	override emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
-	override emit(event: string | symbol, ...args: any[]): boolean;
-	override emit<Ev extends keyof EmitEvents>(
-		event: Ev | string | symbol,
-		dataOrArg?: any,
-		ack?: AckCallback
 	): boolean {
-		return this.sockets.emit(event as any, dataOrArg, ack);
+		return this.sockets.emit(event, data, ack);
 	}
 
 	/**

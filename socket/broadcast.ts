@@ -103,31 +103,29 @@ export class BroadcastOperator<
 	}
 
 	/**
-	 * Typed emit event to targeted sockets
+	 * Typed emit to all sockets in namespace with proper overloads
 	 */
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
-		data: Parameters<EmitEvents[Ev]>[0],
+		data: Parameters<EmitEvents[Ev]>,
 		ack: AckCallback
-	): boolean;
-	emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
-	emit<Ev extends keyof EmitEvents>(event: Ev, dataOrArg?: any, ack?: AckCallback): boolean {
+	): boolean {
 		try {
 			let ackId: string | undefined;
 			let data: any;
 
 			// Handle different call signatures
-			if (typeof dataOrArg === 'function') {
+			if (typeof data === 'function') {
 				// emit(event, ack)
-				ack = dataOrArg;
+				ack = data;
 				data = undefined;
 			} else if (typeof ack === 'function') {
 				// emit(event, data, ack)
-				data = dataOrArg;
+				data = data;
 			} else {
 				// emit(event, ...args) or emit(event, data)
-				data = dataOrArg;
+				data = data;
 				// Ensure data doesn't contain functions
 				if (data && typeof data === 'object') {
 					data = this.sanitizeData(data);
