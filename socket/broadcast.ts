@@ -198,7 +198,11 @@ export class BroadcastOperator<
 			let success = true;
 			for (const [nsp, sockets] of namespaces) {
 				const packet = SocketParser.encode(event as any, data, ackId, nsp);
-				console.log(`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`, packet);
+				// console.log(`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`, packet);
+				console.log(
+					`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`,
+					'<packet>'
+				);
 
 				// Отправляем каждому сокету в этом namespace
 				for (const socketId of sockets) {

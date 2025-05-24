@@ -11,7 +11,6 @@ import type {
 	SocketData,
 } from './shared/types/socket.types';
 import { serveStatic } from 'hono/bun';
-import './test-server';
 
 // App
 const app = new Hono<{
@@ -66,6 +65,8 @@ export const server = Bun.serve({
 
 // Set Bun server instance for Socket.IO publishing BEFORE setting up events
 io.setBunServer(server);
+
+import './test-server';
 
 // io.on('connection', (socket) => {
 // 	console.log('📡 Socket listeners:', socket.eventNames().length);

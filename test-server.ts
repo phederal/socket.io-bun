@@ -45,7 +45,8 @@ interface TestServerEvents {
 // Создаем типизированный namespace для тестов
 const testNamespace = io.of<TestClientEvents, TestServerEvents>('/');
 
-testNamespace.on('connection', (socket) => {
+testNamespace.on('connect', (socket) => {
+	console.log('\n|||||||||||||||||||||||||||||||||||||||||||||\n');
 	console.log(`🧪 Test socket ${socket.id} connected`);
 
 	// ===== ОБРАБОТЧИКИ СОБЫТИЙ БЕЗ ACK =====
