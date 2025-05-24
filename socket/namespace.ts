@@ -160,6 +160,7 @@ export class Namespace<
 		ws.subscribe(`namespace:${this.name}`);
 
 		this.emit('connect', socket);
+		this.emit('connection', socket);
 
 		return socket;
 	}

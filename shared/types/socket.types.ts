@@ -104,6 +104,7 @@ export interface SocketPacketFromClient {
 	event: keyof ClientToServerEvents | '__ack';
 	data?: any;
 	ackId?: string;
+	namespace?: string;
 }
 
 export interface SocketPacketToClient {

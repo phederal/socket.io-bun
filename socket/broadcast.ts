@@ -103,7 +103,7 @@ export class BroadcastOperator<
 	}
 
 	/**
-	 * Typed emit to all sockets in namespace with proper overloads
+	 * Typed emit to all sockets in namespace with proper overloads (Socket.IO format)
 	 */
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
@@ -178,22 +178,49 @@ export class BroadcastOperator<
 				});
 			}
 
-			const packet = SocketParser.encode(event as any, data, ackId);
+			// Создаем Socket.IO формат пакета для каждого namespace
+			const namespaces = new Map<string, Set<SocketId>>();
+			const targetSockets = this.getTargetSockets();
 
-			// Calculate except sockets including rooms
-			const allExceptSockets = new Set(this.exceptSockets);
-			for (const room of this.exceptRooms) {
-				const roomSockets = this.adapter.getSockets(new Set([room]));
-				roomSockets.forEach((sid) => allExceptSockets.add(sid));
-			}
-
-			this.adapter.broadcast(packet, {
-				rooms: this.rooms.size > 0 ? this.rooms : undefined,
-				except: allExceptSockets.size > 0 ? allExceptSockets : undefined,
-				flags: this.flags,
+			// Группируем сокеты по namespace
+			targetSockets.forEach((socketId) => {
+				const socket = this.adapter.nsp.sockets.get(socketId);
+				if (socket && socket.connected) {
+					const nsp = socket.nsp;
+					if (!namespaces.has(nsp)) {
+						namespaces.set(nsp, new Set());
+					}
+					namespaces.get(nsp)!.add(socketId);
+				}
 			});
 
-			return true;
+			// Отправляем пакет в каждый namespace с правильным форматом
+			let success = true;
+			for (const [nsp, sockets] of namespaces) {
+				const packet = SocketParser.encode(event as any, data, ackId, nsp);
+				console.log(`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`, packet);
+
+				// Отправляем каждому сокету в этом namespace
+				for (const socketId of sockets) {
+					const socket = this.adapter.nsp.sockets.get(socketId);
+					if (socket && socket.connected && socket.ws.readyState === 1) {
+						try {
+							const result = socket.ws.send(packet);
+							if (result === 0 || result === -1) {
+								success = false;
+							}
+						} catch (error) {
+							console.warn(
+								`[BroadcastOperator] Failed to send to socket ${socketId}:`,
+								error
+							);
+							success = false;
+						}
+					}
+				}
+			}
+
+			return success;
 		} catch (error) {
 			console.error('[BroadcastOperator] Emit error:', error);
 			return false;
@@ -358,9 +385,7 @@ export class BroadcastOperator<
 	}
 }
 
-/**
- * Expose of subset of the attributes and methods of the Socket class
- */
+// RemoteSocket остается без изменений - он уже работает правильно
 export class RemoteSocket<
 	EmitEvents extends EventsMap = ServerToClientEvents,
 	SocketData extends DefaultSocketData = DefaultSocketData
@@ -384,37 +409,22 @@ export class RemoteSocket<
 		this.operator['rooms'] = new Set([this.id]);
 	}
 
-	/**
-	 * Adds a timeout in milliseconds for the next operation.
-	 */
 	timeout(timeout: number): BroadcastOperator<EmitEvents, SocketData> {
 		return this.operator.timeout(timeout);
 	}
 
-	/**
-	 * Typed emit to this remote socket
-	 */
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean {
 		return this.operator.emit(event, ...args);
 	}
 
-	/**
-	 * Joins a room.
-	 */
 	join(room: Room | Room[]): void {
 		return this.operator.socketsJoin(room);
 	}
 
-	/**
-	 * Leaves a room.
-	 */
 	leave(room: Room): void {
 		return this.operator.socketsLeave(room);
 	}
 
-	/**
-	 * Disconnects this client.
-	 */
 	disconnect(close = false): this {
 		this.operator.disconnectSockets(close);
 		return this;

@@ -22,12 +22,41 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 		onOpen: async (event, ws) => {
 			try {
 				const url = new URL(c.req.url);
-				const nspName = url.pathname.replace('/ws', '') || '/';
+
+				// Парсим namespace из URL (Socket.IO совместимость)
+				let nspName = url.pathname.replace('/ws', '') || '/';
+				if (nspName === '') nspName = '/';
+
+				// Игнорируем Engine.IO query параметры (EIO, transport, sid, etc.)
+				// Мы их не обрабатываем, но клиент их отправляет
+
 				const namespace = io.of(nspName);
 				const socket = await namespace.handleConnection(ws.raw!, user, session);
 				ws.raw!.__socket = socket;
 
-				console.log(`[WebSocket] Socket ${socket.id} connected to ${nspName}`);
+				console.log(`[WebSocket] Socket ${socket.id} connected to namespace ${nspName}`);
+
+				// Отправляем Engine.IO handshake имитацию (если это начальное подключение)
+				const eio = url.searchParams.get('EIO');
+				const transport = url.searchParams.get('transport');
+
+				console.log(`[WebSocket] EIO version: ${eio}, transport: ${transport}`);
+
+				if (eio && transport === 'websocket') {
+					// Проверяем версию Engine.IO
+					const eioVersion = parseInt(eio);
+					if (eioVersion >= 4) {
+						// Socket.IO v3.x+ использует Engine.IO v4+
+						const handshakeResponse = SocketParser.createHandshakeResponse(
+							socket.sessionId
+						);
+						console.log(`[WebSocket] Sending Engine.IO handshake:`, handshakeResponse);
+						ws.raw!.send(handshakeResponse);
+						console.log(`[WebSocket] Sent Engine.IO v${eio} handshake to ${socket.id}`);
+					} else {
+						console.warn(`[WebSocket] Unsupported Engine.IO version: ${eio}`);
+					}
+				}
 			} catch (error) {
 				console.error('[WebSocket] Connection error:', error);
 				ws.close(1011, 'Internal server error');
@@ -42,26 +71,91 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					return;
 				}
 
+				// Log raw message for debugging
+				const rawMessage = typeof event.data === 'string' ? event.data : 'binary';
+				console.log(`[WebSocket] Raw message from ${socket.id}:`, rawMessage);
+
+				// Decode Socket.IO packet instead of msgpack
 				const packet = await SocketParser.decode(
 					event.data as string | Blob | ArrayBuffer | ArrayBufferView<ArrayBufferLike>
 				);
+
 				if (!packet) {
-					console.warn('[WebSocket] Failed to parse packet');
+					console.warn('[WebSocket] Failed to parse Socket.IO packet from:', rawMessage);
 					return;
 				}
 
-				// Handle ack responses
+				console.log(`[WebSocket] Parsed packet from ${socket.id}:`, packet);
+
+				// Handle Engine.IO level packets
+				if (packet.event === 'ping') {
+					// Respond to Engine.IO ping with pong
+					console.log(`[WebSocket] Responding to Engine.IO ping from ${socket.id}`);
+					ws.raw!.send('3'); // Engine.IO pong
+					return;
+				}
+
+				if (packet.event === 'pong') {
+					// Handle Engine.IO pong - just ignore
+					console.log(`[WebSocket] Received Engine.IO pong from ${socket.id}`);
+					return;
+				}
+
+				// Handle Socket.IO level packets
 				if (packet.event === '__ack' && packet.ackId) {
+					console.log(`[WebSocket] Handling ACK ${packet.ackId} from ${socket.id}`);
 					socket._handleAck(packet.ackId, packet.data);
 					return;
 				}
 
-				// Handle ping/pong
-				if (packet.event === 'ping') {
-					socket.emit('pong' as any);
+				if (packet.event === '__connect') {
+					// Handle namespace connection
+					console.log(
+						`[WebSocket] Socket ${socket.id} connecting to namespace ${
+							packet.namespace || '/'
+						}`
+					);
+
+					// ВАЖНО: Отправляем подтверждение подключения к namespace в формате Socket.IO v4
+					// Формат: 40{"sid":"socket_id"} для default namespace
+					// Формат: 40/namespace,{"sid":"socket_id"} для custom namespace
+					const connectData = { sid: socket.id };
+					const connectResponse = SocketParser.encodeConnect(
+						packet.namespace || '/',
+						connectData
+					);
+					ws.raw!.send(connectResponse);
+					console.log(
+						`[WebSocket] Sent connect confirmation to ${socket.id} for namespace ${
+							packet.namespace || '/'
+						}: ${connectResponse}`
+					);
+
+					// Вызываем событие connection на namespace
+					setTimeout(() => {
+						console.log(
+							`[WebSocket] Emitting 'connection' event for socket ${socket.id}`
+						);
+						socket.namespace.emit('connection', socket);
+					}, 0);
 					return;
 				}
 
+				if (packet.event === '__disconnect') {
+					// Handle namespace disconnection
+					console.log(
+						`[WebSocket] Socket ${socket.id} disconnecting from namespace ${
+							packet.namespace || '/'
+						}`
+					);
+					socket._handleClose('client namespace disconnect');
+					return;
+				}
+
+				// Handle regular Socket.IO events (НЕ Engine.IO ping)
+				console.log(
+					`[WebSocket] Handling Socket.IO event '${packet.event}' from ${socket.id}`
+				);
 				socket._handlePacket(packet);
 			} catch (error) {
 				console.error('[WebSocket] Message handling error:', error);
