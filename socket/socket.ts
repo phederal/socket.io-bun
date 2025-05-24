@@ -146,11 +146,15 @@ export class Socket<
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
-		data: Parameters<EmitEvents[Ev]>[0],
+		dataOrArg: Parameters<EmitEvents[Ev]>[0],
 		ack: AckCallback
 	): boolean;
 	emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
-	emit<Ev extends keyof EmitEvents>(event: Ev, dataOrArg?: any, ack?: AckCallback): boolean {
+	emit<Ev extends keyof EmitEvents>(
+		event: Ev,
+		dataOrArg?: Parameters<EmitEvents[Ev]>[0],
+		ack?: AckCallback
+	): boolean {
 		if (!this._connected) return false;
 
 		try {

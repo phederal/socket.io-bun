@@ -160,9 +160,6 @@ export class Namespace<
 		ws.subscribe(`namespace:${this.name}`);
 
 		this.emit('connect', socket);
-		this.emit('connection', socket);
-		// EventEmitter.prototype.emit.call(this, 'connect', socket);
-		// EventEmitter.prototype.emit.call(this, 'connection', socket);
 
 		return socket;
 	}
@@ -205,13 +202,13 @@ export class Namespace<
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
-		data: Parameters<EmitEvents[Ev]>[0],
+		dataOrArg: Parameters<EmitEvents[Ev]>[0],
 		ack: AckCallback
 	): boolean;
 	emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
 	emit<Ev extends keyof EmitEvents>(
-		event: Ev | string | symbol,
-		dataOrArg?: any,
+		event: Ev,
+		dataOrArg?: Parameters<EmitEvents[Ev]>[0],
 		ack?: AckCallback
 	): boolean {
 		// if (
@@ -220,7 +217,7 @@ export class Namespace<
 		// 	event === 'disconnect' ||
 		// 	event === 'disconnecting'
 		// ) {
-		return EventEmitter.prototype.emit.call(this, event, dataOrArg);
+		// 	return EventEmitter.prototype.emit.call(this, event, dataOrArg);
 		// }
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(
 			event as any,
@@ -232,7 +229,7 @@ export class Namespace<
 	/**
 	 * Send message to all sockets
 	 */
-	send(...args: any[]): this {
+	send(...args: Parameters<EmitEvents[any]>): this {
 		this.emit('message' as any, ...args);
 		return this;
 	}
@@ -240,7 +237,7 @@ export class Namespace<
 	/**
 	 * Write message to all sockets - alias for send
 	 */
-	write(...args: any[]): this {
+	write(...args: Parameters<EmitEvents[any]>): this {
 		return this.send(...args);
 	}
 

@@ -40,26 +40,50 @@ app.get('/', (c) =>
   <h1>Socket.IO Bun Client</h1>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script>
-    const socket = io('wss://'+ window.location.hostname +':8443', { path: '/ws', transports: ['websocket'], transportOptions: {
-    websocket: {
-      path: "/ws/"
-    }
-  } }); // Замените на адрес вашего сервера
+    // ✅ ПРАВИЛЬНО - подключение к дефолтному namespace
+    const socket = io('wss://' + window.location.hostname + ':8443', {
+        path: '/ws',
+        transports: ['websocket'],
+		forceNew: true
+    });
 
     socket.on('connect', () => {
-      console.log('Connected:', socket.id);
-    });
+    console.log('✅ Connected:', socket.id);
+});
 
-    socket.on('message', (data) => {
-      console.log('Received message:', data);
-    });
+socket.on('connect_error', (error) => {
+    console.error('❌ Connection error:', error);
+});
 
-    socket.on('disconnect', () => {
-      console.log('Disconnected');
-    });
+socket.on('disconnect', (reason) => {
+    console.log('❌ Disconnected:', reason);
+});
 
-    // Пример отправки сообщения
-    socket.emit('message', { hello: 'world' });
+// Проверяем состояние соединения каждые 2 секунды
+setInterval(() => {
+    console.log('🔍 Socket status:', {
+        connected: socket.connected,
+        id: socket.id,
+        sendBuffer: socket.sendBuffer.length,
+        receiveBuffer: socket.receiveBuffer.length
+    });
+}, 2000);
+
+    // Тестовые функции в глобальном scope
+    window.testPing = () => {
+        console.log('📡 Sending PING...');
+        socket.emit('ping');
+    };
+
+    window.testMessage = () => {
+        console.log('📨 Sending MESSAGE...');
+        socket.emit('message', 'Hello from browser!');
+    };
+	setTimeout(() => {
+		testMessage(), testPing();
+	testMessage(), testPing();
+	testMessage(), testPing();
+	}, 1000)
   </script>
 </body>
 </html>
@@ -100,13 +124,8 @@ export const server = Bun.serve({
 // Set Bun server instance for Socket.IO publishing BEFORE setting up events
 io.setBunServer(server);
 
-// Добавьте ЭТО в index.ts перед io.on('connection', ...)
-console.log('Registering connection handler on:', io.sockets.eventNames());
-console.log('Current listeners before:', io.sockets.listenerCount('connection'));
 io.on('connection', (socket) => {
-	console.log('🎯 CONNECTION HANDLER TRIGGERED000___!!', socket.id);
-	console.log('TEST SOCKET =', socket.id, 'connected');
-	console.log('Socket', socket.id, 'connected to namespace', socket.nsp);
+	console.log('📡 Socket listeners:', socket.eventNames().length);
 
 	// ✅ Проверим что socket.on() работает
 	socket.on('ping', () => {
@@ -115,6 +134,10 @@ io.on('connection', (socket) => {
 		console.log('📡 PONG sent to', socket.id);
 	});
 
+	io.emit('message', 'hello');
+	io.sockets.on('connect', (socket) => {
+		socket.emit('message', 'hello');
+	});
 	socket.on('message', (data) => {
 		console.log('📨 MESSAGE received from', socket.id, ':', data);
 		socket.emit('message', `Echo: ${data}`);
@@ -123,43 +146,24 @@ io.on('connection', (socket) => {
 	socket.on('disconnect', (reason) => {
 		console.log('❌ DISCONNECT:', socket.id, 'reason:', reason);
 	});
+
+	console.log('📡 Socket listeners:', socket.eventNames());
+
+	setTimeout(() => {
+		console.log('📡 Sending MESSAGE...');
+		const a = socket.emit('message', 'New user connected!');
+		console.log(a);
+	}, 2000);
 });
-
-// ✅ Typed broadcasting examples
-setInterval(() => {
-	// Broadcast with full typing
-	io.emit('notification', 'Server heartbeat');
-	io.to('vip-users').emit('notification', 'VIP message');
-	io.except('banned-users').emit('notification', 'General announcement');
-}, 30000);
-
-console.log('Current listeners after:', io.sockets.listenerCount('connection'));
 
 if (process.env.NODE_ENV === 'development') {
 	console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
 	console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
 	console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);
-	console.log(`✨ TypeScript typing enabled for all Socket.IO events`);
+	console.log();
 }
 
 // ✅ Export typed instances
 export type App = typeof app;
 export { io };
 export type TypedSocket = Parameters<Parameters<typeof io.on>[1]>[0];
-
-// ✅ Utility functions with typing
-export function broadcastToRoom<K extends keyof ServerToClientEvents>(
-	room: string,
-	event: K,
-	...args: Parameters<ServerToClientEvents[K]>
-): void {
-	io.to(room).emit(event, ...args);
-}
-
-export function sendNotificationToUser(userId: string, message: string): void {
-	io.to(`user:${userId}`).emit('notification', message);
-}
-
-export function getConnectedSocketsCount(): number {
-	return io.socketsCount;
-}

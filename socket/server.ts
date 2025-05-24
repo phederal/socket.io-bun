@@ -222,16 +222,19 @@ export class SocketServer<
 	/**
 	 * Typed emit to all sockets in namespace with proper overloads
 	 */
-	override emit<Ev extends keyof EmitEvents>(
+	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
+	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
-		...args: Parameters<EmitEvents[Ev]>
-	): boolean;
-	override emit<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data: Parameters<EmitEvents[Ev]>,
+		dataOrArg: Parameters<EmitEvents[Ev]>[0],
 		ack: AckCallback
+	): boolean;
+	emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	emit<Ev extends keyof EmitEvents>(
+		event: Ev,
+		dataOrArg?: Parameters<EmitEvents[Ev]>[0],
+		ack?: AckCallback
 	): boolean {
-		return this.sockets.emit(event, data, ack);
+		return this.sockets.emit(event, dataOrArg, ack);
 	}
 
 	/**

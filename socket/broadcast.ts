@@ -108,24 +108,30 @@ export class BroadcastOperator<
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
-		data: Parameters<EmitEvents[Ev]>,
+		dataOrArg: Parameters<EmitEvents[Ev]>[0],
 		ack: AckCallback
+	): boolean;
+	emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	emit<Ev extends keyof EmitEvents>(
+		event: Ev,
+		dataOrArg?: Parameters<EmitEvents[Ev]>[0],
+		ack?: AckCallback
 	): boolean {
 		try {
 			let ackId: string | undefined;
 			let data: any;
 
 			// Handle different call signatures
-			if (typeof data === 'function') {
+			if (typeof dataOrArg === 'function') {
 				// emit(event, ack)
-				ack = data;
+				ack = dataOrArg;
 				data = undefined;
 			} else if (typeof ack === 'function') {
 				// emit(event, data, ack)
-				data = data;
+				data = dataOrArg;
 			} else {
 				// emit(event, ...args) or emit(event, data)
-				data = data;
+				data = dataOrArg;
 				// Ensure data doesn't contain functions
 				if (data && typeof data === 'object') {
 					data = this.sanitizeData(data);
@@ -162,7 +168,6 @@ export class BroadcastOperator<
 							} else {
 								responses.push({ socketId, data: responseData });
 							}
-
 							responseCount++;
 							if (responseCount >= expectedResponses) {
 								clearTimeout(timer);
