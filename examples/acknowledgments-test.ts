@@ -181,29 +181,4 @@ export function manualAckTest() {
 		return;
 	}
 
-	// ✅ Тестируем все варианты emit с ack
-	console.log('Testing socket.emit variants...');
-
-	// Вариант 1: event + callback
-	socket.emit('check_status', () => {
-		console.log('✅ socket.emit(event, callback) works');
-	});
-
-	// Вариант 2: event + data + callback
-	socket.emit('get_client_info', (info) => {
-		console.log('✅ socket.emit(event, callback) with response works:', info);
-	});
-
-	// Вариант 3: event + callback с timeout
-	socket.timeout(5000).emit('server_ping', (err, response) => {
-		if (err) {
-			console.log('❌ socket.timeout().emit() failed:', err.message);
-		} else {
-			console.log('✅ socket.timeout().emit() works:', response);
-		}
-	});
-}
-
-// Экспорт для использования в других файлах
-export { testNamespace };
-export type { TestClientEvents, TestServerEvents };
+	// ✅

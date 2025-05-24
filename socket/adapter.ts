@@ -127,53 +127,59 @@ export class Adapter<
 	}
 
 	/**
-	 * Broadcast packet using Bun's publish
+	 * Broadcast packet using direct socket sending and Bun's publish
 	 */
 	broadcast(packet: Uint8Array, opts: BroadcastOptions = {}): void {
 		const { rooms, except, flags } = opts;
 
 		try {
+			// Get target sockets
+			let targetSockets: Set<SocketId>;
+
 			if (!rooms || rooms.size === 0) {
-				const topic = `namespace:${this.nsp.name}`;
-
-				if (except && except.size > 0) {
-					const allSockets = this.getSockets();
-					for (const socketId of allSockets) {
-						if (!except.has(socketId)) {
-							const socket = this.nsp.sockets.get(socketId);
-							if (socket && socket.connected) {
-								// ✅ ИСПРАВЛЕНИЕ: Проверяем readyState
-								if (socket.ws.readyState === 1) {
-									socket.ws.send(packet);
-								}
-							}
-						}
-					}
-				} else {
-					if (this.nsp.server && this.nsp.server.publish) {
-						this.nsp.server.publish(topic, packet);
-					}
-				}
+				// Broadcast to all sockets in namespace
+				targetSockets = this.getSockets();
 			} else {
-				for (const room of rooms) {
-					const topic = `room:${this.nsp.name}:${room}`;
+				// Broadcast to specific rooms
+				targetSockets = this.getSockets(rooms);
+			}
 
-					if (except && except.size > 0) {
-						const roomSockets = this.rooms.get(room);
-						if (roomSockets) {
-							for (const socketId of roomSockets) {
-								if (!except.has(socketId)) {
-									const socket = this.nsp.sockets.get(socketId);
-									if (socket && socket.connected && socket.ws.readyState === 1) {
-										socket.ws.send(packet);
-									}
-								}
-							}
-						}
-					} else {
-						if (this.nsp.server && this.nsp.server.publish) {
-							this.nsp.server.publish(topic, packet);
-						}
+			// Remove excepted sockets
+			if (except && except.size > 0) {
+				for (const socketId of except) {
+					targetSockets.delete(socketId);
+				}
+			}
+
+			// Send to each target socket directly
+			for (const socketId of targetSockets) {
+				const socket = this.nsp.sockets.get(socketId);
+				if (socket && socket.connected && socket.ws.readyState === 1) {
+					try {
+						// Use direct WebSocket send for reliability
+						socket.ws.send(packet);
+					} catch (error) {
+						console.warn(`[Adapter] Failed to send to socket ${socketId}:`, error);
+						// Remove disconnected socket
+						this.removeSocketFromAllRooms(socketId);
+						this.nsp.sockets.delete(socketId);
+					}
+				} else if (socket && !socket.connected) {
+					// Clean up disconnected socket
+					this.removeSocketFromAllRooms(socketId);
+					this.nsp.sockets.delete(socketId);
+				}
+			}
+
+			// Also use Bun's publish for redundancy (if server is set)
+			if (this.nsp.server && this.nsp.server.publish) {
+				if (!rooms || rooms.size === 0) {
+					const topic = `namespace:${this.nsp.name}`;
+					this.nsp.server.publish(topic, packet);
+				} else {
+					for (const room of rooms) {
+						const topic = `room:${this.nsp.name}:${room}`;
+						this.nsp.server.publish(topic, packet);
 					}
 				}
 			}
@@ -204,11 +210,37 @@ export class Adapter<
 	}
 
 	/**
+	 * Get all sockets in namespace
+	 */
+	getAllSockets(): Set<SocketId> {
+		return new Set(this.sids.keys());
+	}
+
+	/**
+	 * Get room members
+	 */
+	getRoomMembers(room: Room): Set<SocketId> {
+		return this.rooms.get(room) || new Set();
+	}
+
+	/**
 	 * Clean up adapter
 	 */
 	close(): void {
 		this.rooms.clear();
 		this.sids.clear();
 		this.removeAllListeners();
+	}
+
+	/**
+	 * Debug information
+	 */
+	getDebugInfo() {
+		return {
+			roomsCount: this.rooms.size,
+			socketsCount: this.sids.size,
+			rooms: Array.from(this.rooms.keys()),
+			sockets: Array.from(this.sids.keys()),
+		};
 	}
 }

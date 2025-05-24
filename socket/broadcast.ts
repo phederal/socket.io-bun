@@ -9,7 +9,6 @@ import type {
 	SocketData as DefaultSocketData,
 } from '../shared/types/socket.types';
 import { SocketParser } from './parser';
-import type { Adapter } from './adapter';
 
 export interface BroadcastFlags {
 	volatile?: boolean;
@@ -31,7 +30,7 @@ export class BroadcastOperator<
 	private exceptSockets: Set<SocketId> = new Set();
 	private flags: BroadcastFlags = {};
 
-	constructor(private adapter: Adapter<any, EmitEvents, any, SocketData>) {}
+	constructor(private adapter: any) {} // Избегаем циклических импортов
 
 	/**
 	 * Target specific room(s)
@@ -131,21 +130,20 @@ export class BroadcastOperator<
 				data = dataOrArg;
 			}
 
-			// Handle acknowledgement callback
+			// Handle acknowledgement callback for broadcast
 			if (typeof ack === 'function') {
-				ackId = SocketParser.generateAckId();
-
-				// For broadcast acknowledgements, we need to track multiple responses
-				const responses: any[] = [];
 				const targetSockets = this.getTargetSockets();
-				let responseCount = 0;
-				const expectedResponses = targetSockets.size;
 
-				if (expectedResponses === 0) {
+				if (targetSockets.size === 0) {
 					// No target sockets, call ack immediately
 					ack(null, []);
 					return true;
 				}
+
+				ackId = SocketParser.generateAckId();
+				const responses: any[] = [];
+				let responseCount = 0;
+				const expectedResponses = targetSockets.size;
 
 				const timeout = this.flags.timeout || 5000;
 				const timer = setTimeout(() => {
@@ -335,7 +333,7 @@ export class RemoteSocket<
 
 	private readonly operator: BroadcastOperator<EmitEvents, SocketData>;
 
-	constructor(adapter: Adapter<any, EmitEvents, any, SocketData>, details: any) {
+	constructor(adapter: any, details: any) {
 		this.id = details.id;
 		this.handshake = details.handshake;
 		this.rooms = new Set(details.rooms);

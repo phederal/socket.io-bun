@@ -15,8 +15,6 @@ import type {
 	DefaultEventsMap,
 } from '../shared/types/socket.types';
 import { SocketParser } from './parser';
-import type { Namespace } from './namespace';
-import type { BroadcastOperator } from './broadcast';
 
 export interface SocketReservedEvents {
 	disconnect: (reason: DisconnectReason, description?: any) => void;
@@ -34,19 +32,19 @@ export class Socket<
 	public readonly handshake: Handshake;
 	public readonly rooms: Set<Room> = new Set();
 	public readonly data: SocketData = {} as SocketData;
+	public readonly ackCallbacks: AckMap = new Map();
 
 	private heartbeatTimer?: NodeJS.Timeout;
 	private readonly heartbeatInterval = 25000;
-
-	private readonly ws: ServerWebSocket<WSContext>;
-	private readonly namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
-	private readonly ackCallbacks: AckMap = new Map();
 	private _connected: boolean = true;
+
+	public readonly ws: ServerWebSocket<WSContext>;
+	private namespace: any; // Избегаем циклического импорта
 
 	constructor(
 		id: SocketId,
 		ws: ServerWebSocket<WSContext>,
-		namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+		namespace: any,
 		handshake: Handshake
 	) {
 		super();
@@ -208,22 +206,29 @@ export class Socket<
 	/**
 	 * Get broadcast operator for chaining
 	 */
-	get broadcast(): BroadcastOperator<EmitEvents, SocketData> {
+	get broadcast(): any {
 		return this.namespace.except(this.id);
 	}
 
 	/**
 	 * Target specific room(s) for broadcasting
 	 */
-	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
+	to(room: Room | Room[]): any {
 		return this.namespace.to(room);
 	}
 
 	/**
 	 * Target specific room(s) - alias for to()
 	 */
-	in(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
+	in(room: Room | Room[]): any {
 		return this.to(room);
+	}
+
+	/**
+	 * Add timeout for acknowledgements
+	 */
+	timeout(timeout: number): any {
+		return this.namespace.timeout(timeout);
 	}
 
 	/**
@@ -247,7 +252,7 @@ export class Socket<
 
 		this.emit('disconnect' as any, 'server namespace disconnect');
 
-		if (close) {
+		if (close && this.ws.readyState === 1) {
 			this.ws.close();
 		}
 
@@ -262,7 +267,7 @@ export class Socket<
 		if (!packet || !packet.event) return;
 
 		// Handle acknowledgement response
-		if (packet.ackId && this.ackCallbacks.has(packet.ackId)) {
+		if (packet.event === '__ack' && packet.ackId && this.ackCallbacks.has(packet.ackId)) {
 			const callback = this.ackCallbacks.get(packet.ackId)!;
 			this.ackCallbacks.delete(packet.ackId);
 			callback(null, packet.data);
@@ -273,6 +278,13 @@ export class Socket<
 		if (packet.event === 'ping') {
 			this.emit('pong' as any);
 			return;
+		}
+
+		// Check if this is an ack response (client responding to our emit with ack)
+		if (packet.ackId && packet.data !== undefined) {
+			// Send acknowledgement response back to client
+			const ackResponse = SocketParser.encodeAckResponse(packet.ackId, packet.data);
+			this.ws.send(ackResponse);
 		}
 
 		// Emit the event to socket listeners

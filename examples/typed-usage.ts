@@ -8,6 +8,7 @@ import type {
 	ServerToClientEvents,
 	InterServerEvents,
 	SocketData,
+	EventsMap,
 } from '../shared/types/socket.types';
 
 // ==== 1. Базовое использование с типизацией ====
@@ -74,13 +75,13 @@ io.on('connection', (socket) => {
 
 // ==== 2. Типизированные namespace ====
 
-interface ChatEvents extends ClientToServerEvents {
+interface ChatEvents extends EventsMap {
 	send_chat: (data: { message: string; channel: string }) => void;
 	join_channel: (channel: string) => void;
 	leave_channel: (channel: string) => void;
 }
 
-interface ChatEmitEvents extends ServerToClientEvents {
+interface ChatEmitEvents extends EventsMap {
 	new_message: (data: {
 		id: string;
 		user: string;

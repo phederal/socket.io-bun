@@ -13,6 +13,16 @@ import type {
 
 // App
 const app = new Hono();
+
+// Add middleware to set mock user and session for testing
+app.use('/ws/*', async (c, next) => {
+	// In production, this would come from your authentication middleware
+	c.get('user' as never);
+	c.get('session' as never);
+
+	await next();
+});
+
 app.get('/ws', wsUpgrade);
 app.get('/ws/*', wsUpgrade);
 
@@ -151,13 +161,13 @@ setInterval(() => {
 io.use((socket, next) => {
 	const auth = socket.handshake.auth;
 
-	if (!auth.token) {
+	if (!auth.user) {
 		return next(new Error('Authentication required'));
 	}
 
 	// Typed socket.data assignment
 	socket.data.session = {
-		id: auth.sessionId || 'anonymous',
+		id: auth.session?.id || 'anonymous',
 		authenticated: true,
 		connectedAt: new Date().toISOString(),
 	};

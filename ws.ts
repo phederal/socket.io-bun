@@ -1,4 +1,3 @@
-import './io';
 import { createBunWebSocket } from 'hono/bun';
 import type { ServerWebSocket } from 'bun';
 import type { WSContext } from 'hono/ws';
@@ -25,7 +24,7 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 				const url = new URL(c.req.url);
 				const nspName = url.pathname.replace('/ws', '') || '/';
 				const namespace = io.of(nspName);
-				const socket = await namespace.handleConnection(ws, user, session);
+				const socket = await namespace.handleConnection(ws.raw!, user, session);
 				ws.raw!.__socket = socket;
 
 				console.log(`[WebSocket] Socket ${socket.id} connected to ${nspName}`);
@@ -51,16 +50,46 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					return;
 				}
 
-				// ✅ ИСПРАВЛЕНИЕ: Добавляем обработку ack ответов
+				// Handle ack responses
 				if (packet.event === '__ack' && packet.ackId) {
 					socket._handleAck(packet.ackId, packet.data);
 					return;
 				}
 
-				// ✅ ИСПРАВЛЕНИЕ: Добавляем обработку ping/pong
+				// Handle ping/pong
 				if (packet.event === 'ping') {
 					socket.emit('pong' as any);
 					return;
+				}
+
+				// Handle acknowledgment requests from client
+				if (packet.ackId) {
+					// Client expects an acknowledgment - we need to respond after processing
+					const originalEmit = socket.emit.bind(socket);
+
+					// Create a callback wrapper that will send ack response
+					const ackWrapper = (...args: any[]) => {
+						const ackResponse = SocketParser.encodeAckResponse(packet.ackId!, args[0]);
+						socket.ws.send(ackResponse);
+					};
+
+					// If event has a callback parameter, inject our ack wrapper
+					if (packet.data && typeof packet.data === 'object' && packet.data.callback) {
+						packet.data.callback = ackWrapper;
+					} else {
+						// For events expecting callback as last parameter
+						const listeners = socket.listeners(packet.event);
+						if (listeners.length > 0) {
+							const listener = listeners[0] as Function;
+							const listenerLength = listener.length;
+
+							// If listener expects a callback (has more than 1 parameter)
+							if (listenerLength > 1) {
+								// Temporarily store the ack wrapper
+								(socket as any).__tempAckWrapper = ackWrapper;
+							}
+						}
+					}
 				}
 
 				socket._handlePacket(packet);

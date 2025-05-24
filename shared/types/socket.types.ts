@@ -50,11 +50,11 @@ export interface ClientToServerEvents extends EventsMap {
 	join_room: (room: string) => void;
 	leave_room: (room: string) => void;
 
-	// Example with acknowledgment
-	// get_user_info: (callback: (data: { id: string; name: string }) => void) => void;
-	get_user_info: (data: any, callback: (response: { id: string; name: string }) => void) => void;
+	// Acknowledgment examples - note the callback as last parameter
+	get_user_info: (callback: (data: { id: string; name: string }) => void) => void;
+	request_data: (requestId: string, callback: (data: any) => void) => void;
 
-	// Example with multiple parameters
+	// Multiple parameter events
 	update_position: (x: number, y: number, z: number) => void;
 
 	// Custom events for your app
@@ -92,23 +92,28 @@ export interface ServerToClientEvents extends EventsMap {
 	// Typing indicators
 	user_typing: (data: { userId: string; room: string }) => void;
 	user_stopped_typing: (data: { userId: string; room: string }) => void;
+
+	// Server->Client acknowledgment examples
+	server_ping: (callback: (pong: string) => void) => void;
+	get_client_info: (callback: (info: { id: string; rooms: string[] }) => void) => void;
+	check_status: (callback: () => void) => void;
 }
 
 // Socket packet structure
 export interface SocketPacketFromClient {
-	event: keyof ClientToServerEvents;
+	event: keyof ClientToServerEvents | '__ack';
 	data?: any;
 	ackId?: string;
 }
 
 export interface SocketPacketToClient {
-	event: keyof ServerToClientEvents;
+	event: keyof ServerToClientEvents | '__ack';
 	data?: any;
 	ackId?: string;
 }
 
 // Acknowledgement callback type
-export type AckCallback = (...args: any[]) => void;
+export type AckCallback = (error?: Error | null, ...args: any[]) => void;
 
 // Acknowledgement map for tracking callbacks
 export type AckMap = Map<string, AckCallback>;
