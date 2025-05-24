@@ -1,33 +1,34 @@
 import { EventEmitter } from 'events';
-import type { Server as BunServer } from 'bun';
+import type { Server as BunServer, ServerWebSocketSendStatus } from 'bun';
 import { Namespace } from './namespace';
 import { BroadcastOperator } from './broadcast';
 import type {
 	ServerToClientEvents,
 	ClientToServerEvents,
 	InterServerEvents,
-	SocketData,
+	SocketData as DefaultSocketData,
 	EventsMap,
 	DefaultEventsMap,
 	Room,
 	AckCallback,
 } from '../shared/types/socket.types';
+import type { Socket } from './socket';
 
 export interface ServerReservedEvents<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData
+	SocketData extends DefaultSocketData
 > {
-	connect: (socket: any) => void;
-	connection: (socket: any) => void;
-	disconnect: (socket: any, reason: string) => void;
+	connect: (socket: SocketData) => void;
+	connection: (socket: SocketData) => void;
+	disconnect: (socket: SocketData, reason: string) => void;
 	new_namespace: (
 		namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
 	) => void;
 }
 
-type MiddlewareFn<SocketData = any> = (socket: any, next: (err?: Error) => void) => void;
+type MiddlewareFn<SocketData> = (socket: any, next: (err?: Error) => void) => void;
 
 /**
  * Main Socket.IO Server class with full TypeScript support
@@ -40,12 +41,12 @@ export class SocketServer<
 	// Inter-server events
 	ServerSideEvents extends EventsMap = InterServerEvents,
 	// Socket data type
-	SocketDataType = SocketData
+	SocketData extends DefaultSocketData = DefaultSocketData
 > extends EventEmitter {
-	public readonly sockets: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketDataType>;
+	public readonly sockets: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	private namespaces: Map<
 		string,
-		Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketDataType>
+		Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
 	> = new Map();
 	private bunServer?: BunServer;
 
@@ -65,13 +66,15 @@ export class SocketServer<
 
 	/**
 	 * Publish message using Bun's native pub/sub
+	 * {@Link ServerWebSocketSendStatus}
 	 */
 	publish(topic: string, message: string | Uint8Array): boolean {
 		if (!this.bunServer) {
 			console.warn('[SocketServer] Bun server not set, cannot publish');
 			return false;
 		}
-		return this.bunServer.publish(topic, message);
+		// > 0 because it returns number of bytes (type ServerWebSocketSendStatus)
+		return <ServerWebSocketSendStatus>this.bunServer.publish(topic, message) > 0;
 	}
 
 	/**
@@ -81,7 +84,7 @@ export class SocketServer<
 		NSListenEvents extends EventsMap = ListenEvents,
 		NSEmitEvents extends EventsMap = EmitEvents,
 		NSServerSideEvents extends EventsMap = ServerSideEvents,
-		NSSocketData = SocketDataType
+		NSSocketData extends SocketData = SocketData
 	>(name: string): Namespace<NSListenEvents, NSEmitEvents, NSServerSideEvents, NSSocketData> {
 		if (name === '' || name === undefined) {
 			name = '/';
@@ -126,24 +129,25 @@ export class SocketServer<
 	/**
 	 * Add middleware to default namespace
 	 */
-	use(fn: MiddlewareFn<SocketDataType>): this {
+	use(fn: MiddlewareFn<SocketData>): this {
 		this.sockets.use(fn);
 		return this;
 	}
 
 	/**
-	 * Typed event listeners
+	 * Typed event listeners with proper overloads
 	 */
 	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
-	override on(event: 'connect' | 'connection', listener: (socket: any) => void): this;
-	override on(event: 'disconnect', listener: (socket: any, reason: string) => void): this;
+	override on(event: 'connect' | 'connection', listener: (socket: SocketData) => void): this;
+	override on(event: 'disconnect', listener: (socket: SocketData, reason: string) => void): this;
 	override on(
 		event: 'new_namespace',
 		listener: (
-			namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketDataType>
+			namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
 		) => void
 	): this;
-	override on(event: string, listener: (...args: any[]) => void): this {
+	override on(event: string, listener: (...args: any[]) => void): this;
+	override on(event: string | symbol, listener: (...args: any[]) => void): this {
 		if (event === 'connect' || event === 'connection') {
 			this.sockets.on(event, listener);
 		} else {
@@ -153,28 +157,50 @@ export class SocketServer<
 	}
 
 	/**
+	 * Typed once listeners with proper overloads
+	 */
+	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
+	override once(event: 'connect' | 'connection', listener: (socket: any) => void): this;
+	override once(event: 'disconnect', listener: (socket: any, reason: string) => void): this;
+	override once(
+		event: 'new_namespace',
+		listener: (
+			namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
+		) => void
+	): this;
+	override once(event: string, listener: (...args: any[]) => void): this;
+	override once(event: string | symbol, listener: (...args: any[]) => void): this {
+		if (event === 'connect' || event === 'connection') {
+			this.sockets.once(event, listener);
+		} else {
+			super.once(event, listener);
+		}
+		return this;
+	}
+
+	/**
 	 * Target specific room(s) for broadcasting
 	 */
-	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketDataType> {
+	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
 		return this.sockets.to(room);
 	}
 
 	/**
 	 * Target specific room(s) - alias for to()
 	 */
-	in(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketDataType> {
+	in(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
 		return this.sockets.in(room);
 	}
 
 	/**
 	 * Exclude specific room(s) or socket(s)
 	 */
-	except(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketDataType> {
+	except(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
 		return this.sockets.except(room);
 	}
 
 	/**
-	 * Typed emit to all sockets in default namespace
+	 * Typed emit to all sockets in default namespace with proper overloads
 	 */
 	override emit<Ev extends keyof EmitEvents>(
 		event: Ev,
@@ -186,12 +212,13 @@ export class SocketServer<
 		ack: AckCallback
 	): boolean;
 	override emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	override emit(event: string | symbol, ...args: any[]): boolean;
 	override emit<Ev extends keyof EmitEvents>(
-		event: Ev,
+		event: Ev | string | symbol,
 		dataOrArg?: any,
 		ack?: AckCallback
 	): boolean {
-		return this.sockets.emit(event, dataOrArg, ack);
+		return this.sockets.emit(event as any, dataOrArg, ack);
 	}
 
 	/**
@@ -212,28 +239,28 @@ export class SocketServer<
 	/**
 	 * Set compress flag for next emission
 	 */
-	compress(compress: boolean): BroadcastOperator<EmitEvents, SocketDataType> {
+	compress(compress: boolean): BroadcastOperator<EmitEvents, SocketData> {
 		return this.sockets.compress(compress);
 	}
 
 	/**
 	 * Set volatile flag for next emission
 	 */
-	get volatile(): BroadcastOperator<EmitEvents, SocketDataType> {
+	get volatile(): BroadcastOperator<EmitEvents, SocketData> {
 		return this.sockets.volatile;
 	}
 
 	/**
 	 * Set local flag for next emission
 	 */
-	get local(): BroadcastOperator<EmitEvents, SocketDataType> {
+	get local(): BroadcastOperator<EmitEvents, SocketData> {
 		return this.sockets.local;
 	}
 
 	/**
 	 * Set timeout for acknowledgements
 	 */
-	timeout(timeout: number): BroadcastOperator<EmitEvents, SocketDataType> {
+	timeout(timeout: number): BroadcastOperator<EmitEvents, SocketData> {
 		return this.sockets.timeout(timeout);
 	}
 
@@ -282,7 +309,7 @@ export class SocketServer<
 	 */
 	getNamespace(
 		name: string
-	): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketDataType> | undefined {
+	): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> | undefined {
 		return this.namespaces.get(name);
 	}
 
@@ -310,5 +337,5 @@ export const io = new SocketServer<
 	ClientToServerEvents,
 	ServerToClientEvents,
 	InterServerEvents,
-	SocketData
+	DefaultSocketData
 >();

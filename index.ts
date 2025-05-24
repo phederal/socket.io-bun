@@ -12,13 +12,18 @@ import type {
 } from './shared/types/socket.types';
 
 // App
-const app = new Hono();
+const app = new Hono<{
+	Variables: {
+		user: unknown;
+		session: unknown;
+	};
+}>();
 
 // Add middleware to set mock user and session for testing
 app.use('/ws/*', async (c, next) => {
 	// In production, this would come from your authentication middleware
-	c.get('user' as never);
-	c.get('session' as never);
+	c.set('user', { id: `user_${Date.now()}` });
+	c.set('session', { id: `session_${Date.now()}` });
 
 	await next();
 });

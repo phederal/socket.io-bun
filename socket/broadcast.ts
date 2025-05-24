@@ -324,7 +324,7 @@ export class BroadcastOperator<
  */
 export class RemoteSocket<
 	EmitEvents extends EventsMap = ServerToClientEvents,
-	SocketData = DefaultSocketData
+	SocketData extends DefaultSocketData = DefaultSocketData
 > {
 	public readonly id: SocketId;
 	public readonly handshake: any;

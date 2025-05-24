@@ -88,19 +88,62 @@ export class Socket<
 	}
 
 	/**
-	 * Typed event listeners
+	 * Typed event listeners with proper overloads
 	 */
 	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
 	override on<Ev extends keyof SocketReservedEvents>(
 		event: Ev,
 		listener: SocketReservedEvents[Ev]
 	): this;
-	override on(event: string, listener: (...args: any[]) => void): this {
+	override on(event: string, listener: (...args: any[]) => void): this;
+	override on(event: string | symbol, listener: (...args: any[]) => void): this {
 		return super.on(event, listener);
 	}
 
 	/**
-	 * Typed emit event to this socket
+	 * Typed once listeners with proper overloads
+	 */
+	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
+	override once<Ev extends keyof SocketReservedEvents>(
+		event: Ev,
+		listener: SocketReservedEvents[Ev]
+	): this;
+	override once(event: string, listener: (...args: any[]) => void): this;
+	override once(event: string | symbol, listener: (...args: any[]) => void): this {
+		return super.once(event, listener);
+	}
+
+	/**
+	 * Typed removeListener with proper overloads
+	 */
+	override removeListener<Ev extends keyof ListenEvents>(
+		event: Ev,
+		listener: ListenEvents[Ev]
+	): this;
+	override removeListener<Ev extends keyof SocketReservedEvents>(
+		event: Ev,
+		listener: SocketReservedEvents[Ev]
+	): this;
+	override removeListener(event: string, listener: (...args: any[]) => void): this;
+	override removeListener(event: string | symbol, listener: (...args: any[]) => void): this {
+		return super.removeListener(event, listener);
+	}
+
+	/**
+	 * Typed off (alias for removeListener)
+	 */
+	override off<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
+	override off<Ev extends keyof SocketReservedEvents>(
+		event: Ev,
+		listener: SocketReservedEvents[Ev]
+	): this;
+	override off(event: string, listener: (...args: any[]) => void): this;
+	override off(event: string | symbol, listener: (...args: any[]) => void): this {
+		return super.off(event, listener);
+	}
+
+	/**
+	 * Typed emit event to this socket with proper overloads
 	 */
 	override emit<Ev extends keyof EmitEvents>(
 		event: Ev,
@@ -112,8 +155,9 @@ export class Socket<
 		ack: AckCallback
 	): boolean;
 	override emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	override emit(event: string | symbol, ...args: any[]): boolean;
 	override emit<Ev extends keyof EmitEvents>(
-		event: Ev,
+		event: Ev | string | symbol,
 		dataOrArg?: any,
 		ack?: AckCallback
 	): boolean {
@@ -280,11 +324,31 @@ export class Socket<
 			return;
 		}
 
-		// Check if this is an ack response (client responding to our emit with ack)
-		if (packet.ackId && packet.data !== undefined) {
-			// Send acknowledgement response back to client
-			const ackResponse = SocketParser.encodeAckResponse(packet.ackId, packet.data);
-			this.ws.send(ackResponse);
+		// Check if this is an ack request from client
+		if (packet.ackId && typeof packet.ackId === 'string') {
+			// Client expects an acknowledgment
+			const originalListeners = this.listeners(packet.event);
+
+			if (originalListeners.length > 0) {
+				// Find if any listener expects a callback
+				const listener = originalListeners[0] as Function;
+
+				if (listener.length > (packet.data !== undefined ? 1 : 0)) {
+					// Listener expects more parameters than we're providing - likely a callback
+					const ackWrapper = (...args: any[]) => {
+						const ackResponse = SocketParser.encodeAckResponse(packet.ackId!, args[0]);
+						this.ws.send(ackResponse);
+					};
+
+					// Call listener with data and callback
+					if (packet.data !== undefined) {
+						listener.call(this, packet.data, ackWrapper);
+					} else {
+						listener.call(this, ackWrapper);
+					}
+					return;
+				}
+			}
 		}
 
 		// Emit the event to socket listeners

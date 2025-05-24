@@ -20,7 +20,7 @@ export interface NamespaceReservedEvents<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData
+	SocketData extends DefaultSocketData
 > {
 	connect: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
 	connection: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
@@ -34,7 +34,7 @@ type MiddlewareFn<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData
+	SocketData extends DefaultSocketData
 > = (
 	socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
 	next: (err?: Error) => void
@@ -75,7 +75,7 @@ export class Namespace<
 	}
 
 	/**
-	 * Typed event listeners
+	 * Typed event listeners with proper overloads
 	 */
 	override on<
 		Ev extends keyof NamespaceReservedEvents<
@@ -94,8 +94,34 @@ export class Namespace<
 		>[Ev]
 	): this;
 	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
-	override on(event: string, listener: (...args: any[]) => void): this {
+	override on(event: string, listener: (...args: any[]) => void): this;
+	override on(event: string | symbol, listener: (...args: any[]) => void): this {
 		return super.on(event, listener);
+	}
+
+	/**
+	 * Typed once listeners with proper overloads
+	 */
+	override once<
+		Ev extends keyof NamespaceReservedEvents<
+			ListenEvents,
+			EmitEvents,
+			ServerSideEvents,
+			SocketData
+		>
+	>(
+		event: Ev,
+		listener: NamespaceReservedEvents<
+			ListenEvents,
+			EmitEvents,
+			ServerSideEvents,
+			SocketData
+		>[Ev]
+	): this;
+	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
+	override once(event: string, listener: (...args: any[]) => void): this;
+	override once(event: string | symbol, listener: (...args: any[]) => void): this {
+		return super.once(event, listener);
 	}
 
 	/**
@@ -106,7 +132,7 @@ export class Namespace<
 		user: any,
 		session: any
 	): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> {
-		const socketId = user.id || this.generateSocketId();
+		const socketId = user?.id || this.generateSocketId();
 
 		const handshake: Handshake = {
 			headers: {}, // Add headers from request if needed
@@ -176,7 +202,7 @@ export class Namespace<
 	}
 
 	/**
-	 * Typed emit to all sockets in namespace
+	 * Typed emit to all sockets in namespace with proper overloads
 	 */
 	override emit<Ev extends keyof EmitEvents>(
 		event: Ev,
@@ -188,13 +214,14 @@ export class Namespace<
 		ack: AckCallback
 	): boolean;
 	override emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	override emit(event: string | symbol, ...args: any[]): boolean;
 	override emit<Ev extends keyof EmitEvents>(
-		event: Ev,
+		event: Ev | string | symbol,
 		dataOrArg?: any,
 		ack?: AckCallback
 	): boolean {
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(
-			event,
+			event as any,
 			dataOrArg,
 			ack
 		);

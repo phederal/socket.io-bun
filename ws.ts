@@ -62,36 +62,6 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					return;
 				}
 
-				// Handle acknowledgment requests from client
-				if (packet.ackId) {
-					// Client expects an acknowledgment - we need to respond after processing
-					const originalEmit = socket.emit.bind(socket);
-
-					// Create a callback wrapper that will send ack response
-					const ackWrapper = (...args: any[]) => {
-						const ackResponse = SocketParser.encodeAckResponse(packet.ackId!, args[0]);
-						socket.ws.send(ackResponse);
-					};
-
-					// If event has a callback parameter, inject our ack wrapper
-					if (packet.data && typeof packet.data === 'object' && packet.data.callback) {
-						packet.data.callback = ackWrapper;
-					} else {
-						// For events expecting callback as last parameter
-						const listeners = socket.listeners(packet.event);
-						if (listeners.length > 0) {
-							const listener = listeners[0] as Function;
-							const listenerLength = listener.length;
-
-							// If listener expects a callback (has more than 1 parameter)
-							if (listenerLength > 1) {
-								// Temporarily store the ack wrapper
-								(socket as any).__tempAckWrapper = ackWrapper;
-							}
-						}
-					}
-				}
-
 				socket._handlePacket(packet);
 			} catch (error) {
 				console.error('[WebSocket] Message handling error:', error);
