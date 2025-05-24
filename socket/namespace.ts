@@ -121,16 +121,16 @@ export class Namespace extends EventEmitter {
 	/**
 	 * Emit to all sockets in namespace
 	 */
-	emit<K extends keyof ServerToClientEvents>(
+	override emit<K extends keyof ServerToClientEvents>(
 		event: K,
 		...args: Parameters<ServerToClientEvents[K]>
 	): boolean;
-	emit<K extends keyof ServerToClientEvents>(
+	override emit<K extends keyof ServerToClientEvents>(
 		event: K,
 		data: Parameters<ServerToClientEvents[K]>[0],
 		ack?: AckCallback
 	): boolean;
-	emit<K extends keyof ServerToClientEvents>(
+	override emit<K extends keyof ServerToClientEvents>(
 		event: K,
 		dataOrArg?: any,
 		ack?: AckCallback

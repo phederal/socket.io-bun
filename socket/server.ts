@@ -97,10 +97,10 @@ export class SocketServer extends EventEmitter {
 	/**
 	 * Listen for connections on event
 	 */
-	on(event: 'connect' | 'connection', listener: (socket: any) => void): this;
-	on(event: 'disconnect', listener: (socket: any, reason: string) => void): this;
-	on(event: 'new_namespace', listener: (namespace: Namespace) => void): this;
-	on(event: string, listener: (...args: any[]) => void): this {
+	override on(event: 'connect' | 'connection', listener: (socket: any) => void): this;
+	override on(event: 'disconnect', listener: (socket: any, reason: string) => void): this;
+	override on(event: 'new_namespace', listener: (namespace: Namespace) => void): this;
+	override on(event: string, listener: (...args: any[]) => void): this {
 		if (event === 'connect' || event === 'connection') {
 			this.sockets.on(event, listener);
 		} else {
@@ -133,16 +133,16 @@ export class SocketServer extends EventEmitter {
 	/**
 	 * Emit to all sockets in default namespace
 	 */
-	emit<K extends keyof ServerToClientEvents>(
+	override emit<K extends keyof ServerToClientEvents>(
 		event: K,
 		...args: Parameters<ServerToClientEvents[K]>
 	): boolean;
-	emit<K extends keyof ServerToClientEvents>(
+	override emit<K extends keyof ServerToClientEvents>(
 		event: K,
 		data: Parameters<ServerToClientEvents[K]>[0],
 		ack?: AckCallback
 	): boolean;
-	emit<K extends keyof ServerToClientEvents>(
+	override emit<K extends keyof ServerToClientEvents>(
 		event: K,
 		dataOrArg?: any,
 		ack?: AckCallback

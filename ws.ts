@@ -30,7 +30,7 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 				const namespace = io.of(nspName);
 
 				// Create socket connection
-				const socket = await namespace.handleConnection(ws, user, session);
+				const socket = await namespace.handleConnection(ws.raw!, user, session);
 
 				// Store socket reference on WebSocket
 				ws.raw!.__socket = socket;

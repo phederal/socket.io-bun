@@ -136,7 +136,7 @@ export class BroadcastOperator {
 				targetSockets.forEach((socketId) => {
 					const socket = this.adapter.nsp.sockets.get(socketId);
 					if (socket) {
-						socket.ackCallbacks.set(ackId!, (err: any, data: any) => {
+						socket['ackCallbacks'].set(ackId!, (err: any, data: any) => {
 							if (err) {
 								responses.push({ socketId, error: err });
 							} else {
