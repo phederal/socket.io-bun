@@ -165,6 +165,8 @@ export class Namespace<
 
 		this.emit('connect', socket);
 		this.emit('connection', socket);
+		// EventEmitter.prototype.emit.call(this, 'connect', socket);
+		// EventEmitter.prototype.emit.call(this, 'connection', socket);
 
 		return socket;
 	}
@@ -220,6 +222,15 @@ export class Namespace<
 		dataOrArg?: any,
 		ack?: AckCallback
 	): boolean {
+		if (
+			event === 'connect' ||
+			event === 'connection' ||
+			event === 'disconnect' ||
+			event === 'disconnecting'
+		) {
+			return EventEmitter.prototype.emit.call(this, event, dataOrArg);
+		}
+
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(
 			event as any,
 			dataOrArg,

@@ -43,7 +43,7 @@ export class SocketServer<
 	// Socket data type
 	SocketData extends DefaultSocketData = DefaultSocketData
 > extends EventEmitter {
-	public readonly sockets: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
+	// private readonly _sockets: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	private namespaces: Map<
 		string,
 		Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
@@ -54,7 +54,19 @@ export class SocketServer<
 		super();
 
 		// Create default namespace
-		this.sockets = this.of('/');
+		// this.sockets = this.of('/');
+	}
+
+	get sockets(): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
+		if (!this.namespaces.has('/')) {
+			this.of('/'); // Создаст namespace с проксированием событий
+		}
+		return this.namespaces.get('/') as Namespace<
+			ListenEvents,
+			EmitEvents,
+			ServerSideEvents,
+			SocketData
+		>;
 	}
 
 	/**
@@ -99,6 +111,7 @@ export class SocketServer<
 			NSServerSideEvents,
 			NSSocketData
 		>;
+
 		if (!namespace) {
 			namespace = new Namespace<
 				NSListenEvents,
@@ -106,17 +119,18 @@ export class SocketServer<
 				NSServerSideEvents,
 				NSSocketData
 			>(this, name);
+
 			this.namespaces.set(name, namespace as any);
 
-			// Forward events from namespace to server
-			namespace.on('connect', (socket) => {
-				this.emit('connect', socket);
-				this.emit('connection', socket);
-			});
+			// // Forward events from namespace to server
+			// namespace.on('connect', (socket) => {
+			// 	this.emit('connect', socket);
+			// 	this.emit('connection', socket);
+			// });
 
-			namespace.on('disconnect', (socket, reason) => {
-				this.emit('disconnect', socket, reason);
-			});
+			// namespace.on('disconnect', (socket, reason) => {
+			// 	this.emit('disconnect', socket, reason);
+			// });
 
 			if (name !== '/') {
 				this.emit('new_namespace', namespace);
