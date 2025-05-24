@@ -212,6 +212,11 @@ io.use((socket, next) => {
 ## Development
 
 ```bash
+mkcert -install
+mkcert localhost
+```
+
+```bash
 # Install dependencies
 bun install
 

@@ -28,8 +28,73 @@ app.use('/ws/*', async (c, next) => {
 	await next();
 });
 
+app.get('/', (c) =>
+	c.html(`
+	<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Socket.IO Bun Client</title>
+</head>
+<body>
+  <h1>Socket.IO Bun Client</h1>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script>
+    const socket = io('wss://'+ window.location.hostname +':8443/ws/chat', { path: '/ws', transports: ['websocket'] }); // Замените на адрес вашего сервера
+
+    socket.on('connect', () => {
+      console.log('Connected:', socket.id);
+    });
+
+    socket.on('message', (data) => {
+      console.log('Received message:', data);
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Disconnected');
+    });
+
+    // Пример отправки сообщения
+    socket.emit('message', { hello: 'world' });
+  </script>
+</body>
+</html>
+
+	`)
+);
+
 app.get('/ws', wsUpgrade);
 app.get('/ws/*', wsUpgrade);
+
+// Create server first
+export const server = Bun.serve({
+	hostname: process.env.NODE_ENV === 'development' ? 'localhost' : '0.0.0.0',
+	port: process.env.NODE_ENV === 'development' ? 8443 : Number(process.env.APP_PORT) || 3000,
+	fetch: app.fetch,
+	development: process.env.NODE_ENV === 'development',
+	maxRequestBodySize: 128 * 1024 * 1024,
+	idleTimeout: 120,
+
+	websocket: {
+		open: websocket.open,
+		message: websocket.message,
+		close: websocket.close,
+		idleTimeout: 120,
+		maxPayloadLength: 16 * 1024 * 1024,
+		publishToSelf: false,
+	},
+
+	tls:
+		process.env.NODE_ENV === 'development'
+			? {
+					key: Bun.file(import.meta.dir + '/dev/localhost-key.pem'),
+					cert: Bun.file(import.meta.dir + '/dev/localhost.pem'),
+			  }
+			: undefined,
+});
+
+// Set Bun server instance for Socket.IO publishing BEFORE setting up events
+io.setBunServer(server);
 
 // ==== Fully Typed Socket.IO Usage ====
 
@@ -37,12 +102,8 @@ app.get('/ws/*', wsUpgrade);
 io.on('connection', (socket) => {
 	console.log(`Socket ${socket.id} connected to namespace ${socket.nsp}`);
 
+	socket.send('Hello from server!');
 	// ✅ Typed socket.data access
-	socket.data.user = {
-		id: socket.id,
-		name: `User_${socket.id.slice(0, 8)}`,
-		email: `${socket.id}@example.com`,
-	};
 
 	// Join socket to a room based on user ID
 	socket.join(`user:${socket.id}`);
@@ -180,37 +241,7 @@ io.use((socket, next) => {
 	next();
 });
 
-// Run Server
-export const server = Bun.serve({
-	hostname: process.env.APP_ENV === 'development' ? 'localhost' : '0.0.0.0',
-	port: process.env.APP_ENV === 'development' ? 8443 : Number(process.env.APP_PORT) || 3000,
-	fetch: app.fetch,
-	development: process.env.APP_ENV === 'development',
-	maxRequestBodySize: 128 * 1024 * 1024,
-	idleTimeout: 120,
-
-	websocket: {
-		open: websocket.open,
-		message: websocket.message,
-		close: websocket.close,
-		idleTimeout: 120,
-		maxPayloadLength: 16 * 1024 * 1024,
-		publishToSelf: false,
-	},
-
-	tls:
-		process.env.APP_ENV === 'development'
-			? {
-					key: Bun.file(import.meta.dir + '/dev/localhost-key.pem'),
-					cert: Bun.file(import.meta.dir + '/dev/localhost.pem'),
-			  }
-			: undefined,
-});
-
-// Set Bun server instance for Socket.IO publishing
-io.setBunServer(server);
-
-if (process.env.APP_ENV === 'development') {
+if (process.env.NODE_ENV === 'development') {
 	console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
 	console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
 	console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);
