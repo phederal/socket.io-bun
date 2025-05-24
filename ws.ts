@@ -125,19 +125,11 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 						connectData
 					);
 					ws.raw!.send(connectResponse);
-					console.log(
-						`[WebSocket] Sent connect confirmation to ${socket.id} for namespace ${
-							packet.namespace || '/'
-						}: ${connectResponse}`
-					);
+					console.log(`[WebSocket] Sent connect confirmation: ${connectResponse}`);
 
-					// Вызываем событие connection на namespace
-					setTimeout(() => {
-						console.log(
-							`[WebSocket] Emitting 'connection' event for socket ${socket.id}`
-						);
-						socket.namespace.emit('connection', socket);
-					}, 0);
+					// ВОТ ИСПРАВЛЕНИЕ: вызываем событие connection!
+					console.log(`[WebSocket] Emitting 'connection' event for socket ${socket.id}`);
+					socket.namespace.emit('connection', socket);
 					return;
 				}
 

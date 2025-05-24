@@ -159,8 +159,8 @@ export class Namespace<
 		// Subscribe to namespace topic
 		ws.subscribe(`namespace:${this.name}`);
 
-		this.emit('connect', socket);
-		this.emit('connection', socket);
+		// this.emit('connect', socket);
+		// this.emit('connection', socket);
 
 		return socket;
 	}

@@ -66,39 +66,39 @@ export const server = Bun.serve({
 // Set Bun server instance for Socket.IO publishing BEFORE setting up events
 io.setBunServer(server);
 
-import './test-server';
+// import './test-server';
 
-// io.on('connection', (socket) => {
-// 	console.log('📡 Socket listeners:', socket.eventNames().length);
+io.on('connection', (socket) => {
+	console.log('📡 Socket listeners:', socket.eventNames().length);
 
-// 	// ✅ Проверим что socket.on() работает
-// 	socket.on('ping', () => {
-// 		console.log('📡 PING received from', socket.id);
-// 		socket.emit('pong');
-// 		console.log('📡 PONG sent to', socket.id);
-// 	});
+	// ✅ Проверим что socket.on() работает
+	socket.on('ping', () => {
+		console.log('📡 PING received from', socket.id);
+		socket.emit('pong');
+		console.log('📡 PONG sent to', socket.id);
+	});
 
-// 	io.emit('message', 'hello');
-// 	io.sockets.on('connect', (socket) => {
-// 		socket.emit('message', 'hello');
-// 	});
-// 	socket.on('message', (data) => {
-// 		console.log('📨 MESSAGE received from', socket.id, ':', data);
-// 		socket.emit('message', `Echo: ${data}`);
-// 	});
+	io.emit('message', 'hello');
+	io.sockets.on('connect', (socket) => {
+		socket.emit('message', 'hello');
+	});
+	socket.on('message', (data) => {
+		console.log('📨 MESSAGE received from', socket.id, ':', data);
+		socket.emit('message', `Echo: ${data}`);
+	});
 
-// 	socket.on('disconnect', (reason) => {
-// 		console.log('❌ DISCONNECT:', socket.id, 'reason:', reason);
-// 	});
+	socket.on('disconnect', (reason) => {
+		console.log('❌ DISCONNECT:', socket.id, 'reason:', reason);
+	});
 
-// 	console.log('📡 Socket listeners:', socket.eventNames());
+	console.log('📡 Socket listeners:', socket.eventNames());
 
-// 	setTimeout(() => {
-// 		console.log('📡 Sending MESSAGE...');
-// 		const a = socket.emit('message', 'New user connected!');
-// 		console.log(a);
-// 	}, 2000);
-// });
+	setTimeout(() => {
+		console.log('📡 Sending MESSAGE...');
+		const a = socket.emit('message', 'New user connected!');
+		console.log(a);
+	}, 2000);
+});
 
 if (process.env.NODE_ENV === 'development') {
 	console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
