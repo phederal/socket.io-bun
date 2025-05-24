@@ -35,6 +35,9 @@ export class Socket<
 	public readonly rooms: Set<Room> = new Set();
 	public readonly data: SocketData = {} as SocketData;
 
+	private heartbeatTimer?: NodeJS.Timeout;
+	private readonly heartbeatInterval = 25000;
+
 	private readonly ws: ServerWebSocket<WSContext>;
 	private readonly namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	private readonly ackCallbacks: AckMap = new Map();
@@ -54,6 +57,22 @@ export class Socket<
 
 		// Join default room (socket's own ID)
 		this.rooms.add(this.id);
+		this.startHeartbeat();
+	}
+
+	private startHeartbeat(): void {
+		this.heartbeatTimer = setInterval(() => {
+			if (this.connected) {
+				this.emit('ping' as any);
+			}
+		}, this.heartbeatInterval);
+	}
+
+	private stopHeartbeat(): void {
+		if (this.heartbeatTimer) {
+			clearInterval(this.heartbeatTimer);
+			this.heartbeatTimer = undefined;
+		}
 	}
 
 	/**
@@ -211,6 +230,7 @@ export class Socket<
 	 * Disconnect the socket
 	 */
 	disconnect(close: boolean = false): this {
+		this.stopHeartbeat();
 		if (!this._connected) return this;
 
 		this._connected = false;
@@ -280,6 +300,7 @@ export class Socket<
 	 * @internal
 	 */
 	_handleClose(reason: DisconnectReason): void {
+		this.stopHeartbeat();
 		if (this._connected) {
 			this._connected = false;
 			this.leaveAll();

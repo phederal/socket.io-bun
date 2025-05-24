@@ -13,8 +13,6 @@ import type {
 
 // App
 const app = new Hono();
-
-// WebSocket routes
 app.get('/ws', wsUpgrade);
 app.get('/ws/*', wsUpgrade);
 
@@ -173,15 +171,15 @@ export const server = Bun.serve({
 	port: process.env.APP_ENV === 'development' ? 8443 : Number(process.env.APP_PORT) || 3000,
 	fetch: app.fetch,
 	development: process.env.APP_ENV === 'development',
-	maxRequestBodySize: 128 * 1024 * 1024, // 128 MB
-	idleTimeout: 120, // 120 sec
+	maxRequestBodySize: 128 * 1024 * 1024,
+	idleTimeout: 120,
 
 	websocket: {
 		open: websocket.open,
 		message: websocket.message,
 		close: websocket.close,
-		idleTimeout: 120, // 120 sec
-		maxPayloadLength: 16 * 1024 * 1024, // 16 MB
+		idleTimeout: 120,
+		maxPayloadLength: 16 * 1024 * 1024,
 		publishToSelf: false,
 	},
 

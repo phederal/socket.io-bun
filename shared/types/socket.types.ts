@@ -51,7 +51,8 @@ export interface ClientToServerEvents extends EventsMap {
 	leave_room: (room: string) => void;
 
 	// Example with acknowledgment
-	get_user_info: (callback: (data: { id: string; name: string }) => void) => void;
+	// get_user_info: (callback: (data: { id: string; name: string }) => void) => void;
+	get_user_info: (data: any, callback: (response: { id: string; name: string }) => void) => void;
 
 	// Example with multiple parameters
 	update_position: (x: number, y: number, z: number) => void;

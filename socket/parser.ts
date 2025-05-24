@@ -22,6 +22,15 @@ export class SocketParser {
 		return encode(packet);
 	}
 
+	static encodeAckResponse(ackId: string, data: any): Uint8Array {
+		const packet = {
+			event: '__ack',
+			ackId,
+			data,
+		};
+		return encode(packet);
+	}
+
 	/**
 	 * Decode incoming packet from client
 	 */

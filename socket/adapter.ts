@@ -134,45 +134,46 @@ export class Adapter<
 
 		try {
 			if (!rooms || rooms.size === 0) {
-				// Broadcast to entire namespace
 				const topic = `namespace:${this.nsp.name}`;
 
 				if (except && except.size > 0) {
-					// Need to send individually to exclude some sockets
 					const allSockets = this.getSockets();
 					for (const socketId of allSockets) {
 						if (!except.has(socketId)) {
 							const socket = this.nsp.sockets.get(socketId);
 							if (socket && socket.connected) {
-								socket.ws.send(packet);
+								// ✅ ИСПРАВЛЕНИЕ: Проверяем readyState
+								if (socket.ws.readyState === 1) {
+									socket.ws.send(packet);
+								}
 							}
 						}
 					}
 				} else {
-					// Use Bun's publish for efficient broadcasting
-					this.nsp.server.publish(topic, packet);
+					if (this.nsp.server && this.nsp.server.publish) {
+						this.nsp.server.publish(topic, packet);
+					}
 				}
 			} else {
-				// Broadcast to specific rooms
 				for (const room of rooms) {
 					const topic = `room:${this.nsp.name}:${room}`;
 
 					if (except && except.size > 0) {
-						// Send individually to exclude some sockets
 						const roomSockets = this.rooms.get(room);
 						if (roomSockets) {
 							for (const socketId of roomSockets) {
 								if (!except.has(socketId)) {
 									const socket = this.nsp.sockets.get(socketId);
-									if (socket && socket.connected) {
+									if (socket && socket.connected && socket.ws.readyState === 1) {
 										socket.ws.send(packet);
 									}
 								}
 							}
 						}
 					} else {
-						// Use Bun's publish
-						this.nsp.server.publish(topic, packet);
+						if (this.nsp.server && this.nsp.server.publish) {
+							this.nsp.server.publish(topic, packet);
+						}
 					}
 				}
 			}

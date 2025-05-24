@@ -12,8 +12,8 @@ export const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocke
 
 // WebSocket upgrade handler
 export const wsUpgrade = upgradeWebSocket((c: Context) => {
-	const user = c.get('user'); // Better Auth Variable
-	const session = c.get('session'); // Better Auth Variable
+	const user = c.get('user');
+	const session = c.get('session');
 
 	if (!user || !session) {
 		return Promise.reject({ code: 3000, reason: 'Unauthorized' });
@@ -22,17 +22,10 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 	return {
 		onOpen: async (event, ws) => {
 			try {
-				// Get namespace from URL (default to '/')
 				const url = new URL(c.req.url);
 				const nspName = url.pathname.replace('/ws', '') || '/';
-
-				// Get or create namespace
 				const namespace = io.of(nspName);
-
-				// Create socket connection
-				const socket = await namespace.handleConnection(ws.raw!, user, session);
-
-				// Store socket reference on WebSocket
+				const socket = await namespace.handleConnection(ws, user, session);
 				ws.raw!.__socket = socket;
 
 				console.log(`[WebSocket] Socket ${socket.id} connected to ${nspName}`);
@@ -50,20 +43,26 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					return;
 				}
 
-				// Parse incoming message
-				const packet = await SocketParser.decode(<ArrayBuffer>event.data);
+				const packet = await SocketParser.decode(
+					event.data as string | Blob | ArrayBuffer | ArrayBufferView<ArrayBufferLike>
+				);
 				if (!packet) {
 					console.warn('[WebSocket] Failed to parse packet');
 					return;
 				}
 
-				// Handle acknowledgement responses
-				if (packet.ackId && packet.event === '__ack') {
+				// ✅ ИСПРАВЛЕНИЕ: Добавляем обработку ack ответов
+				if (packet.event === '__ack' && packet.ackId) {
 					socket._handleAck(packet.ackId, packet.data);
 					return;
 				}
 
-				// Handle regular packets
+				// ✅ ИСПРАВЛЕНИЕ: Добавляем обработку ping/pong
+				if (packet.event === 'ping') {
+					socket.emit('pong' as any);
+					return;
+				}
+
 				socket._handlePacket(packet);
 			} catch (error) {
 				console.error('[WebSocket] Message handling error:', error);
