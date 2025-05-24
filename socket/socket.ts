@@ -145,22 +145,14 @@ export class Socket<
 	/**
 	 * Typed emit event to this socket with proper overloads
 	 */
-	override emit<Ev extends keyof EmitEvents>(
-		event: Ev,
-		...args: Parameters<EmitEvents[Ev]>
-	): boolean;
-	override emit<Ev extends keyof EmitEvents>(
+	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
+	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
 		data: Parameters<EmitEvents[Ev]>[0],
 		ack: AckCallback
 	): boolean;
-	override emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
-	override emit(event: string | symbol, ...args: any[]): boolean;
-	override emit<Ev extends keyof EmitEvents>(
-		event: Ev | string | symbol,
-		dataOrArg?: any,
-		ack?: AckCallback
-	): boolean {
+	emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
+	emit<Ev extends keyof EmitEvents>(event: Ev, dataOrArg?: any, ack?: AckCallback): boolean {
 		if (!this._connected) return false;
 
 		try {
