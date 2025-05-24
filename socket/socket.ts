@@ -178,6 +178,10 @@ export class Socket<
 			} else {
 				// emit(event, ...args) or emit(event, data)
 				data = dataOrArg;
+				// Ensure data doesn't contain functions
+				if (data && typeof data === 'object') {
+					data = this.sanitizeData(data);
+				}
 			}
 
 			// Handle acknowledgement callback
@@ -202,6 +206,28 @@ export class Socket<
 			console.error('[Socket] Emit error:', error);
 			return false;
 		}
+	}
+
+	private sanitizeData(data: any): any {
+		if (data === null || data === undefined) return data;
+
+		if (typeof data === 'function') return undefined;
+
+		if (Array.isArray(data)) {
+			return data.map((item) => this.sanitizeData(item));
+		}
+
+		if (typeof data === 'object') {
+			const sanitized: any = {};
+			for (const [key, value] of Object.entries(data)) {
+				if (typeof value !== 'function') {
+					sanitized[key] = this.sanitizeData(value);
+				}
+			}
+			return sanitized;
+		}
+
+		return data;
 	}
 
 	/**
