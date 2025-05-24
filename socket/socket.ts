@@ -14,8 +14,8 @@ import type {
 	EventsMap,
 	DefaultEventsMap,
 } from '../shared/types/socket.types';
-import { BinaryProtocol, SocketParser } from './parser';
-import { packetPool } from './object-pool';
+import { SocketParser } from './parser';
+import { packetPool, ackResponsePool, BinaryProtocol, PoolManager } from './object-pool';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -637,5 +637,37 @@ export class Socket<
 
 	_handleError(error: Error): void {
 		this.emit('error' as any, error);
+	}
+}
+
+/**
+ * Warm-up функция для инициализации всех pools и кешей
+ */
+export function warmupPerformanceOptimizations(): void {
+	const isProduction = process.env.NODE_ENV === 'production';
+
+	if (!isProduction) {
+		console.log('🔥 Warming up performance optimizations...');
+	}
+
+	// Предварительно создаем объекты в pools
+	for (let i = 0; i < 100; i++) {
+		const packet = packetPool.acquire();
+		const ackResponse = ackResponsePool.acquire();
+		packetPool.release(packet);
+		ackResponsePool.release(ackResponse);
+	}
+
+	// Прогреваем кеши парсера
+	SocketParser.encodeSimpleEvent('test', '/');
+	SocketParser.encodeStringEvent('test', 'warmup', '/');
+
+	// Прогреваем binary protocol
+	BinaryProtocol.encodeBinaryEvent('ping');
+	BinaryProtocol.encodeBinaryEvent('message', 'test');
+
+	if (!isProduction) {
+		console.log('✅ Performance optimizations warmed up!');
+		console.log('📊 Pool stats:', PoolManager.getAllStats());
 	}
 }

@@ -235,27 +235,147 @@ export class PoolManager {
 }
 
 /**
- * Warm-up функция для инициализации всех pools и кешей
+ * Binary Protocol для сверх-быстрой передачи простых событий
  */
-export function warmupPerformanceOptimizations(): void {
-	console.log('🔥 Warming up performance optimizations...');
 
-	// Предварительно создаем объекты в pools
-	for (let i = 0; i < 100; i++) {
-		const packet = packetPool.acquire();
-		const ackResponse = ackResponsePool.acquire();
-		packetPool.release(packet);
-		ackResponsePool.release(ackResponse);
+// Предопределенные коды событий (1 байт вместо строки)
+export enum BinaryEventCode {
+	PING = 0x01,
+	PONG = 0x02,
+	MESSAGE = 0x03,
+	NOTIFICATION = 0x04,
+	USER_JOINED = 0x05,
+	USER_LEFT = 0x06,
+	TYPING_START = 0x07,
+	TYPING_STOP = 0x08,
+	ROOM_JOINED = 0x09,
+	ROOM_LEFT = 0x0a,
+	// Можно добавить до 255 событий
+}
+
+// Reverse mapping для декодирования
+const BINARY_EVENT_NAMES: Record<number, string> = {
+	[BinaryEventCode.PING]: 'ping',
+	[BinaryEventCode.PONG]: 'pong',
+	[BinaryEventCode.MESSAGE]: 'message',
+	[BinaryEventCode.NOTIFICATION]: 'notification',
+	[BinaryEventCode.USER_JOINED]: 'user_joined',
+	[BinaryEventCode.USER_LEFT]: 'user_left',
+	[BinaryEventCode.TYPING_START]: 'typing_start',
+	[BinaryEventCode.TYPING_STOP]: 'typing_stop',
+	[BinaryEventCode.ROOM_JOINED]: 'room_joined',
+	[BinaryEventCode.ROOM_LEFT]: 'room_left',
+};
+
+const EVENT_TO_BINARY: Record<string, number> = {
+	ping: BinaryEventCode.PING,
+	pong: BinaryEventCode.PONG,
+	message: BinaryEventCode.MESSAGE,
+	notification: BinaryEventCode.NOTIFICATION,
+	user_joined: BinaryEventCode.USER_JOINED,
+	user_left: BinaryEventCode.USER_LEFT,
+	typing_start: BinaryEventCode.TYPING_START,
+	typing_stop: BinaryEventCode.TYPING_STOP,
+	room_joined: BinaryEventCode.ROOM_JOINED,
+	room_left: BinaryEventCode.ROOM_LEFT,
+};
+
+/**
+ * Бинарное кодирование для простых событий
+ */
+export class BinaryProtocol {
+	// Magic bytes для идентификации бинарного протокола
+	private static readonly MAGIC_BYTE = 0xff;
+	private static readonly VERSION = 0x01;
+
+	/**
+	 * Кодирование простого события в бинарный формат
+	 * Формат: [0xFF][VERSION][EVENT_CODE][DATA_LENGTH][DATA]
+	 */
+	static encodeBinaryEvent(event: string, data?: string | number): Uint8Array | null {
+		const eventCode = EVENT_TO_BINARY[event];
+		if (eventCode === undefined) {
+			return null; // Событие не поддерживается в бинарном формате
+		}
+
+		if (!data) {
+			// Событие без данных - всего 3 байта
+			return new Uint8Array([this.MAGIC_BYTE, this.VERSION, eventCode]);
+		}
+
+		if (typeof data === 'string') {
+			const dataBytes = new TextEncoder().encode(data);
+			const result = new Uint8Array(4 + dataBytes.length);
+			result[0] = this.MAGIC_BYTE;
+			result[1] = this.VERSION;
+			result[2] = eventCode;
+			result[3] = dataBytes.length;
+			result.set(dataBytes, 4);
+			return result;
+		}
+
+		if (typeof data === 'number') {
+			const result = new Uint8Array(8);
+			const view = new DataView(result.buffer);
+			view.setUint8(0, this.MAGIC_BYTE);
+			view.setUint8(1, this.VERSION);
+			view.setUint8(2, eventCode);
+			view.setUint8(3, 4); // Длина числа
+			view.setFloat32(4, data, true); // little-endian
+			return result;
+		}
+
+		return null;
 	}
 
-	// Прогреваем кеши парсера
-	SocketParser.encodeSimpleEvent('test', '/');
-	SocketParser.encodeStringEvent('test', 'warmup', '/');
+	/**
+	 * Декодирование бинарного события
+	 */
+	static decodeBinaryEvent(data: Uint8Array): { event: string; data?: any } | null {
+		if (data.length < 3) return null;
+		if (data[0] !== this.MAGIC_BYTE) return null;
+		if (data[1] !== this.VERSION) return null;
 
-	// Прогреваем binary protocol
-	BinaryProtocol.encodeBinaryEvent('ping');
-	BinaryProtocol.encodeBinaryEvent('message', 'test');
+		const eventCode = data[2];
+		const eventName = BINARY_EVENT_NAMES[eventCode];
+		if (!eventName) return null;
 
-	console.log('✅ Performance optimizations warmed up!');
-	console.log('📊 Pool stats:', PoolManager.getAllStats());
+		if (data.length === 3) {
+			// Событие без данных
+			return { event: eventName };
+		}
+
+		if (data.length < 4) return null;
+		const dataLength = data[3];
+
+		if (data.length < 4 + dataLength) return null;
+
+		// Декодируем данные
+		if (eventCode === BinaryEventCode.MESSAGE || eventCode === BinaryEventCode.NOTIFICATION) {
+			// Строковые данные
+			const dataBytes = data.slice(4, 4 + dataLength);
+			const stringData = new TextDecoder().decode(dataBytes);
+			return { event: eventName, data: stringData };
+		} else {
+			// Числовые данные
+			const view = new DataView(data.buffer, 4, 4);
+			const numberData = view.getFloat32(0, true);
+			return { event: eventName, data: numberData };
+		}
+	}
+
+	/**
+	 * Проверка, является ли данные бинарным протоколом
+	 */
+	static isBinaryProtocol(data: Uint8Array | string): boolean {
+		if (typeof data === 'string') return false;
+		return data.length >= 3 && data[0] === this.MAGIC_BYTE && data[1] === this.VERSION;
+	}
+
+	/**
+	 * Проверка, поддерживается ли событие в бинарном формате
+	 */
+	static supportsBinaryEncoding(event: string): boolean {
+		return EVENT_TO_BINARY[event] !== undefined;
+	}
 }

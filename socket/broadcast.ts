@@ -8,7 +8,8 @@ import type {
 	DefaultEventsMap,
 	SocketData as DefaultSocketData,
 } from '../shared/types/socket.types';
-import { BinaryProtocol, SocketParser } from './parser';
+import { BinaryProtocol } from './object-pool';
+import { SocketParser } from './parser';
 
 const isProduction = process.env.NODE_ENV === 'production';
 

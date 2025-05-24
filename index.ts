@@ -11,7 +11,6 @@ import type {
 	SocketData,
 } from './shared/types/socket.types';
 import { serveStatic } from 'hono/bun';
-import { warmupPerformanceOptimizations } from './socket/object-pool';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -63,11 +62,10 @@ export const server = Bun.serve({
 // Set Bun server instance for Socket.IO publishing BEFORE setting up events
 io.setBunServer(server);
 
-warmupPerformanceOptimizations();
-
 // ИСПРАВЛЕНИЕ: Включаем тестовый сервер обратно
 import './test/test-server';
-
+import { warmupPerformanceOptimizations } from './socket/socket';
+warmupPerformanceOptimizations();
 // ИСПРАВЛЕНИЕ: Регистрируем обработчики событий с лучшей отладкой
 if (!isProduction) {
 	console.log('[INDEX] Registering connection handler...');
