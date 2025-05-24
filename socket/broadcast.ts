@@ -10,6 +10,8 @@ import type {
 } from '../shared/types/socket.types';
 import { SocketParser } from './parser';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export interface BroadcastFlags {
 	volatile?: boolean;
 	compress?: boolean;
@@ -149,7 +151,7 @@ export class BroadcastOperator<
 				}
 
 				ackId = SocketParser.generateAckId();
-				if (process.env.NODE_ENV === 'development') {
+				if (!isProduction) {
 					console.log(`[BroadcastOperator] Generated broadcast ACK ID: ${ackId}`);
 				}
 				const responses: any[] = [];
@@ -161,7 +163,7 @@ export class BroadcastOperator<
 				const timer = setTimeout(() => {
 					if (!timedOut) {
 						timedOut = true;
-						if (process.env.NODE_ENV === 'development') {
+						if (!isProduction) {
 							console.log(
 								`[BroadcastOperator] ACK timeout for broadcast ${ackId}, expected ${expectedResponses}, got ${responseCount} responses`
 							);
@@ -183,10 +185,12 @@ export class BroadcastOperator<
 				const sharedCallback = (socketId: string) => (err: any, responseData: any) => {
 					if (timedOut) return; // Ignore late responses
 
-					console.log(
-						`[BroadcastOperator] ACK response from ${socketId} for broadcast ${ackId}:`,
-						responseData
-					);
+					if (!isProduction) {
+						console.log(
+							`[BroadcastOperator] ACK response from ${socketId} for broadcast ${ackId}:`,
+							responseData
+						);
+					}
 
 					if (err) {
 						responses.push({ socketId, error: err.message || err });
@@ -216,7 +220,7 @@ export class BroadcastOperator<
 					const socket = this.adapter.nsp.sockets.get(socketId);
 					if (socket) {
 						socket.ackCallbacks.set(ackId!, sharedCallback(socketId));
-						if (process.env.NODE_ENV === 'development') {
+						if (!isProduction) {
 							console.log(
 								`[BroadcastOperator] Registered ACK callback ${ackId} for socket ${socketId}`
 							);
@@ -255,8 +259,8 @@ export class BroadcastOperator<
 			let success = true;
 			for (const [nsp, sockets] of namespaces) {
 				const packet = SocketParser.encode(event as any, data, ackId, nsp);
-				if (process.env.NODE_ENV === 'development') {
-					// console.log(`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`, packet);
+
+				if (!isProduction) {
 					console.log(
 						`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`,
 						'<packet>'
@@ -273,10 +277,12 @@ export class BroadcastOperator<
 								success = false;
 							}
 						} catch (error) {
-							console.warn(
-								`[BroadcastOperator] Failed to send to socket ${socketId}:`,
-								error
-							);
+							if (!isProduction) {
+								console.warn(
+									`[BroadcastOperator] Failed to send to socket ${socketId}:`,
+									error
+								);
+							}
 							success = false;
 						}
 					}
@@ -285,7 +291,9 @@ export class BroadcastOperator<
 
 			return success;
 		} catch (error) {
-			console.error('[BroadcastOperator] Emit error:', error);
+			if (!isProduction) {
+				console.error('[BroadcastOperator] Emit error:', error);
+			}
 			return false;
 		}
 	}

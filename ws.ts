@@ -5,6 +5,8 @@ import type { Context } from 'hono';
 import { io } from './socket/server';
 import { SocketParser } from './socket/parser';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 // Create WebSocket handler
 export const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket<WSContext>>();
 
@@ -30,7 +32,7 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 				const socket = await namespace.handleConnection(ws.raw!, user, session);
 				ws.raw!.__socket = socket;
 
-				if (process.env.NODE_ENV === 'development') {
+				if (!isProduction) {
 					console.log(
 						`[WebSocket] Socket ${socket.id} connected to namespace ${nspName}`
 					);
@@ -44,7 +46,7 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					const handshakeResponse = SocketParser.createHandshakeResponse(
 						socket.sessionId
 					);
-					if (process.env.NODE_ENV === 'development') {
+					if (!isProduction) {
 						console.log(`[WebSocket] Sending Engine.IO handshake:`, handshakeResponse);
 					}
 					ws.raw!.send(handshakeResponse);
@@ -52,12 +54,14 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 
 				// ИСПРАВЛЕНИЕ: Эмиттим connection событие только через namespace
 				// namespace автоматически пробросит на server если это дефолтный namespace
-				if (process.env.NODE_ENV === 'development') {
+				if (!isProduction) {
 					console.log(`[WebSocket] Emitting connection event for ${socket.id}`);
 				}
 				namespace.emit('connection', socket);
 			} catch (error) {
-				console.error('[WebSocket] Connection error:', error);
+				if (!isProduction) {
+					console.error('[WebSocket] Connection error:', error);
+				}
 				ws.close(1011, 'Internal server error');
 			}
 		},
@@ -66,7 +70,9 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 			try {
 				const socket = ws.raw!.__socket;
 				if (!socket) {
-					console.warn('[WebSocket] Message received but no socket found');
+					if (!isProduction) {
+						console.warn('[WebSocket] Message received but no socket found');
+					}
 					return;
 				}
 
@@ -78,7 +84,7 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					return;
 				}
 
-				if (process.env.NODE_ENV === 'development') {
+				if (!isProduction) {
 					console.log(`[WebSocket] Packet from ${socket.id}:`, packet.event, packet.data);
 				}
 
@@ -117,7 +123,9 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 				// Handle regular Socket.IO events
 				socket._handlePacket(packet);
 			} catch (error) {
-				console.error('[WebSocket] Message handling error:', error);
+				if (!isProduction) {
+					console.error('[WebSocket] Message handling error:', error);
+				}
 			}
 		},
 
@@ -125,13 +133,15 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 			try {
 				const socket = ws.raw!.__socket;
 				if (socket) {
-					if (process.env.NODE_ENV === 'development') {
+					if (!isProduction) {
 						console.log(`[WebSocket] Socket ${socket.id} disconnected`);
 					}
 					socket._handleClose('transport close');
 				}
 			} catch (error) {
-				console.error('[WebSocket] Close handling error:', error);
+				if (!isProduction) {
+					console.error('[WebSocket] Close handling error:', error);
+				}
 			}
 		},
 
@@ -139,11 +149,15 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 			try {
 				const socket = ws.raw!.__socket;
 				if (socket) {
-					console.error(`[WebSocket] Socket ${socket.id} error:`, event);
+					if (!isProduction) {
+						console.error(`[WebSocket] Socket ${socket.id} error:`, event);
+					}
 					socket._handleError(new Error('WebSocket error'));
 				}
 			} catch (error) {
-				console.error('[WebSocket] Error handling error:', error);
+				if (!isProduction) {
+					console.error('[WebSocket] Error handling error:', error);
+				}
 			}
 		},
 	};

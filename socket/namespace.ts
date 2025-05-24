@@ -16,6 +16,8 @@ import type {
 	SocketData as DefaultSocketData,
 } from '../shared/types/socket.types';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 type MiddlewareFn<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
@@ -102,7 +104,7 @@ export class Namespace<
 		// Subscribe to namespace topic
 		ws.subscribe(`namespace:${this.name}`);
 
-		if (process.env.NODE_ENV === 'development') {
+		if (!isProduction) {
 			console.log(`[Namespace] Socket ${socketId} added to namespace ${this.name}`);
 		}
 

@@ -7,6 +7,8 @@ import type {
 	SocketData as DefaultSocketData,
 } from '../shared/types/socket.types';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export interface BroadcastOptions {
 	rooms?: Set<Room>;
 	except?: Set<SocketId>;
@@ -159,7 +161,9 @@ export class Adapter<
 						// Use direct WebSocket send for reliability
 						socket.ws.send(packet);
 					} catch (error) {
-						console.warn(`[Adapter] Failed to send to socket ${socketId}:`, error);
+						if (!isProduction) {
+							console.warn(`[Adapter] Failed to send to socket ${socketId}:`, error);
+						}
 						// Remove disconnected socket
 						this.removeSocketFromAllRooms(socketId);
 						this.nsp.sockets.delete(socketId);
@@ -184,7 +188,9 @@ export class Adapter<
 				}
 			}
 		} catch (error) {
-			console.error('[Adapter] Broadcast error:', error);
+			if (!isProduction) {
+				console.error('[Adapter] Broadcast error:', error);
+			}
 		}
 	}
 

@@ -16,6 +16,8 @@ import type {
 } from '../shared/types/socket.types';
 import { SocketParser } from './parser';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export class Socket<
 	ListenEvents extends EventsMap = ClientToServerEvents,
 	EmitEvents extends EventsMap = ServerToClientEvents,
@@ -146,15 +148,13 @@ export class Socket<
 			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
 
 			// Логирование только в development
-			if (process.env.NODE_ENV === 'development') {
+			if (!isProduction) {
 				console.log(`[Socket] Sending packet to ${this.id} for event '${event}':`, packet);
 			}
 
 			// Проверяем что пакет корректный
 			if (!packet || typeof packet !== 'string') {
-				if (process.env.NODE_ENV === 'development') {
-					console.error(`[Socket] Invalid packet generated for ${this.id}:`, packet);
-				}
+				console.error(`[Socket] Invalid packet generated for ${this.id}:`, packet);
 				return false;
 			}
 
@@ -167,35 +167,7 @@ export class Socket<
 		}
 	}
 
-	private sanitizeData(data: any, seen = new WeakSet()): any {
-		if (data === null || data === undefined) return data;
-		if (typeof data === 'function') return undefined;
-
-		if (typeof data === 'object' && seen.has(data)) {
-			return '[Circular]';
-		}
-
-		if (Array.isArray(data)) {
-			seen.add(data);
-			const result = data.map((item) => this.sanitizeData(item, seen));
-			seen.delete(data);
-			return result;
-		}
-
-		if (typeof data === 'object') {
-			seen.add(data);
-			const sanitized: any = {};
-			for (const [key, value] of Object.entries(data)) {
-				if (typeof value !== 'function') {
-					sanitized[key] = this.sanitizeData(value, seen);
-				}
-			}
-			seen.delete(data);
-			return sanitized;
-		}
-
-		return data;
-	}
+	// Удалили sanitizeData метод для оптимизации
 
 	join(room: Room | Room[]): this {
 		const rooms = Array.isArray(room) ? room : [room];
@@ -275,7 +247,7 @@ export class Socket<
 	_handlePacket(packet: any): void {
 		if (!packet || !packet.event) return;
 
-		if (process.env.NODE_ENV === 'development') {
+		if (!isProduction) {
 			console.log(`[Socket] Handling packet: ${packet.event} from ${this.id}`);
 		}
 
@@ -311,7 +283,7 @@ export class Socket<
 
 				// Создаем ACK wrapper
 				const ackWrapper = (...args: any[]) => {
-					if (process.env.NODE_ENV === 'development') {
+					if (!isProduction) {
 						console.log(`[Socket] Sending ACK response for ${packet.ackId}:`, args);
 					}
 					const ackResponse = SocketParser.encodeAckResponse(
@@ -374,18 +346,10 @@ export class Socket<
 	}
 
 	_handleAck(ackId: string, data: any): void {
-		if (process.env.NODE_ENV === 'development') {
-			console.log(`[Socket] Handling ACK ${ackId} for socket ${this.id}:`, data);
-		}
-		if (this.ackCallbacks.has(ackId)) {
-			const callback = this.ackCallbacks.get(ackId)!;
+		const callback = this.ackCallbacks.get(ackId);
+		if (callback) {
 			this.ackCallbacks.delete(ackId);
-			if (process.env.NODE_ENV === 'development') {
-				console.log(`[Socket] Calling ACK callback for ${ackId}`);
-			}
 			callback(null, data);
-		} else if (process.env.NODE_ENV === 'development') {
-			console.warn(`[Socket] No ACK callback found for ${ackId} on socket ${this.id}`);
 		}
 	}
 

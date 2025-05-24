@@ -12,6 +12,8 @@ import type {
 } from './shared/types/socket.types';
 import { serveStatic } from 'hono/bun';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 // App
 const app = new Hono<{
 	Variables: {
@@ -35,10 +37,10 @@ app.get('/ws/*', wsUpgrade);
 
 // Create server first
 export const server = Bun.serve({
-	hostname: 'localhost',
-	port: 8443,
+	hostname: 'localhost', // isProduction ? '0.0.0.0' : 'localhost',
+	port: 8443, // isProduction ? Number(process.env.APP_PORT) || 3000 : 8443,
 	fetch: app.fetch,
-	development: false,
+	development: !isProduction,
 	maxRequestBodySize: 128 * 1024 * 1024,
 	idleTimeout: 120,
 
@@ -60,64 +62,96 @@ export const server = Bun.serve({
 // Set Bun server instance for Socket.IO publishing BEFORE setting up events
 io.setBunServer(server);
 
+// ИСПРАВЛЕНИЕ: Включаем тестовый сервер обратно
 import './test/test-server';
 
+// ИСПРАВЛЕНИЕ: Регистрируем обработчики событий с лучшей отладкой
+if (!isProduction) {
+	console.log('[INDEX] Registering connection handler...');
+}
+
 io.on('connection', (socket) => {
-	console.log(`🎉 [INDEX] Socket ${socket.id} connected successfully!`);
-	console.log(`📊 [INDEX] Total sockets: ${io.socketsCount}`);
+	if (!isProduction) {
+		console.log(`🎉 [INDEX] Socket ${socket.id} connected successfully!`);
+		console.log(`📊 [INDEX] Total sockets: ${io.socketsCount}`);
+	}
 
 	// ✅ Базовые обработчики событий
 	socket.on('ping', () => {
-		console.log(`📡 [INDEX] PING received from ${socket.id}`);
+		if (!isProduction) {
+			console.log(`📡 [INDEX] PING received from ${socket.id}`);
+		}
 		socket.emit('pong');
-		console.log(`📡 [INDEX] PONG sent to ${socket.id}`);
+		if (!isProduction) {
+			console.log(`📡 [INDEX] PONG sent to ${socket.id}`);
+		}
 	});
 
 	socket.on('message', (data) => {
+		if (!isProduction) {
+			console.log(`📨 [INDEX] MESSAGE received from ${socket.id}:`, data);
+		}
+		// НЕ отправляем ACK для обычных событий
 		socket.emit('message', `Echo: ${data}`);
 		socket.broadcast.emit('message', `${socket.id} says: ${data}`);
 	});
 
 	socket.on('disconnect', (reason) => {
-		console.log(`❌ [INDEX] Socket ${socket.id} disconnected: ${reason}`);
-		console.log(`📊 [INDEX] Remaining sockets: ${io.socketsCount}`);
+		if (!isProduction) {
+			console.log(`❌ [INDEX] Socket ${socket.id} disconnected: ${reason}`);
+			console.log(`📊 [INDEX] Remaining sockets: ${io.socketsCount}`);
+		}
 	});
 
 	// ✅ Отправляем приветственное сообщение через несколько секунд
 	setTimeout(() => {
-		console.log(`💬 [INDEX] Sending welcome message to ${socket.id}`);
+		if (!isProduction) {
+			console.log(`💬 [INDEX] Sending welcome message to ${socket.id}`);
+		}
 		try {
 			const success = socket.emit('message', `Welcome ${socket.id}! Server is ready.`);
-			console.log(`💬 [INDEX] Welcome message sent: ${success}`);
+			if (!isProduction) {
+				console.log(`💬 [INDEX] Welcome message sent: ${success}`);
+			}
 		} catch (error) {
-			console.error(`💬 [INDEX] Error sending welcome message:`, error);
+			if (!isProduction) {
+				console.error(`💬 [INDEX] Error sending welcome message:`, error);
+			}
 		}
 	}, 2000);
 
-	// // ✅ Тестируем broadcast
-	// setTimeout(() => {
-	// 	console.log(`📢 [INDEX] Broadcasting notification...`);
-	// 	try {
-	// 		io.emit('message', `New user ${socket.id} joined! Total: ${io.socketsCount}`);
-	// 	} catch (error) {
-	// 		console.error(`📢 [INDEX] Error broadcasting:`, error);
-	// 	}
-	// }, 3000);
+	// ✅ Тестируем broadcast
+	setTimeout(() => {
+		if (!isProduction) {
+			console.log(`📢 [INDEX] Broadcasting notification...`);
+		}
+		try {
+			io.emit('message', `New user ${socket.id} joined! Total: ${io.socketsCount}`);
+		} catch (error) {
+			if (!isProduction) {
+				console.error(`📢 [INDEX] Error broadcasting:`, error);
+			}
+		}
+	}, 3000);
 });
 
 // Дополнительная отладка
 io.on('connect', (socket) => {
-	console.log(`🔗 [INDEX] Connect event received for ${socket.id}`);
+	if (!isProduction) {
+		console.log(`🔗 [INDEX] Connect event received for ${socket.id}`);
+	}
 });
 
-console.log('[INDEX] Event handlers registered');
+if (!isProduction) {
+	console.log('[INDEX] Event handlers registered');
+}
 
-// if (process.env.NODE_ENV === 'development') {
-console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
-console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
-console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);
-console.log();
-// }
+if (!isProduction) {
+	console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
+	console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
+	console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);
+	console.log();
+}
 
 // ✅ Export typed instances
 export type App = typeof app;

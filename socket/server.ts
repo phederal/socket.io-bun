@@ -14,6 +14,8 @@ import type {
 } from '../shared/types/socket.types';
 import type { Socket } from './socket';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 type MiddlewareFn<SocketData> = (socket: any, next: (err?: Error) => void) => void;
 
 /**
@@ -45,7 +47,9 @@ export class SocketServer<
 
 	publish(topic: string, message: string | Uint8Array): boolean {
 		if (!this.bunServer) {
-			console.warn('[SocketServer] Bun server not set, cannot publish');
+			if (!isProduction) {
+				console.warn('[SocketServer] Bun server not set, cannot publish');
+			}
 			return false;
 		}
 		return <ServerWebSocketSendStatus>this.bunServer.publish(topic, message) > 0;
@@ -83,7 +87,7 @@ export class SocketServer<
 			// ИСПРАВЛЕНИЕ: Правильное пробрасывание событий для дефолтного namespace
 			if (name === '/') {
 				namespace.on('connection', (socket) => {
-					if (process.env.NODE_ENV === 'development') {
+					if (!isProduction) {
 						console.log(
 							`[SocketServer] Forwarding connection event for socket ${socket.id} to server`
 						);
@@ -96,7 +100,7 @@ export class SocketServer<
 				});
 
 				namespace.on('disconnect', (socket, reason) => {
-					if (process.env.NODE_ENV === 'development') {
+					if (!isProduction) {
 						console.log(
 							`[SocketServer] Forwarding disconnect event for socket ${socket.id} to server`
 						);
