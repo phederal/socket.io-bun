@@ -208,22 +208,32 @@ export class Socket<
 		}
 	}
 
-	private sanitizeData(data: any): any {
+	private sanitizeData(data: any, seen = new WeakSet()): any {
 		if (data === null || data === undefined) return data;
 
 		if (typeof data === 'function') return undefined;
 
+		// Check for circular references
+		if (typeof data === 'object' && seen.has(data)) {
+			return '[Circular]';
+		}
+
 		if (Array.isArray(data)) {
-			return data.map((item) => this.sanitizeData(item));
+			seen.add(data);
+			const result = data.map((item) => this.sanitizeData(item, seen));
+			seen.delete(data);
+			return result;
 		}
 
 		if (typeof data === 'object') {
+			seen.add(data);
 			const sanitized: any = {};
 			for (const [key, value] of Object.entries(data)) {
 				if (typeof value !== 'function') {
-					sanitized[key] = this.sanitizeData(value);
+					sanitized[key] = this.sanitizeData(value, seen);
 				}
 			}
+			seen.delete(data);
 			return sanitized;
 		}
 
