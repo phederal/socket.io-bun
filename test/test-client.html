@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Socket.IO ACK Test Client</title>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				margin: 20px;
+				background: #f5f5f5;
+			}
+			.container {
+				max-width: 800px;
+				margin: 0 auto;
+				background: white;
+				padding: 20px;
+				border-radius: 8px;
+				box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+			}
+			.status {
+				padding: 10px;
+				margin: 10px 0;
+				border-radius: 4px;
+			}
+			.connected {
+				background: #d4edda;
+				color: #155724;
+				border: 1px solid #c3e6cb;
+			}
+			.disconnected {
+				background: #f8d7da;
+				color: #721c24;
+				border: 1px solid #f5c6cb;
+			}
+			.log {
+				background: #f8f9fa;
+				border: 1px solid #dee2e6;
+				padding: 15px;
+				margin: 10px 0;
+				border-radius: 4px;
+				max-height: 300px;
+				overflow-y: auto;
+				font-family: monospace;
+				font-size: 12px;
+			}
+			button {
+				background: #007bff;
+				color: white;
+				border: none;
+				padding: 10px 15px;
+				margin: 5px;
+				border-radius: 4px;
+				cursor: pointer;
+			}
+			button:hover {
+				background: #0056b3;
+			}
+			button:disabled {
+				background: #6c757d;
+				cursor: not-allowed;
+			}
+			.input-group {
+				margin: 10px 0;
+			}
+			input {
+				padding: 8px;
+				margin: 5px;
+				border: 1px solid #ddd;
+				border-radius: 4px;
+			}
+			.test-section {
+				margin: 20px 0;
+				padding: 15px;
+				border: 1px solid #ddd;
+				border-radius: 4px;
+			}
+			.test-section h3 {
+				margin-top: 0;
+				color: #333;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<h1>Socket.IO ACK Test Client</h1>
+
+			<div id="status" class="status disconnected">Status: Disconnected</div>
+
+			<div class="test-section">
+				<h3>🔗 Connection Tests</h3>
+				<button onclick="connect()">Connect</button>
+				<button onclick="disconnect()">Disconnect</button>
+				<button onclick="reconnect()">Reconnect</button>
+			</div>
+
+			<div class="test-section">
+				<h3>📨 Basic Events (No ACK)</h3>
+				<div class="input-group">
+					<input
+						type="text"
+						id="messageInput"
+						placeholder="Enter message"
+						value="Hello Server!" />
+					<button onclick="sendMessage()">Send Message</button>
+				</div>
+				<button onclick="sendPing()">Send Ping</button>
+			</div>
+
+			<div class="test-section">
+				<h3>🔄 Acknowledgment Tests</h3>
+				<button onclick="testBasicAck()">Basic ACK Test</button>
+				<button onclick="testUserInfo()">Get User Info (ACK)</button>
+				<button onclick="testCalculation()">Math Calculation (ACK)</button>
+				<button onclick="testError()">Error Response (ACK)</button>
+				<button onclick="testTimeout()">Timeout Test (ACK)</button>
+			</div>
+
+			<div class="test-section">
+				<h3>📡 Server-to-Client ACK Tests</h3>
+				<button onclick="requestServerPing()">Request Server Ping (ACK)</button>
+				<button onclick="requestValidation()">Request Data Validation (ACK)</button>
+			</div>
+
+			<div class="test-section">
+				<h3>📊 Batch Tests</h3>
+				<button onclick="runAllTests()">Run All Tests</button>
+				<button onclick="stressTestAck()">Stress Test (100 ACKs)</button>
+				<button onclick="clearLog()">Clear Log</button>
+			</div>
+
+			<div id="log" class="log">
+				<div><strong>Log:</strong></div>
+			</div>
+		</div>
+
+		<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+		<script>
+			let socket = null;
+			const logDiv = document.getElementById('log');
+			const statusDiv = document.getElementById('status');
+
+			function log(message, type = 'info') {
+				const timestamp = new Date().toLocaleTimeString();
+				const color =
+					type === 'error'
+						? '#dc3545'
+						: type === 'success'
+						? '#28a745'
+						: type === 'warning'
+						? '#ffc107'
+						: '#6c757d';
+				logDiv.innerHTML += `<div style="color: ${color}; margin: 2px 0;">[${timestamp}] ${message}</div>`;
+				logDiv.scrollTop = logDiv.scrollHeight;
+				console.log(`[${timestamp}] ${message}`);
+			}
+
+			function updateStatus(connected) {
+				statusDiv.className = `status ${connected ? 'connected' : 'disconnected'}`;
+				statusDiv.textContent = `Status: ${connected ? 'Connected' : 'Disconnected'}`;
+			}
+
+			function connect() {
+				if (socket && socket.connected) {
+					log('Already connected!', 'warning');
+					return;
+				}
+
+				log('Connecting to server...', 'info');
+				socket = io('wss://localhost:8443', {
+					path: '/ws',
+					transports: ['websocket'],
+					forceNew: true,
+					upgrade: false,
+					rememberUpgrade: false,
+				});
+
+				socket.on('connect', () => {
+					log(`✅ Connected with ID: ${socket.id}`, 'success');
+					updateStatus(true);
+				});
+
+				socket.on('connect_error', (error) => {
+					log(`❌ Connection error: ${error.message}`, 'error');
+					updateStatus(false);
+				});
+
+				socket.on('disconnect', (reason) => {
+					log(`❌ Disconnected: ${reason}`, 'warning');
+					updateStatus(false);
+				});
+
+				socket.on('message', (data) => {
+					log(`📨 Received message: ${data}`, 'info');
+				});
+
+				// Server-to-client ACK handlers
+				socket.on('server_ping', (callback) => {
+					log('📡 Server requested ping, responding with pong', 'info');
+					callback('pong');
+				});
+
+				socket.on('validate_data', (data, callback) => {
+					log(`🔍 Server requested validation for: ${JSON.stringify(data)}`, 'info');
+					const isValid = data && typeof data.value === 'string' && data.value.length > 0;
+					callback({
+						valid: isValid,
+						message: isValid ? 'Data is valid' : 'Data is invalid',
+					});
+				});
+			}
+
+			function disconnect() {
+				if (socket) {
+					socket.disconnect();
+					socket = null;
+					log('Disconnected manually', 'warning');
+					updateStatus(false);
+				}
+			}
+
+			function reconnect() {
+				disconnect();
+				setTimeout(connect, 1000);
+			}
+
+			// Basic events without ACK
+			function sendMessage() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				const message = document.getElementById('messageInput').value;
+				socket.emit('message', message);
+				log(`📨 Sent message: ${message}`, 'info');
+			}
+
+			function sendPing() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				socket.emit('ping');
+				log('📡 Sent ping', 'info');
+			}
+
+			// ACK Tests
+			function testBasicAck() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🔄 Testing basic ACK...', 'info');
+				socket.emit('echo', 'Hello ACK!', (response) => {
+					log(`✅ Basic ACK response: ${response}`, 'success');
+				});
+			}
+
+			function testUserInfo() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🔄 Requesting user info...', 'info');
+				socket.emit('get_user_info', (response) => {
+					log(`✅ User info: ${JSON.stringify(response)}`, 'success');
+				});
+			}
+
+			function testCalculation() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				const a = Math.floor(Math.random() * 100);
+				const b = Math.floor(Math.random() * 100);
+
+				log(`🔄 Requesting calculation: ${a} + ${b}`, 'info');
+				socket.emit('calculate', { operation: 'add', a, b }, (response) => {
+					if (response.error) {
+						log(`❌ Calculation error: ${response.error}`, 'error');
+					} else {
+						log(`✅ Calculation result: ${a} + ${b} = ${response.result}`, 'success');
+					}
+				});
+			}
+
+			function testError() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🔄 Testing error response...', 'info');
+				socket.emit('trigger_error', (response) => {
+					log(`❌ Expected error received: ${JSON.stringify(response)}`, 'warning');
+				});
+			}
+
+			function testTimeout() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🔄 Testing timeout (5s)...', 'info');
+				const startTime = Date.now();
+
+				socket.timeout(5000).emit('slow_response', (err, response) => {
+					const duration = Date.now() - startTime;
+					if (err) {
+						log(`⏰ Timeout after ${duration}ms: ${err.message}`, 'warning');
+					} else {
+						log(`✅ Response received after ${duration}ms: ${response}`, 'success');
+					}
+				});
+			}
+
+			// Server-to-client ACK tests
+			function requestServerPing() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🔄 Requesting server to ping us back...', 'info');
+				socket.emit('request_ping_back');
+			}
+
+			function requestValidation() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🔄 Requesting server to validate data...', 'info');
+				socket.emit('request_validation', { value: 'test data' });
+			}
+
+			// Batch tests
+			function runAllTests() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🚀 Running all tests...', 'info');
+
+				setTimeout(() => testBasicAck(), 100);
+				setTimeout(() => testUserInfo(), 200);
+				setTimeout(() => testCalculation(), 300);
+				setTimeout(() => testError(), 400);
+				setTimeout(() => requestServerPing(), 500);
+				setTimeout(() => requestValidation(), 600);
+
+				setTimeout(() => log('🏁 All tests completed!', 'success'), 700);
+			}
+
+			function stressTestAck() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('💪 Starting stress test: 100 ACK requests...', 'info');
+				const startTime = Date.now();
+				let completed = 0;
+				let errors = 0;
+
+				for (let i = 0; i < 100; i++) {
+					socket.emit('echo', `Stress test ${i}`, (response) => {
+						completed++;
+						if (response.includes('error')) errors++;
+
+						if (completed === 100) {
+							const duration = Date.now() - startTime;
+							log(
+								`💪 Stress test completed: ${completed}/100 in ${duration}ms, ${errors} errors`,
+								'success'
+							);
+						}
+					});
+				}
+			}
+
+			function clearLog() {
+				logDiv.innerHTML = '<div><strong>Log:</strong></div>';
+			}
+
+			// Auto-connect on page load
+			window.addEventListener('load', () => {
+				setTimeout(connect, 500);
+			});
+		</script>
+	</body>
+</html>
