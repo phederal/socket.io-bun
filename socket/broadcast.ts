@@ -1,277 +1,292 @@
-import type { AckCallback, ServerToClientEvents } from 'shared/types/socket.types';
-import { Namespace } from './namespace';
-import { Socket } from './socket';
-import { server } from '@/index';
-import type { Room } from './server';
-import type { EventsMap, TypedEventBroadcaster } from './types';
+import type {
+	ServerToClientEvents,
+	SocketId,
+	Room,
+	AckCallback,
+} from '../shared/types/socket.types';
+import { SocketParser } from './parser';
+import type { Adapter } from './adapter';
 
 export interface BroadcastFlags {
-	// volatile?: boolean;
-	// compress?: boolean;
-	// local?: boolean;
+	volatile?: boolean;
+	compress?: boolean;
+	local?: boolean;
 	broadcast?: boolean;
-	// binary?: boolean;
 	timeout?: number;
 }
 
-export interface BroadcastOptions {
-	rooms: Set<Room>;
-	except?: Set<Room>;
-	flags?: BroadcastFlags;
-}
+/**
+ * Broadcast operator for chaining operations
+ */
+export class BroadcastOperator {
+	private rooms: Set<Room> = new Set();
+	private exceptRooms: Set<Room> = new Set();
+	private exceptSockets: Set<SocketId> = new Set();
+	private flags: BroadcastFlags = {};
 
-export class BroadcastOperator<EmitEvents extends EventsMap, SocketData> implements TypedEventBroadcaster<EmitEvents> {
-	constructor(
-		private readonly adapter: Adapter,
-		private readonly rooms: Set<Room> = new Set<Room>(),
-		private readonly exceptRooms: Set<Room> = new Set<Room>(),
-		private readonly flags: BroadcastFlags & {
-			expectSingleResponse?: boolean;
-		} = {},
-	) {}
+	constructor(private adapter: Adapter) {}
 
 	/**
-	 * Broadcasts a packet to all clients.
-	 *
-	 * @return a new {@link BroadcastOperator} instance for chaining
-	 */
-	get broadcast(): BroadcastOperator {
-		this.flags.broadcast = true;
-		return new BroadcastOperator(this.adapter, this.rooms, this.exceptRooms, this.flags);
-	}
-
-	/**
-	 * Targets a room when emitting.
-	 *
-	 * @example
-	 * // the “foo” event will be broadcast to all connected clients in the “room-101” room
-	 * io.to("room-101").emit("foo", "bar");
-	 *
-	 * // with an array of rooms (a client will be notified at most once)
-	 * io.to(["room-101", "room-102"]).emit("foo", "bar");
-	 *
-	 * // with multiple chained calls
-	 * io.to("room-101").to("room-102").emit("foo", "bar");
-	 *
-	 * @param room - a room, or an array of rooms
-	 * @return a new {@link BroadcastOperator} instance for chaining
+	 * Target specific room(s)
 	 */
 	to(room: Room | Room[]): BroadcastOperator {
-		const rooms = new Set(this.rooms);
-		if (Array.isArray(room)) {
-			for (const i of room) rooms.add(i);
-		} else {
-			rooms.add(room);
-		}
-		return new BroadcastOperator(this.adapter, rooms, this.exceptRooms, this.flags);
+		const operator = this.clone();
+		const rooms = Array.isArray(room) ? room : [room];
+		rooms.forEach((r) => operator.rooms.add(r));
+		return operator;
 	}
 
 	/**
-	 * Targets a room when emitting. Similar to `to()`, but might feel clearer in some cases:
-	 *
-	 * @example
-	 * // disconnect all clients in the "room-101" room
-	 * io.in("room-101").disconnectSockets();
-	 *
-	 * @param room - a room, or an array of rooms
-	 * @return a new {@link BroadcastOperator} instance for chaining
+	 * Target specific room(s) - alias for to()
 	 */
 	in(room: Room | Room[]): BroadcastOperator {
 		return this.to(room);
 	}
 
 	/**
-	 * Set a timeout in milliseconds to wait for a response from a user after emitting an event.
-	 *
-	 * @param ms Timeout in milliseconds
-	 * @returns This instance
+	 * Exclude specific room(s)
 	 */
-	timeout(ms: number): BroadcastOperator {
-		const flags = Object.assign({}, this.flags, { timeout: ms });
-		return new BroadcastOperator(this.adapter, this.rooms, this.exceptRooms, flags);
+	except(room: Room | Room[]): BroadcastOperator {
+		const operator = this.clone();
+		const rooms = Array.isArray(room) ? room : [room];
+		rooms.forEach((r) => {
+			if (r.length === 20) {
+				// Likely a socket ID
+				operator.exceptSockets.add(r as SocketId);
+			} else {
+				operator.exceptRooms.add(r);
+			}
+		});
+		return operator;
 	}
 
 	/**
-	 * Excludes a room when emitting.
-	 *
-	 * @example
-	 * // the "foo" event will be broadcast to all connected clients, except the ones that are in the "room-101" room
-	 * io.except("room-101").emit("foo", "bar");
-	 *
-	 * // with an array of rooms
-	 * io.except(["room-101", "room-102"]).emit("foo", "bar");
-	 *
-	 * // with multiple chained calls
-	 * io.except("room-101").except("room-102").emit("foo", "bar");
-	 *
-	 * @param room - a room, or an array of rooms
-	 * @return a new {@link BroadcastOperator} instance for chaining
+	 * Set volatile flag
 	 */
-	except(room: string[] | string): BroadcastOperator {
-		const exceptRooms = new Set(this.exceptRooms);
-		if (Array.isArray(room)) {
-			for (const i of room) exceptRooms.add(i);
-		} else {
-			exceptRooms.add(room);
-		}
-		return new BroadcastOperator(this.adapter, this.rooms, exceptRooms, this.flags);
+	get volatile(): BroadcastOperator {
+		const operator = this.clone();
+		operator.flags.volatile = true;
+		return operator;
 	}
 
 	/**
-	 * Emits an event to all connected namespace clients.
-	 *
-	 * @param userId ID of the user to emit to
-	 * @param event Event name
-	 * @param data Data to emit
-	 * @param options Options
-	 * @returns This instance
+	 * Set compress flag
 	 */
-	emit<K extends keyof ServerToClientEvents>(event: K, data: ServerToClientEvents[K], options?: { binary?: boolean; ack?: AckCallback }): boolean {
-		const payload = this.adapter(event, data, options?.binary, options?.ack);
+	compress(compress: boolean): BroadcastOperator {
+		const operator = this.clone();
+		operator.flags.compress = compress;
+		return operator;
+	}
+
+	/**
+	 * Set local flag
+	 */
+	get local(): BroadcastOperator {
+		const operator = this.clone();
+		operator.flags.local = true;
+		return operator;
+	}
+
+	/**
+	 * Set timeout for acknowledgements
+	 */
+	timeout(timeout: number): BroadcastOperator {
+		const operator = this.clone();
+		operator.flags.timeout = timeout;
+		return operator;
+	}
+
+	/**
+	 * Emit event to targeted sockets
+	 */
+	emit<K extends keyof ServerToClientEvents>(
+		event: K,
+		...args: Parameters<ServerToClientEvents[K]>
+	): boolean;
+	emit<K extends keyof ServerToClientEvents>(
+		event: K,
+		data: Parameters<ServerToClientEvents[K]>[0],
+		ack?: AckCallback
+	): boolean;
+	emit<K extends keyof ServerToClientEvents>(
+		event: K,
+		dataOrArg?: any,
+		ack?: AckCallback
+	): boolean {
 		try {
-			// Namespace
-			if (this.rooms.size === 0) {
-				if (this.flags.timeout) {
-					const timer = setTimeout(() => {
-						this._publish(`namespace:${this.adapter.name}`, event, data, payload);
-					}, this.flags.timeout);
-					clearTimeout(timer);
-				} else {
-					this._publish(`namespace:${this.adapter.name}`, event, data, payload);
-				}
-				return true;
+			let ackId: string | undefined;
+
+			// Handle acknowledgement callback
+			if (typeof ack === 'function') {
+				ackId = SocketParser.generateAckId();
+
+				// For broadcast acknowledgements, we need to track multiple responses
+				// This is simplified - in production you might want more sophisticated handling
+				const responses: any[] = [];
+				const targetSockets = this.getTargetSockets();
+				let responseCount = 0;
+				const expectedResponses = targetSockets.size;
+
+				const timeout = this.flags.timeout || 5000;
+				const timer = setTimeout(() => {
+					ack(new Error('Broadcast acknowledgement timeout'), responses);
+				}, timeout);
+
+				// Register callback for each target socket
+				targetSockets.forEach((socketId) => {
+					const socket = this.adapter.nsp.sockets.get(socketId);
+					if (socket) {
+						socket.ackCallbacks.set(ackId!, (err: any, data: any) => {
+							if (err) {
+								responses.push({ socketId, error: err });
+							} else {
+								responses.push({ socketId, data });
+							}
+
+							responseCount++;
+							if (responseCount >= expectedResponses) {
+								clearTimeout(timer);
+								ack(null, responses);
+							}
+						});
+					}
+				});
 			}
-			// Each rooms
-			for (const room of this.rooms) {
-				if (this.exceptRooms.has(room)) continue;
-				if (this.flags.timeout) {
-					const timer = setTimeout(() => {
-						this._publish(`room:${this.adapter.name}:${room}`, event, data, payload);
-					}, this.flags.timeout);
-					clearTimeout(timer);
-				} else {
-					this._publish(`room:${this.adapter.name}:${room}`, event, data, payload);
-				}
+
+			const packet = SocketParser.encode(event, dataOrArg, ackId);
+
+			// Calculate except sockets including rooms
+			const allExceptSockets = new Set(this.exceptSockets);
+			for (const room of this.exceptRooms) {
+				const roomSockets = this.adapter.getSockets(new Set([room]));
+				roomSockets.forEach((sid) => allExceptSockets.add(sid));
 			}
+
+			this.adapter.broadcast(packet, {
+				rooms: this.rooms.size > 0 ? this.rooms : undefined,
+				except: allExceptSockets.size > 0 ? allExceptSockets : undefined,
+				flags: this.flags,
+			});
+
 			return true;
 		} catch (error) {
-			console.error(error);
+			console.error('[BroadcastOperator] Emit error:', error);
 			return false;
-		} finally {
-			this._resetChain();
 		}
 	}
 
 	/**
-	 * Sends a message to the client, taking into account the outgoing event handlers.
-	 * Calls all outgoing event handlers registered with `onAnyOutgoing` with the event
-	 * name and data as arguments, and then sends the message to the client.
-	 *
-	 * @param topic - The topic name.
-	 * @param event - The event name. {@link ServerToClientEvents}
-	 * @param data - The event data.
-	 * @param payload - The payload to send.
+	 * Send a message (alias for emit with 'message' event)
 	 */
-	private _publish(topic: string, event: keyof ServerToClientEvents, data: any, payload: any) {
-		// Вызываем все обработчики
-		for (const handler of this.adapter['anyOutgoingHandlers']) handler(event, data);
-		// Отправляем сообщение клиенту
-		queueMicrotask(() => server.publish(topic, payload));
+	send(data: any): boolean {
+		return this.emit('message' as any, data);
 	}
 
 	/**
-	 * Resets the current chain of operations by clearing internal flags and sets.
-	 * This method is typically called after a chain of operations is completed to ensure
-	 * that subsequent chains do not have stale state.
-	 *
-	 * @returns {this} Returns the instance of the class to allow method chaining.
+	 * Write a message (alias for send)
 	 */
-	private _resetChain(): this {
-		this.rooms.clear();
-		this.exceptRooms.clear();
-		this.flags.timeout = undefined;
-		return this;
+	write(data: any): boolean {
+		return this.send(data);
 	}
-}
 
-/**
- * Expose of subset of the attributes and methods of the Socket class
- */
-export class RemoteSocket<EmitEvents extends EventsMap, SocketData> implements TypedEventBroadcaster<EmitEvents> {
-	public readonly id: SocketId;
-	public readonly handshake: Handshake;
-	public readonly rooms: Set<Room>;
-	public readonly data: SocketData;
+	/**
+	 * Make all matching sockets join room(s)
+	 */
+	socketsJoin(room: Room | Room[]): void {
+		const rooms = Array.isArray(room) ? room : [room];
+		const targetSockets = this.getTargetSockets();
 
-	private readonly operator: BroadcastOperator<EmitEvents, SocketData>;
-
-	constructor(adapter: Adapter, details: SocketDetails<SocketData>) {
-		this.id = details.id;
-		this.handshake = details.handshake;
-		this.rooms = new Set(details.rooms);
-		this.data = details.data;
-		this.operator = new BroadcastOperator<EmitEvents, SocketData>(adapter, new Set([this.id]), new Set(), {
-			expectSingleResponse: true, // so that remoteSocket.emit() with acknowledgement behaves like socket.emit()
+		targetSockets.forEach((socketId) => {
+			const socket = this.adapter.nsp.sockets.get(socketId);
+			if (socket) {
+				socket.join(rooms);
+			}
 		});
 	}
 
 	/**
-	 * Adds a timeout in milliseconds for the next operation.
-	 *
-	 * @example
-	 * const sockets = await io.fetchSockets();
-	 *
-	 * for (const socket of sockets) {
-	 *   if (someCondition) {
-	 *     socket.timeout(1000).emit("some-event", (err) => {
-	 *       if (err) {
-	 *         // the client did not acknowledge the event in the given delay
-	 *       }
-	 *     });
-	 *   }
-	 * }
-	 *
-	 * // note: if possible, using a room instead of looping over all sockets is preferable
-	 * io.timeout(1000).to(someConditionRoom).emit("some-event", (err, responses) => {
-	 *   // ...
-	 * });
-	 *
-	 * @param timeout
+	 * Make all matching sockets leave room(s)
 	 */
-	public timeout(timeout: number): BroadcastOperator<DecorateAcknowledgements<EmitEvents>, SocketData> {
-		return this.operator.timeout(timeout);
-	}
+	socketsLeave(room: Room | Room[]): void {
+		const rooms = Array.isArray(room) ? room : [room];
+		const targetSockets = this.getTargetSockets();
 
-	public emit<Ev extends EventNames<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
-		return this.operator.emit(ev, ...args);
+		targetSockets.forEach((socketId) => {
+			const socket = this.adapter.nsp.sockets.get(socketId);
+			if (socket) {
+				rooms.forEach((r) => socket.leave(r));
+			}
+		});
 	}
 
 	/**
-	 * Joins a room.
-	 *
-	 * @param {String|Array} room - room or array of rooms
+	 * Disconnect all matching sockets
 	 */
-	public join(room: Room | Room[]): void {
-		return this.operator.socketsJoin(room);
+	disconnectSockets(close: boolean = false): void {
+		const targetSockets = this.getTargetSockets();
+
+		targetSockets.forEach((socketId) => {
+			const socket = this.adapter.nsp.sockets.get(socketId);
+			if (socket) {
+				socket.disconnect(close);
+			}
+		});
 	}
 
 	/**
-	 * Leaves a room.
-	 *
-	 * @param {String} room
+	 * Get all matching socket instances
 	 */
-	public leave(room: Room): void {
-		return this.operator.socketsLeave(room);
+	fetchSockets(): Promise<any[]> {
+		const targetSockets = this.getTargetSockets();
+		const sockets: any[] = [];
+
+		targetSockets.forEach((socketId) => {
+			const socket = this.adapter.nsp.sockets.get(socketId);
+			if (socket) {
+				sockets.push(socket);
+			}
+		});
+
+		return Promise.resolve(sockets);
 	}
 
 	/**
-	 * Disconnects this client.
-	 *
-	 * @param {Boolean} close - if `true`, closes the underlying connection
-	 * @return {Socket} self
+	 * Get target socket IDs based on rooms and exceptions
 	 */
-	public disconnect(close = false): this {
-		this.operator.disconnectSockets(close);
-		return this;
+	private getTargetSockets(): Set<SocketId> {
+		let targetSockets: Set<SocketId>;
+
+		if (this.rooms.size > 0) {
+			targetSockets = this.adapter.getSockets(this.rooms);
+		} else {
+			targetSockets = this.adapter.getSockets();
+		}
+
+		// Remove excepted sockets
+		for (const socketId of this.exceptSockets) {
+			targetSockets.delete(socketId);
+		}
+
+		// Remove sockets in excepted rooms
+		for (const room of this.exceptRooms) {
+			const roomSockets = this.adapter.getSockets(new Set([room]));
+			for (const socketId of roomSockets) {
+				targetSockets.delete(socketId);
+			}
+		}
+
+		return targetSockets;
+	}
+
+	/**
+	 * Clone this operator
+	 */
+	private clone(): BroadcastOperator {
+		const operator = new BroadcastOperator(this.adapter);
+		operator.rooms = new Set(this.rooms);
+		operator.exceptRooms = new Set(this.exceptRooms);
+		operator.exceptSockets = new Set(this.exceptSockets);
+		operator.flags = { ...this.flags };
+		return operator;
 	}
 }
