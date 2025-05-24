@@ -1,6 +1,6 @@
 // Создать новый файл: socket/object-pool.ts
 
-import { BinaryProtocol, SocketParser } from './parser';
+import { SocketParser } from './parser';
 
 /**
  * Object Pool для переиспользования часто создаваемых объектов
@@ -337,7 +337,7 @@ export class BinaryProtocol {
 		if (data[1] !== this.VERSION) return null;
 
 		const eventCode = data[2];
-		const eventName = BINARY_EVENT_NAMES[eventCode];
+		const eventName = BINARY_EVENT_NAMES[eventCode as number];
 		if (!eventName) return null;
 
 		if (data.length === 3) {
@@ -346,7 +346,7 @@ export class BinaryProtocol {
 		}
 
 		if (data.length < 4) return null;
-		const dataLength = data[3];
+		const dataLength: number = <number>data[3];
 
 		if (data.length < 4 + dataLength) return null;
 

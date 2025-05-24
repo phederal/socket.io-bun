@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Socket.IO ACK Test Client</title>
+		<title>Enhanced Socket.IO Test Client</title>
 		<style>
 			body {
 				font-family: Arial, sans-serif;
@@ -11,7 +11,7 @@
 				background: #f5f5f5;
 			}
 			.container {
-				max-width: 800px;
+				max-width: 1200px;
 				margin: 0 auto;
 				background: white;
 				padding: 20px;
@@ -22,6 +22,7 @@
 				padding: 10px;
 				margin: 10px 0;
 				border-radius: 4px;
+				font-weight: bold;
 			}
 			.connected {
 				background: #d4edda;
@@ -39,7 +40,7 @@
 				padding: 15px;
 				margin: 10px 0;
 				border-radius: 4px;
-				max-height: 300px;
+				max-height: 400px;
 				overflow-y: auto;
 				font-family: monospace;
 				font-size: 12px;
@@ -52,6 +53,7 @@
 				margin: 5px;
 				border-radius: 4px;
 				cursor: pointer;
+				font-size: 14px;
 			}
 			button:hover {
 				background: #0056b3;
@@ -60,10 +62,30 @@
 				background: #6c757d;
 				cursor: not-allowed;
 			}
+			button.binary {
+				background: #dc3545;
+			}
+			button.binary:hover {
+				background: #c82333;
+			}
+			button.performance {
+				background: #28a745;
+			}
+			button.performance:hover {
+				background: #218838;
+			}
+			button.stress {
+				background: #ffc107;
+				color: #212529;
+			}
+			button.stress:hover {
+				background: #e0a800;
+			}
 			.input-group {
 				margin: 10px 0;
 			}
-			input {
+			input,
+			select {
 				padding: 8px;
 				margin: 5px;
 				border: 1px solid #ddd;
@@ -79,71 +101,212 @@
 				margin-top: 0;
 				color: #333;
 			}
+			.grid {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 20px;
+			}
+			.metrics {
+				background: #e9ecef;
+				padding: 10px;
+				border-radius: 4px;
+				margin: 10px 0;
+			}
+			.metric {
+				display: flex;
+				justify-content: space-between;
+				margin: 5px 0;
+			}
+			.progress {
+				width: 100%;
+				height: 20px;
+				background: #e9ecef;
+				border-radius: 4px;
+				overflow: hidden;
+				margin: 10px 0;
+			}
+			.progress-bar {
+				height: 100%;
+				background: #007bff;
+				transition: width 0.3s ease;
+			}
 		</style>
 	</head>
 	<body>
 		<div class="container">
-			<h1>Socket.IO ACK Test Client</h1>
+			<h1>🔥 Enhanced Socket.IO Test Client</h1>
 
 			<div id="status" class="status disconnected">Status: Disconnected</div>
 
-			<div class="test-section">
-				<h3>🔗 Connection Tests</h3>
-				<button onclick="connect()">Connect</button>
-				<button onclick="disconnect()">Disconnect</button>
-				<button onclick="reconnect()">Reconnect</button>
-			</div>
-
-			<div class="test-section">
-				<h3>📨 Basic Events (No ACK)</h3>
-				<div class="input-group">
-					<input
-						type="text"
-						id="messageInput"
-						placeholder="Enter message"
-						value="Hello Server!" />
-					<button onclick="sendMessage()">Send Message</button>
+			<div class="metrics">
+				<div class="metric">
+					<span>Messages Sent:</span>
+					<span id="messagesSent">0</span>
 				</div>
-				<button onclick="sendPing()">Send Ping</button>
+				<div class="metric">
+					<span>Messages Received:</span>
+					<span id="messagesReceived">0</span>
+				</div>
+				<div class="metric">
+					<span>Binary Messages:</span>
+					<span id="binaryMessages">0</span>
+				</div>
+				<div class="metric">
+					<span>Last Performance:</span>
+					<span id="lastPerformance">-</span>
+				</div>
 			</div>
 
-			<div class="test-section">
-				<h3>🔄 Acknowledgment Tests</h3>
-				<button onclick="testBasicAck()">Basic ACK Test</button>
-				<button onclick="testUserInfo()">Get User Info (ACK)</button>
-				<button onclick="testCalculation()">Math Calculation (ACK)</button>
-				<button onclick="testError()">Error Response (ACK)</button>
-				<button onclick="testTimeout()">Timeout Test (ACK)</button>
+			<div class="grid">
+				<div>
+					<div class="test-section">
+						<h3>🔗 Connection Tests</h3>
+						<button onclick="connect()">Connect</button>
+						<button onclick="disconnect()">Disconnect</button>
+						<button onclick="reconnect()">Reconnect</button>
+					</div>
+
+					<div class="test-section">
+						<h3>📨 Basic Events</h3>
+						<div class="input-group">
+							<input
+								type="text"
+								id="messageInput"
+								placeholder="Enter message"
+								value="Hello Enhanced Server!" />
+							<button onclick="sendMessage()">Send Message</button>
+						</div>
+						<button onclick="sendPing()">Send Ping</button>
+						<button onclick="sendNotification()">Send Notification</button>
+					</div>
+
+					<div class="test-section">
+						<h3>🔥 Binary Protocol Tests</h3>
+						<button class="binary" onclick="sendBinaryPing()">Binary Ping</button>
+						<button class="binary" onclick="sendBinaryMessage()">Binary Message</button>
+						<button class="binary" onclick="testUltraFast()">Ultra Fast Test</button>
+						<button class="binary" onclick="testBatch()">Batch Test</button>
+					</div>
+
+					<div class="test-section">
+						<h3>🔄 Acknowledgment Tests</h3>
+						<button onclick="testBasicAck()">Basic ACK Test</button>
+						<button onclick="testUserInfo()">Get User Info</button>
+						<button onclick="testCalculation()">Math Calculation</button>
+						<button onclick="requestServerPing()">Request Server Ping</button>
+						<button onclick="requestValidation()">Request Validation</button>
+					</div>
+				</div>
+
+				<div>
+					<div class="test-section">
+						<h3>⚡ Performance Tests</h3>
+						<div class="input-group">
+							<select id="perfTestType">
+								<option value="emit">Regular Emit</option>
+								<option value="emitBinary">Binary Emit</option>
+								<option value="emitFast">Fast Emit</option>
+								<option value="emitString">String Emit</option>
+								<option value="emitUltraFast">Ultra Fast Text</option>
+								<option value="emitUltraFastBinary">Ultra Fast Binary</option>
+							</select>
+							<input
+								type="number"
+								id="perfIterations"
+								value="1000"
+								min="100"
+								max="50000" />
+							<button class="performance" onclick="runPerformanceTest()">
+								Run Test
+							</button>
+						</div>
+						<button class="performance" onclick="runAllPerformanceTests()">
+							Run All Tests
+						</button>
+						<button class="performance" onclick="runBenchmarkSuite()">
+							Benchmark Suite
+						</button>
+					</div>
+
+					<div class="test-section">
+						<h3>💪 Stress Tests</h3>
+						<div class="input-group">
+							<select id="stressTestType">
+								<option value="ack">ACK Stress</option>
+								<option value="emit">Emit Stress</option>
+								<option value="binary">Binary Stress</option>
+								<option value="ultra">Ultra Fast Stress</option>
+							</select>
+							<input
+								type="number"
+								id="stressCount"
+								value="1000"
+								min="100"
+								max="100000" />
+							<button class="stress" onclick="runStressTest()">
+								Run Stress Test
+							</button>
+						</div>
+						<button class="stress" onclick="runMegaStressTest()">
+							MEGA Stress (10K)
+						</button>
+						<button class="stress" onclick="runUltraStressTest()">
+							ULTRA Stress (100K)
+						</button>
+						<button class="stress" onclick="runMemoryStressTest()">
+							Memory Stress
+						</button>
+					</div>
+
+					<div class="test-section">
+						<h3>📡 Broadcast Tests</h3>
+						<button onclick="testBroadcast()">Test Broadcast</button>
+						<button onclick="testRooms()">Test Rooms</button>
+						<button class="binary" onclick="testBinaryBroadcast()">
+							Binary Broadcast
+						</button>
+						<button onclick="testBulkOperations()">Bulk Operations</button>
+					</div>
+
+					<div class="test-section">
+						<h3>🎛️ Control Panel</h3>
+						<button onclick="runAllTests()">🚀 Run All Tests</button>
+						<button onclick="clearLog()">🗑️ Clear Log</button>
+						<button onclick="saveLog()">💾 Save Log</button>
+						<button onclick="toggleAutoScroll()">📜 Toggle Auto-scroll</button>
+					</div>
+				</div>
 			</div>
 
-			<div class="test-section">
-				<h3>📡 Server-to-Client ACK Tests</h3>
-				<button onclick="requestServerPing()">Request Server Ping (ACK)</button>
-				<button onclick="requestValidation()">Request Data Validation (ACK)</button>
-			</div>
-
-			<div class="test-section">
-				<h3>📊 Batch Tests</h3>
-				<button onclick="runAllTests()">Run All Tests</button>
-				<button onclick="stressTestAck()">Stress Test (100 ACKs)</button>
-				<button onclick="stressTestAck(10)">Stress Test (1.000 ACKs)</button>
-				<button onclick="stressTestAck(100)">Stress Test (10.000 ACKs)</button>
-				<button onclick="stressTestAck(500)">Stress Test (50.000 ACKs)</button>
-				<button onclick="stressTestAck(1000)">Stress Test (100.000 ACKs)</button>
-				<button onclick="stressTestAck(10000)">Stress Test (1.000.000 ACKs)</button>
-				<button onclick="clearLog()">Clear Log</button>
+			<div id="progressContainer" style="display: none">
+				<h4>Test Progress:</h4>
+				<div class="progress">
+					<div id="progressBar" class="progress-bar" style="width: 0%"></div>
+				</div>
+				<div id="progressText">Waiting...</div>
 			</div>
 
 			<div id="log" class="log">
-				<div><strong>Log:</strong></div>
+				<div><strong>Enhanced Test Log:</strong></div>
 			</div>
 		</div>
 
 		<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 		<script>
 			let socket = null;
+			let messagesSent = 0;
+			let messagesReceived = 0;
+			let binaryMessages = 0;
+			let autoScroll = true;
+
 			const logDiv = document.getElementById('log');
 			const statusDiv = document.getElementById('status');
+
+			function updateMetrics() {
+				document.getElementById('messagesSent').textContent = messagesSent;
+				document.getElementById('messagesReceived').textContent = messagesReceived;
+				document.getElementById('binaryMessages').textContent = binaryMessages;
+			}
 
 			function log(message, type = 'info') {
 				const timestamp = new Date().toLocaleTimeString();
@@ -154,9 +317,30 @@
 						? '#28a745'
 						: type === 'warning'
 						? '#ffc107'
+						: type === 'binary'
+						? '#dc3545'
+						: type === 'performance'
+						? '#28a745'
 						: '#6c757d';
-				logDiv.innerHTML += `<div style="color: ${color}; margin: 2px 0;">[${timestamp}] ${message}</div>`;
-				logDiv.scrollTop = logDiv.scrollHeight;
+
+				const icon =
+					type === 'binary'
+						? '🔥'
+						: type === 'performance'
+						? '⚡'
+						: type === 'success'
+						? '✅'
+						: type === 'error'
+						? '❌'
+						: type === 'warning'
+						? '⚠️'
+						: '📝';
+
+				logDiv.innerHTML += `<div style="color: ${color}; margin: 2px 0;">[${timestamp}] ${icon} ${message}</div>`;
+
+				if (autoScroll) {
+					logDiv.scrollTop = logDiv.scrollHeight;
+				}
 				console.log(`[${timestamp}] ${message}`);
 			}
 
@@ -165,13 +349,24 @@
 				statusDiv.textContent = `Status: ${connected ? 'Connected' : 'Disconnected'}`;
 			}
 
+			function showProgress(show = false) {
+				document.getElementById('progressContainer').style.display = show
+					? 'block'
+					: 'none';
+			}
+
+			function updateProgress(percent, text) {
+				document.getElementById('progressBar').style.width = percent + '%';
+				document.getElementById('progressText').textContent = text;
+			}
+
 			function connect() {
 				if (socket && socket.connected) {
 					log('Already connected!', 'warning');
 					return;
 				}
 
-				log('Connecting to server...', 'info');
+				log('Connecting to enhanced server...', 'info');
 				socket = io('wss://localhost:8443', {
 					path: '/ws',
 					transports: ['websocket'],
@@ -195,23 +390,73 @@
 					updateStatus(false);
 				});
 
+				// Basic message handlers
 				socket.on('message', (data) => {
-					log(`📨 Received message: ${data}`, 'info');
+					messagesReceived++;
+					updateMetrics();
+					log(`📨 Message: ${data}`, 'info');
+				});
+
+				socket.on('pong', () => {
+					messagesReceived++;
+					updateMetrics();
+					log('📡 Pong received', 'info');
+				});
+
+				socket.on('notification', (data) => {
+					messagesReceived++;
+					updateMetrics();
+					log(`🔔 Notification: ${data}`, 'info');
+				});
+
+				// Binary protocol handlers
+				socket.on('binary_pong', () => {
+					messagesReceived++;
+					binaryMessages++;
+					updateMetrics();
+					log('🔥 Binary pong received', 'binary');
+				});
+
+				socket.on('binary_notification', (data) => {
+					messagesReceived++;
+					binaryMessages++;
+					updateMetrics();
+					log(`🔥 Binary notification: ${data}`, 'binary');
+				});
+
+				// Test result handlers
+				socket.on('test_result', (data) => {
+					messagesReceived++;
+					updateMetrics();
+					if (typeof data === 'object') {
+						log(`📊 Test result: ${JSON.stringify(data)}`, 'success');
+					} else {
+						log(`📊 Test result: ${data}`, 'success');
+					}
+				});
+
+				socket.on('performance_result', (data) => {
+					messagesReceived++;
+					updateMetrics();
+					document.getElementById('lastPerformance').textContent = `${data.ops} ops/sec`;
+					log(
+						`⚡ Performance: ${data.type} - ${data.time}ms, ${data.ops} ops/sec`,
+						'performance'
+					);
 				});
 
 				// Server-to-client ACK handlers
 				socket.on('server_ping', (callback) => {
-					log('📡 Server requested ping, responding with pong', 'info');
+					log('📡 Server requested ping, responding...', 'info');
 					if (typeof callback === 'function') {
-						callback('pong');
+						callback('pong from client');
 					}
 				});
 
 				socket.on('validate_data', (data, callback) => {
-					log(`🔍 Server requested validation for: ${JSON.stringify(data)}`, 'info');
+					log(`🔍 Server validation request: ${JSON.stringify(data)}`, 'info');
 					if (typeof callback === 'function') {
-						const isValid =
-							data && typeof data.test === 'string' && data.test.length > 0;
+						const isValid = data && typeof data === 'object';
 						callback({
 							valid: isValid,
 							message: isValid ? 'Data is valid' : 'Data is invalid',
@@ -219,10 +464,9 @@
 					}
 				});
 
-				socket.on('request_feedback', (message, callback) => {
-					log(`💬 Server requested feedback: ${message}`, 'info');
+				socket.on('benchmark_ping', (callback) => {
 					if (typeof callback === 'function') {
-						callback('Connection is working great!');
+						callback('benchmark_pong');
 					}
 				});
 			}
@@ -241,7 +485,8 @@
 				setTimeout(connect, 1000);
 			}
 
-			// Basic events without ACK
+			// ===== BASIC EVENTS =====
+
 			function sendMessage() {
 				if (!socket || !socket.connected) {
 					log('Not connected!', 'error');
@@ -249,6 +494,8 @@
 				}
 				const message = document.getElementById('messageInput').value;
 				socket.emit('message', message);
+				messagesSent++;
+				updateMetrics();
 				log(`📨 Sent message: ${message}`, 'info');
 			}
 
@@ -258,20 +505,81 @@
 					return;
 				}
 				socket.emit('ping');
+				messagesSent++;
+				updateMetrics();
 				log('📡 Sent ping', 'info');
 			}
 
-			// ACK Tests
+			function sendNotification() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				socket.emit('notification', 'Test notification from client');
+				messagesSent++;
+				updateMetrics();
+				log('🔔 Sent notification', 'info');
+			}
+
+			// ===== BINARY PROTOCOL TESTS =====
+
+			function sendBinaryPing() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				socket.emit('binary_ping');
+				messagesSent++;
+				updateMetrics();
+				log('🔥 Sent binary ping', 'binary');
+			}
+
+			function sendBinaryMessage() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				socket.emit('binary_message', 'Binary message from client');
+				messagesSent++;
+				updateMetrics();
+				log('🔥 Sent binary message', 'binary');
+			}
+
+			function testUltraFast() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				socket.emit('ultra_fast_test', 'Ultra fast test data');
+				messagesSent++;
+				updateMetrics();
+				log('⚡ Sent ultra fast test', 'binary');
+			}
+
+			function testBatch() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				socket.emit('batch_test');
+				messagesSent++;
+				updateMetrics();
+				log('📦 Sent batch test request', 'binary');
+			}
+
+			// ===== ACK TESTS =====
+
 			function testBasicAck() {
 				if (!socket || !socket.connected) {
 					log('Not connected!', 'error');
 					return;
 				}
-
 				log('🔄 Testing basic ACK...', 'info');
-				socket.emit('echo', 'Hello ACK!', (response) => {
-					log(`✅ Basic ACK response: ${response}`, 'success');
+				socket.emit('echo', 'Hello Enhanced ACK!', (response) => {
+					log(`✅ ACK response: ${response}`, 'success');
 				});
+				messagesSent++;
+				updateMetrics();
 			}
 
 			function testUserInfo() {
@@ -279,11 +587,12 @@
 					log('Not connected!', 'error');
 					return;
 				}
-
 				log('🔄 Requesting user info...', 'info');
 				socket.emit('get_user_info', (response) => {
 					log(`✅ User info: ${JSON.stringify(response)}`, 'success');
 				});
+				messagesSent++;
+				updateMetrics();
 			}
 
 			function testCalculation() {
@@ -291,60 +600,29 @@
 					log('Not connected!', 'error');
 					return;
 				}
-
 				const a = Math.floor(Math.random() * 100);
 				const b = Math.floor(Math.random() * 100);
-
-				log(`🔄 Requesting calculation: ${a} + ${b}`, 'info');
+				log(`🔄 Calculating: ${a} + ${b}`, 'info');
 				socket.emit('calculate', { operation: 'add', a, b }, (response) => {
 					if (response.error) {
 						log(`❌ Calculation error: ${response.error}`, 'error');
 					} else {
-						log(`✅ Calculation result: ${a} + ${b} = ${response.result}`, 'success');
+						log(`✅ Result: ${a} + ${b} = ${response.result}`, 'success');
 					}
 				});
+				messagesSent++;
+				updateMetrics();
 			}
 
-			function testError() {
-				if (!socket || !socket.connected) {
-					log('Not connected!', 'error');
-					return;
-				}
-
-				log('🔄 Testing error response...', 'info');
-				socket.emit('trigger_error', (response) => {
-					log(`❌ Expected error received: ${JSON.stringify(response)}`, 'warning');
-				});
-			}
-
-			function testTimeout() {
-				if (!socket || !socket.connected) {
-					log('Not connected!', 'error');
-					return;
-				}
-
-				log('🔄 Testing timeout (5s)...', 'info');
-				const startTime = Date.now();
-
-				socket.timeout(5000).emit('slow_response', (err, response) => {
-					const duration = Date.now() - startTime;
-					if (err) {
-						log(`⏰ Timeout after ${duration}ms: ${err.message}`, 'warning');
-					} else {
-						log(`✅ Response received after ${duration}ms: ${response}`, 'success');
-					}
-				});
-			}
-
-			// Server-to-client ACK tests
 			function requestServerPing() {
 				if (!socket || !socket.connected) {
 					log('Not connected!', 'error');
 					return;
 				}
-
-				log('🔄 Requesting server to ping us back...', 'info');
+				log('🔄 Requesting server ping...', 'info');
 				socket.emit('request_ping_back');
+				messagesSent++;
+				updateMetrics();
 			}
 
 			function requestValidation() {
@@ -352,61 +630,398 @@
 					log('Not connected!', 'error');
 					return;
 				}
-
-				log('🔄 Requesting server to validate data...', 'info');
-				socket.emit('request_validation', { value: 'test data' });
+				log('🔄 Requesting data validation...', 'info');
+				socket.emit('request_validation', {
+					test: 'validation data',
+					timestamp: Date.now(),
+				});
+				messagesSent++;
+				updateMetrics();
 			}
 
-			// Batch tests
+			// ===== PERFORMANCE TESTS =====
+
+			function runPerformanceTest() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				const type = document.getElementById('perfTestType').value;
+				const iterations = parseInt(document.getElementById('perfIterations').value);
+
+				log(`⚡ Starting performance test: ${type} x ${iterations}...`, 'performance');
+				socket.emit('performance_test', type, iterations);
+				messagesSent++;
+				updateMetrics();
+			}
+
+			function runAllPerformanceTests() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				const tests = [
+					'emit',
+					'emitBinary',
+					'emitFast',
+					'emitString',
+					'emitUltraFast',
+					'emitUltraFastBinary',
+				];
+				const iterations = 1000;
+
+				log(
+					`⚡ Running all performance tests (${iterations} iterations each)...`,
+					'performance'
+				);
+
+				let currentTest = 0;
+				showProgress(true);
+
+				function runNextTest() {
+					if (currentTest >= tests.length) {
+						showProgress(false);
+						log('✅ All performance tests completed!', 'success');
+						return;
+					}
+
+					const test = tests[currentTest];
+					const progress = (currentTest / tests.length) * 100;
+					updateProgress(progress, `Running ${test}...`);
+
+					socket.emit('performance_test', test, iterations);
+					messagesSent++;
+					updateMetrics();
+
+					currentTest++;
+					setTimeout(runNextTest, 1000);
+				}
+
+				runNextTest();
+			}
+
+			function runBenchmarkSuite() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🏁 Starting comprehensive benchmark suite...', 'performance');
+
+				const benchmarks = [
+					{ type: 'emit', iterations: 5000 },
+					{ type: 'emitBinary', iterations: 5000 },
+					{ type: 'emitUltraFast', iterations: 10000 },
+					{ type: 'emitUltraFastBinary', iterations: 10000 },
+				];
+
+				let currentBench = 0;
+				showProgress(true);
+
+				function runNextBenchmark() {
+					if (currentBench >= benchmarks.length) {
+						showProgress(false);
+						log('🏁 Benchmark suite completed!', 'success');
+						return;
+					}
+
+					const bench = benchmarks[currentBench];
+					const progress = (currentBench / benchmarks.length) * 100;
+					updateProgress(
+						progress,
+						`Benchmarking ${bench.type} (${bench.iterations} ops)...`
+					);
+
+					socket.emit('performance_test', bench.type, bench.iterations);
+					messagesSent++;
+					updateMetrics();
+
+					currentBench++;
+					setTimeout(runNextBenchmark, 2000);
+				}
+
+				runNextBenchmark();
+			}
+
+			// ===== STRESS TESTS =====
+
+			function runStressTest() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				const type = document.getElementById('stressTestType').value;
+				const count = parseInt(document.getElementById('stressCount').value);
+
+				log(`💪 Starting stress test: ${type} x ${count}...`, 'warning');
+				socket.emit('stress_test', type, count);
+				messagesSent++;
+				updateMetrics();
+			}
+
+			function runMegaStressTest() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				log('💪 Starting MEGA stress test (10,000 ACKs)...', 'warning');
+				runStressTestInternal('ack', 10000);
+			}
+
+			function runUltraStressTest() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				log('💪 Starting ULTRA stress test (100,000 ultra fast)...', 'warning');
+				runStressTestInternal('ultra', 100000);
+			}
+
+			function runStressTestInternal(type, count) {
+				const startTime = Date.now();
+				let completed = 0;
+				let errors = 0;
+
+				showProgress(true);
+
+				for (let i = 0; i < count; i++) {
+					setTimeout(() => {
+						try {
+							if (type === 'ack') {
+								socket.emit('echo', `Stress test ${i}`, (response) => {
+									completed++;
+									const progress = (completed / count) * 100;
+									updateProgress(progress, `${completed}/${count} completed`);
+
+									if (completed === count) {
+										const duration = Date.now() - startTime;
+										showProgress(false);
+										log(
+											`💪 Stress test completed: ${completed}/${count} in ${duration}ms`,
+											'success'
+										);
+									}
+								});
+							} else {
+								socket.emit('stress_test', type, 1);
+								completed++;
+								const progress = (completed / count) * 100;
+								updateProgress(progress, `${completed}/${count} sent`);
+
+								if (completed === count) {
+									const duration = Date.now() - startTime;
+									showProgress(false);
+									log(
+										`💪 Stress test completed: ${completed}/${count} in ${duration}ms`,
+										'success'
+									);
+								}
+							}
+							messagesSent++;
+							updateMetrics();
+						} catch (error) {
+							errors++;
+							log(`❌ Stress test error: ${error.message}`, 'error');
+						}
+					}, Math.floor(i / 100));
+				}
+			}
+
+			function runMemoryStressTest() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🧠 Starting memory stress test...', 'warning');
+				const count = 50000;
+				const startTime = Date.now();
+
+				showProgress(true);
+
+				for (let i = 0; i < count; i++) {
+					setTimeout(() => {
+						if (i % 5 === 0) {
+							socket.emit('binary_message', `Memory test ${i}`);
+						} else {
+							socket.emit('message', `Memory test ${i}`);
+						}
+
+						messagesSent++;
+						updateMetrics();
+
+						const progress = (i / count) * 100;
+						updateProgress(progress, `Memory stress: ${i}/${count}`);
+
+						if (i === count - 1) {
+							const duration = Date.now() - startTime;
+							showProgress(false);
+							log(
+								`🧠 Memory stress completed: ${count} messages in ${duration}ms`,
+								'success'
+							);
+						}
+					}, Math.floor(i / 1000));
+				}
+			}
+
+			// ===== BROADCAST TESTS =====
+
+			function testBroadcast() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				log('📡 Testing broadcast...', 'info');
+				socket.emit('broadcast_test');
+				messagesSent++;
+				updateMetrics();
+			}
+
+			function testRooms() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				log('🏠 Testing rooms...', 'info');
+				socket.emit('room_test');
+				messagesSent++;
+				updateMetrics();
+			}
+
+			function testBinaryBroadcast() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				log('🔥 Testing binary broadcast...', 'binary');
+				socket.emit('binary_broadcast_test');
+				messagesSent++;
+				updateMetrics();
+			}
+
+			function testBulkOperations() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+				log('📦 Testing bulk operations...', 'info');
+
+				// Simulate bulk operations by sending multiple events
+				for (let i = 0; i < 10; i++) {
+					if (i % 2 === 0) {
+						socket.emit('message', `Bulk message ${i}`);
+					} else {
+						socket.emit('binary_message', `Bulk binary ${i}`);
+					}
+					messagesSent++;
+				}
+				updateMetrics();
+				log('📦 Bulk operations sent', 'success');
+			}
+
+			// ===== CONTROL FUNCTIONS =====
+
 			function runAllTests() {
 				if (!socket || !socket.connected) {
 					log('Not connected!', 'error');
 					return;
 				}
 
-				log('🚀 Running all tests...', 'info');
+				log('🚀 Running complete test suite...', 'performance');
 
-				setTimeout(() => testBasicAck(), 100);
-				setTimeout(() => testUserInfo(), 200);
-				setTimeout(() => testCalculation(), 300);
-				setTimeout(() => testError(), 400);
-				setTimeout(() => requestServerPing(), 500);
-				setTimeout(() => requestValidation(), 600);
+				const tests = [
+					() => {
+						sendMessage();
+					},
+					() => {
+						sendPing();
+					},
+					() => {
+						sendBinaryPing();
+					},
+					() => {
+						sendBinaryMessage();
+					},
+					() => {
+						testUltraFast();
+					},
+					() => {
+						testBatch();
+					},
+					() => {
+						testBasicAck();
+					},
+					() => {
+						testUserInfo();
+					},
+					() => {
+						testCalculation();
+					},
+					() => {
+						requestServerPing();
+					},
+					() => {
+						requestValidation();
+					},
+					() => {
+						testBroadcast();
+					},
+					() => {
+						testRooms();
+					},
+					() => {
+						testBinaryBroadcast();
+					},
+				];
 
-				setTimeout(() => log('🏁 All tests completed!', 'success'), 700);
-			}
+				let currentTest = 0;
+				showProgress(true);
 
-			function stressTestAck(x = 1) {
-				if (!socket || !socket.connected) {
-					log('Not connected!', 'error');
-					return;
+				function runNextTest() {
+					if (currentTest >= tests.length) {
+						showProgress(false);
+						log('🚀 Complete test suite finished!', 'success');
+						return;
+					}
+
+					const progress = (currentTest / tests.length) * 100;
+					updateProgress(progress, `Running test ${currentTest + 1}/${tests.length}...`);
+
+					tests[currentTest]();
+					currentTest++;
+					setTimeout(runNextTest, 500);
 				}
 
-				log(`💪 Starting stress test: ${100 * x} ACK requests...`, 'info');
-				const startTime = Date.now();
-				let completed = 0;
-				let errors = 0;
-
-				for (let i = 0; i < 100 * x; i++) {
-					socket.emit('echo', `Stress test ${i}`, (response) => {
-						completed++;
-						if (response.includes('error')) errors++;
-
-						if (completed === 100 * x) {
-							const duration = Date.now() - startTime;
-							log(
-								`💪 Stress test completed: ${completed}/${
-									100 * x
-								} in ${duration}ms, ${errors} errors`,
-								'success'
-							);
-						}
-					});
-				}
+				runNextTest();
 			}
 
 			function clearLog() {
-				logDiv.innerHTML = '<div><strong>Log:</strong></div>';
+				logDiv.innerHTML = '<div><strong>Enhanced Test Log:</strong></div>';
+				messagesSent = 0;
+				messagesReceived = 0;
+				binaryMessages = 0;
+				updateMetrics();
+			}
+
+			function saveLog() {
+				const logContent = logDiv.innerText;
+				const blob = new Blob([logContent], { type: 'text/plain' });
+				const url = URL.createObjectURL(blob);
+				const a = document.createElement('a');
+				a.href = url;
+				a.download = `socket-test-log-${new Date().toISOString().slice(0, 19)}.txt`;
+				a.click();
+				URL.revokeObjectURL(url);
+				log('💾 Log saved to file', 'success');
+			}
+
+			function toggleAutoScroll() {
+				autoScroll = !autoScroll;
+				log(`📜 Auto-scroll ${autoScroll ? 'enabled' : 'disabled'}`, 'info');
 			}
 
 			// Auto-connect on page load

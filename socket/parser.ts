@@ -5,7 +5,21 @@ import type {
 	ClientToServerEvents,
 	ServerToClientEvents,
 } from '../shared/types/socket.types';
-import { BinaryProtocol } from './object-pool';
+
+// ИСПРАВЛЕНИЕ: Lazy loading для избежания циклических импортов
+function getBinaryProtocol() {
+	try {
+		const { BinaryProtocol } = require('./object-pool');
+		return BinaryProtocol;
+	} catch {
+		return {
+			supportsBinaryEncoding: () => false,
+			encodeBinaryEvent: () => null,
+			decodeBinaryEvent: () => null,
+			isBinaryProtocol: () => false,
+		};
+	}
+}
 
 /**
  * Высоко-оптимизированный Socket.IO парсер с микро-оптимизациями
@@ -151,6 +165,23 @@ export class SocketParser {
 		}
 
 		return packet;
+	}
+
+	/**
+	 * НОВЫЙ: Кодирование с принудительным использованием бинарного формата
+	 */
+	static encodeBinary<T extends keyof ServerToClientEvents>(
+		event: T,
+		data?: Parameters<ServerToClientEvents[T]>[0],
+		namespace: string = '/'
+	): Uint8Array | null {
+		// Только для дефолтного namespace и поддерживаемых событий
+		if (namespace !== '/') return null;
+
+		const BinaryProtocol = getBinaryProtocol();
+		if (!BinaryProtocol.supportsBinaryEncoding(event as string)) return null;
+
+		return BinaryProtocol.encodeBinaryEvent(event as string, data as string | number);
 	}
 
 	/**
@@ -312,6 +343,7 @@ export class SocketParser {
 			}
 
 			// Проверяем, является ли это бинарным протоколом
+			const BinaryProtocol = getBinaryProtocol();
 			if (BinaryProtocol.isBinaryProtocol(data)) {
 				const decoded = BinaryProtocol.decodeBinaryEvent(data);
 				if (decoded) {
@@ -489,20 +521,7 @@ export class SocketParser {
 	}
 
 	/**
-	 * Попытка кодирования в бинарный формат (если поддерживается)
+	 * УДАЛЕНО: tryEncodeBinary - теперь используется только encodeBinary()
+	 * Бинарное кодирование происходит только по явному вызову
 	 */
-	static tryEncodeBinary<T extends keyof ServerToClientEvents>(
-		event: T,
-		data?: Parameters<ServerToClientEvents[T]>[0],
-		namespace: string = '/'
-	): Uint8Array | null {
-		// Бинарный протокол пока только для дефолтного namespace
-		if (namespace !== '/') return null;
-
-		// Проверяем поддержку события
-		if (!BinaryProtocol.supportsBinaryEncoding(event as string)) return null;
-
-		// Кодируем в бинарный формат
-		return BinaryProtocol.encodeBinaryEvent(event as string, data as string | number);
-	}
 }

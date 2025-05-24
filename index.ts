@@ -66,75 +66,124 @@ io.setBunServer(server);
 import './test/test-server';
 import { warmupPerformanceOptimizations } from './socket/socket';
 warmupPerformanceOptimizations();
+
+/**
+ * Perfomance test
+ */
+// // В index.ts добавьте:
+// import { runQuickPerformanceTest, saveResultsToFile } from './test/performance_test';
+// io.on('connection', (socket) => {
+// 	console.log(`🎉 Socket ${socket.id} connected`);
+// 	// Запускаем тест и сохраняем результаты
+// 	setTimeout(async () => {
+// 		try {
+// 			await runQuickPerformanceTest(io, socket.id);
+// 			// Сохраняем результаты в JSON файл
+// 			saveResultsToFile(`performance-${socket.id}-${Date.now()}.json`);
+// 		} catch (error) {
+// 			console.error('❌ Performance test failed:', error);
+// 		}
+// 	}, 3000);
+// });
+
+// /**
+//  * Perfomance test 2
+//  */
+// import { performanceTest, saveResultsToFile } from './test/performance_test';
+
+// io.on('connection', (socket) => {
+//     console.log(`🎉 Socket ${socket.id} connected`);
+
+//     setTimeout(async () => {
+//         try {
+//             // Настраиваем тест без вывода
+//             performanceTest.setIOInstance(io);
+
+//             // Запускаем только нужные тесты
+//             await performanceTest.testSimpleEmit(socket.id, 10000);
+//             await performanceTest.testBinaryEmit(socket.id, 10000);
+//             await performanceTest.testUltraFastEmit(socket.id, 10000);
+
+//             // Сохраняем результаты
+//             const filename = `benchmark-${socket.id.slice(-8)}-${Date.now()}.json`;
+//             saveResultsToFile(filename);
+
+//             console.log(`📊 Performance test completed, results saved to ${filename}`);
+
+//         } catch (error) {
+//             console.error('❌ Performance test failed:', error);
+//         }
+//     }, 3000);
+// });
+
 // ИСПРАВЛЕНИЕ: Регистрируем обработчики событий с лучшей отладкой
-if (!isProduction) {
-	console.log('[INDEX] Registering connection handler...');
-}
+// if (!isProduction) {
+// 	console.log('[INDEX] Registering connection handler...');
+// }
+// io.on('connection', (socket) => {
+// 	if (!isProduction) {
+// 		console.log(`🎉 [INDEX] Socket ${socket.id} connected successfully!`);
+// 		console.log(`📊 [INDEX] Total sockets: ${io.socketsCount}`);
+// 	}
 
-io.on('connection', (socket) => {
-	if (!isProduction) {
-		console.log(`🎉 [INDEX] Socket ${socket.id} connected successfully!`);
-		console.log(`📊 [INDEX] Total sockets: ${io.socketsCount}`);
-	}
+// 	// ✅ Базовые обработчики событий
+// 	socket.on('ping', () => {
+// 		if (!isProduction) {
+// 			console.log(`📡 [INDEX] PING received from ${socket.id}`);
+// 		}
+// 		socket.emit('pong');
+// 		if (!isProduction) {
+// 			console.log(`📡 [INDEX] PONG sent to ${socket.id}`);
+// 		}
+// 	});
 
-	// ✅ Базовые обработчики событий
-	socket.on('ping', () => {
-		if (!isProduction) {
-			console.log(`📡 [INDEX] PING received from ${socket.id}`);
-		}
-		socket.emit('pong');
-		if (!isProduction) {
-			console.log(`📡 [INDEX] PONG sent to ${socket.id}`);
-		}
-	});
+// 	socket.on('message', (data) => {
+// 		if (!isProduction) {
+// 			console.log(`📨 [INDEX] MESSAGE received from ${socket.id}:`, data);
+// 		}
+// 		// НЕ отправляем ACK для обычных событий
+// 		socket.emit('message', `Echo: ${data}`);
+// 		socket.broadcast.emit('message', `${socket.id} says: ${data}`);
+// 	});
 
-	socket.on('message', (data) => {
-		if (!isProduction) {
-			console.log(`📨 [INDEX] MESSAGE received from ${socket.id}:`, data);
-		}
-		// НЕ отправляем ACK для обычных событий
-		socket.emit('message', `Echo: ${data}`);
-		socket.broadcast.emit('message', `${socket.id} says: ${data}`);
-	});
+// 	socket.on('disconnect', (reason) => {
+// 		if (!isProduction) {
+// 			console.log(`❌ [INDEX] Socket ${socket.id} disconnected: ${reason}`);
+// 			console.log(`📊 [INDEX] Remaining sockets: ${io.socketsCount}`);
+// 		}
+// 	});
 
-	socket.on('disconnect', (reason) => {
-		if (!isProduction) {
-			console.log(`❌ [INDEX] Socket ${socket.id} disconnected: ${reason}`);
-			console.log(`📊 [INDEX] Remaining sockets: ${io.socketsCount}`);
-		}
-	});
+// 	// ✅ Отправляем приветственное сообщение через несколько секунд
+// 	setTimeout(() => {
+// 		if (!isProduction) {
+// 			console.log(`💬 [INDEX] Sending welcome message to ${socket.id}`);
+// 		}
+// 		try {
+// 			const success = socket.emit('message', `Welcome ${socket.id}! Server is ready.`);
+// 			if (!isProduction) {
+// 				console.log(`💬 [INDEX] Welcome message sent: ${success}`);
+// 			}
+// 		} catch (error) {
+// 			if (!isProduction) {
+// 				console.error(`💬 [INDEX] Error sending welcome message:`, error);
+// 			}
+// 		}
+// 	}, 2000);
 
-	// ✅ Отправляем приветственное сообщение через несколько секунд
-	setTimeout(() => {
-		if (!isProduction) {
-			console.log(`💬 [INDEX] Sending welcome message to ${socket.id}`);
-		}
-		try {
-			const success = socket.emit('message', `Welcome ${socket.id}! Server is ready.`);
-			if (!isProduction) {
-				console.log(`💬 [INDEX] Welcome message sent: ${success}`);
-			}
-		} catch (error) {
-			if (!isProduction) {
-				console.error(`💬 [INDEX] Error sending welcome message:`, error);
-			}
-		}
-	}, 2000);
-
-	// ✅ Тестируем broadcast
-	setTimeout(() => {
-		if (!isProduction) {
-			console.log(`📢 [INDEX] Broadcasting notification...`);
-		}
-		try {
-			io.emit('message', `New user ${socket.id} joined! Total: ${io.socketsCount}`);
-		} catch (error) {
-			if (!isProduction) {
-				console.error(`📢 [INDEX] Error broadcasting:`, error);
-			}
-		}
-	}, 3000);
-});
+// 	// ✅ Тестируем broadcast
+// 	setTimeout(() => {
+// 		if (!isProduction) {
+// 			console.log(`📢 [INDEX] Broadcasting notification...`);
+// 		}
+// 		try {
+// 			io.emit('message', `New user ${socket.id} joined! Total: ${io.socketsCount}`);
+// 		} catch (error) {
+// 			if (!isProduction) {
+// 				console.error(`📢 [INDEX] Error broadcasting:`, error);
+// 			}
+// 		}
+// 	}, 3000);
+// });
 
 // Дополнительная отладка
 io.on('connect', (socket) => {

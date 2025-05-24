@@ -131,6 +131,13 @@ export class Namespace<
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).except(room);
 	}
 
+	/**
+	 * НОВЫЙ: binary broadcast operator
+	 */
+	get binary(): BroadcastOperator<EmitEvents, SocketData> {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).binary;
+	}
+
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
@@ -153,6 +160,43 @@ export class Namespace<
 			dataOrArg,
 			ack
 		);
+	}
+
+	/**
+	 * emit с принудительным использованием бинарного формата
+	 */
+	emitBinary<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data?: Parameters<EmitEvents[Ev]>[0]
+	): boolean {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).binary.emit(
+			event,
+			data as any
+		);
+	}
+
+	/**
+	 * Bulk operations для массовых операций
+	 */
+	emitBulk<Ev extends keyof EmitEvents>(
+		operations: Array<{
+			event: Ev;
+			data?: Parameters<EmitEvents[Ev]>[0];
+			rooms?: Room | Room[];
+			binary?: boolean;
+		}>
+	): number {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emitBulk(operations);
+	}
+
+	/**
+	 * НОВЫЙ: Fast emit для namespace
+	 */
+	emitFast<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data?: Parameters<EmitEvents[Ev]>[0]
+	): boolean {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emitFast(event, data);
 	}
 
 	send(...args: Parameters<EmitEvents[any]>): this {

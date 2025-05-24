@@ -19,6 +19,7 @@ export interface BroadcastFlags {
 	local?: boolean;
 	broadcast?: boolean;
 	timeout?: number;
+	binary?: boolean; // НОВЫЙ: флаг для принудительного использования бинарного формата
 }
 
 /**
@@ -99,6 +100,15 @@ export class BroadcastOperator<
 	get local(): BroadcastOperator<EmitEvents, SocketData> {
 		const operator = this.clone();
 		operator.flags.local = true;
+		return operator;
+	}
+
+	/**
+	 * НОВЫЙ: Set binary flag - принудительное использование бинарного формата
+	 */
+	get binary(): BroadcastOperator<EmitEvents, SocketData> {
+		const operator = this.clone();
+		operator.flags.binary = true;
 		return operator;
 	}
 
@@ -246,7 +256,7 @@ export class BroadcastOperator<
 				});
 			}
 
-			// Создаем Socket.IO формат пакета для каждого namespace
+			// Создаем пакеты для отправки
 			const namespaces = new Map<string, Set<SocketId>>();
 			const targetSockets = this.getTargetSockets();
 
@@ -262,10 +272,30 @@ export class BroadcastOperator<
 				}
 			});
 
-			// Отправляем пакет в каждый namespace с правильным форматом
+			// Отправляем пакет в каждый namespace
 			let success = true;
 			for (const [nsp, sockets] of namespaces) {
-				const packet = SocketParser.encode(event as any, data, ackId, nsp);
+				let packet: string | Uint8Array;
+
+				// ИЗМЕНЕНО: Проверяем флаг binary для принудительного использования бинарного формата
+				if (
+					this.flags.binary &&
+					BinaryProtocol.supportsBinaryEncoding(event as string) &&
+					(typeof data === 'string' || typeof data === 'number') &&
+					!ackId
+				) {
+					// Принудительное бинарное кодирование
+					const binaryPacket = BinaryProtocol.encodeBinaryEvent(event as string, data);
+					if (binaryPacket) {
+						packet = binaryPacket;
+					} else {
+						// Fallback на обычное кодирование
+						packet = SocketParser.encode(event as any, data, ackId, nsp);
+					}
+				} else {
+					// Обычное текстовое кодирование (по умолчанию)
+					packet = SocketParser.encode(event as any, data, ackId, nsp);
+				}
 
 				if (!isProduction) {
 					console.log(
@@ -312,18 +342,23 @@ export class BroadcastOperator<
 	private static readonly MAX_BROADCAST_POOL_SIZE = 200;
 
 	/**
-	 * Ultra-fast broadcast с object pooling и binary protocol
+	 * Ultra-fast broadcast с object pooling и опциональным binary protocol
 	 */
 	emitUltraFast<Ev extends keyof EmitEvents>(
 		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0]
+		data?: Parameters<EmitEvents[Ev]>[0],
+		forceBinary: boolean = false
 	): boolean {
 		const targetSockets = this.getTargetSockets();
 		if (targetSockets.size === 0) return true;
 
-		// Попытка использования бинарного протокола
+		// ИЗМЕНЕНО: Используем forceBinary параметр или флаг binary
+		const useBinary = forceBinary || this.flags.binary;
+
+		// Попытка использования бинарного протокола если запрошено
 		let binaryPacket: Uint8Array | null = null;
 		if (
+			useBinary &&
 			BinaryProtocol.supportsBinaryEncoding(event as string) &&
 			(typeof data === 'string' || typeof data === 'number')
 		) {
@@ -415,7 +450,10 @@ export class BroadcastOperator<
 			if (socket && socket.connected) {
 				const promise = new Promise<boolean>((resolve) => {
 					try {
-						const success = (socket as any).emitUltraFast(event, data);
+						// Используем binary flag если установлен
+						const success = this.flags.binary
+							? (socket as any).emitUltraFast(event, data, true)
+							: (socket as any).emitUltraFast(event, data);
 						resolve(success);
 					} catch {
 						resolve(false);
@@ -558,6 +596,7 @@ export class BroadcastOperator<
 			event: Ev;
 			data?: Parameters<EmitEvents[Ev]>[0];
 			rooms?: Room | Room[];
+			binary?: boolean;
 		}>
 	): number {
 		let successful = 0;
@@ -568,6 +607,11 @@ export class BroadcastOperator<
 
 				if (op.rooms) {
 					operator = this.to(op.rooms);
+				}
+
+				// Применяем binary флаг если указан
+				if (op.binary) {
+					operator = operator.binary;
 				}
 
 				if (operator.emitFast(op.event, op.data)) {
@@ -745,6 +789,13 @@ export class RemoteSocket<
 
 	timeout(timeout: number): BroadcastOperator<EmitEvents, SocketData> {
 		return this.operator.timeout(timeout);
+	}
+
+	/**
+	 * НОВЫЙ: binary метод для remote socket
+	 */
+	get binary(): BroadcastOperator<EmitEvents, SocketData> {
+		return this.operator.binary;
 	}
 
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean {

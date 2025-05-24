@@ -145,6 +145,13 @@ export class SocketServer<
 		return this.sockets.except(room);
 	}
 
+	/**
+	 * НОВЫЙ: binary broadcast operator
+	 */
+	get binary(): BroadcastOperator<EmitEvents, SocketData> {
+		return this.sockets.binary;
+	}
+
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
@@ -158,6 +165,40 @@ export class SocketServer<
 		ack?: AckCallback
 	): boolean {
 		return this.sockets.emit(event, dataOrArg, ack);
+	}
+
+	/**
+	 * emit с принудительным использованием бинарного формата
+	 */
+	emitBinary<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data?: Parameters<EmitEvents[Ev]>[0]
+	): boolean {
+		return this.sockets.emitBinary(event, data);
+	}
+
+	/**
+	 * Bulk operations для массовых операций
+	 */
+	emitBulk<Ev extends keyof EmitEvents>(
+		operations: Array<{
+			event: Ev;
+			data?: Parameters<EmitEvents[Ev]>[0];
+			rooms?: Room | Room[];
+			binary?: boolean;
+		}>
+	): number {
+		return this.sockets.emitBulk(operations);
+	}
+
+	/**
+	 * Fast emit для server
+	 */
+	emitFast<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data?: Parameters<EmitEvents[Ev]>[0]
+	): boolean {
+		return this.sockets.emitFast(event, data);
 	}
 
 	send(...args: any[]): this {
