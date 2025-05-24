@@ -66,7 +66,7 @@ export const server = Bun.serve({
 // Set Bun server instance for Socket.IO publishing BEFORE setting up events
 io.setBunServer(server);
 
-// import './test-server';
+import './test-server';
 
 io.on('connection', (socket) => {
 	console.log('📡 Socket listeners:', socket.eventNames().length);

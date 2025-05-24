@@ -20,9 +20,12 @@ export interface ServerReservedEvents<
 	ServerSideEvents extends EventsMap,
 	SocketData extends DefaultSocketData
 > {
-	connect: (socket: SocketData) => void;
-	connection: (socket: SocketData) => void;
-	disconnect: (socket: SocketData, reason: string) => void;
+	connect: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
+	connection: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
+	disconnect: (
+		socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+		reason: string
+	) => void;
 	new_namespace: (
 		namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
 	) => void;
@@ -43,7 +46,6 @@ export class SocketServer<
 	// Socket data type
 	SocketData extends DefaultSocketData = DefaultSocketData
 > extends EventEmitter {
-	// private readonly _sockets: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	private namespaces: Map<
 		string,
 		Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
@@ -52,22 +54,10 @@ export class SocketServer<
 
 	constructor() {
 		super();
-
-		// Create default namespace
-		// this.sockets = this.of('/');
 	}
 
 	get sockets(): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
 		return this.of('/');
-		// if (!this.namespaces.has('/')) {
-		// 	this.of('/'); // Создаст namespace с проксированием событий
-		// }
-		// return this.namespaces.get('/') as Namespace<
-		// 	ListenEvents,
-		// 	EmitEvents,
-		// 	ServerSideEvents,
-		// 	SocketData
-		// >;
 	}
 
 	/**
@@ -79,14 +69,12 @@ export class SocketServer<
 
 	/**
 	 * Publish message using Bun's native pub/sub
-	 * {@Link ServerWebSocketSendStatus}
 	 */
 	publish(topic: string, message: string | Uint8Array): boolean {
 		if (!this.bunServer) {
 			console.warn('[SocketServer] Bun server not set, cannot publish');
 			return false;
 		}
-		// > 0 because it returns number of bytes (type ServerWebSocketSendStatus)
 		return <ServerWebSocketSendStatus>this.bunServer.publish(topic, message) > 0;
 	}
 
@@ -123,15 +111,23 @@ export class SocketServer<
 
 			this.namespaces.set(name, namespace as any);
 
-			// // Forward events from namespace to server
-			// namespace.on('connect', (socket) => {
-			// 	this.emit('connect', socket);
-			// 	this.emit('connection', socket);
-			// });
+			// ИСПРАВЛЕНИЕ: Пробрасываем события с namespace на server для дефолтного namespace
+			if (name === '/') {
+				namespace.on('connection', (socket) => {
+					console.log(
+						`[SocketServer] Forwarding connection event for socket ${socket.id}`
+					);
+					this.emit('connection', socket);
+					this.emit('connect', socket);
+				});
 
-			// namespace.on('disconnect', (socket, reason) => {
-			// 	this.emit('disconnect', socket, reason);
-			// });
+				namespace.on('disconnect', (socket, reason) => {
+					console.log(
+						`[SocketServer] Forwarding disconnect event for socket ${socket.id}`
+					);
+					this.emit('disconnect', socket, reason);
+				});
+			}
 
 			if (name !== '/') {
 				this.emit('new_namespace', namespace);
@@ -170,12 +166,9 @@ export class SocketServer<
 		) => void
 	): this;
 	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this {
-		if (event === 'connect' || event === 'connection') {
-			this.sockets.on(event, listener);
-		} else {
-			super.on(event as string, listener);
-		}
-		return this;
+		// ИСПРАВЛЕНИЕ: Не пробрасываем на sockets, так как это создаёт путаницу
+		// События регистрируются только на server-уровне
+		return super.on(event as string, listener);
 	}
 
 	/**
@@ -190,12 +183,7 @@ export class SocketServer<
 		) => void
 	): this;
 	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this {
-		if (event === 'connect' || event === 'connection') {
-			this.sockets.once(event, listener);
-		} else {
-			super.once(event as string, listener);
-		}
-		return this;
+		return super.once(event as string, listener);
 	}
 
 	/**

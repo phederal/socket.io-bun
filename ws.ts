@@ -27,9 +27,6 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 				let nspName = url.pathname.replace('/ws', '') || '/';
 				if (nspName === '') nspName = '/';
 
-				// Игнорируем Engine.IO query параметры (EIO, transport, sid, etc.)
-				// Мы их не обрабатываем, но клиент их отправляет
-
 				const namespace = io.of(nspName);
 				const socket = await namespace.handleConnection(ws.raw!, user, session);
 				ws.raw!.__socket = socket;
@@ -56,6 +53,15 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					} else {
 						console.warn(`[WebSocket] Unsupported Engine.IO version: ${eio}`);
 					}
+				}
+
+				// ИСПРАВЛЕНИЕ: После успешного создания сокета сразу эмиттим события
+				// Эмиттим на namespace
+				namespace.emit('connection', socket);
+
+				// ВАЖНО: Эмиттим на server для совместимости с io.on('connection')
+				if (nspName === '/') {
+					io.emit('connection', socket);
 				}
 			} catch (error) {
 				console.error('[WebSocket] Connection error:', error);
@@ -116,9 +122,7 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 						}`
 					);
 
-					// ВАЖНО: Отправляем подтверждение подключения к namespace в формате Socket.IO v4
-					// Формат: 40{"sid":"socket_id"} для default namespace
-					// Формат: 40/namespace,{"sid":"socket_id"} для custom namespace
+					// Отправляем подтверждение подключения к namespace в формате Socket.IO v4
 					const connectData = { sid: socket.id };
 					const connectResponse = SocketParser.encodeConnect(
 						packet.namespace || '/',
@@ -127,9 +131,7 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					ws.raw!.send(connectResponse);
 					console.log(`[WebSocket] Sent connect confirmation: ${connectResponse}`);
 
-					// ВОТ ИСПРАВЛЕНИЕ: вызываем событие connection!
-					console.log(`[WebSocket] Emitting 'connection' event for socket ${socket.id}`);
-					socket.namespace.emit('connection', socket);
+					// ИСПРАВЛЕНИЕ: НЕ эмиттим connection здесь, так как это уже сделано в onOpen
 					return;
 				}
 
@@ -144,7 +146,7 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					return;
 				}
 
-				// Handle regular Socket.IO events (НЕ Engine.IO ping)
+				// Handle regular Socket.IO events
 				console.log(
 					`[WebSocket] Handling Socket.IO event '${packet.event}' from ${socket.id}`
 				);
