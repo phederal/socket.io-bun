@@ -28,20 +28,17 @@ app.use('/ws/*', async (c, next) => {
 
 	await next();
 });
-// 1) отдаём любой файл из ./public по URL /static/*
-// app.use('/static/*', serveStatic({ root: './public' }))
-// 2) отдельный маршрут «/» → public/index.html
-app.get('/', serveStatic({ path: 'test/test-client.html' }));
 
+app.get('/', serveStatic({ path: 'test/test-client.html' }));
 app.get('/ws', wsUpgrade);
 app.get('/ws/*', wsUpgrade);
 
 // Create server first
 export const server = Bun.serve({
-	hostname: process.env.NODE_ENV === 'development' ? 'localhost' : '0.0.0.0',
-	port: process.env.NODE_ENV === 'development' ? 8443 : Number(process.env.APP_PORT) || 3000,
+	hostname: 'localhost',
+	port: 8443,
 	fetch: app.fetch,
-	development: process.env.NODE_ENV === 'development',
+	development: false,
 	maxRequestBodySize: 128 * 1024 * 1024,
 	idleTimeout: 120,
 
@@ -54,58 +51,73 @@ export const server = Bun.serve({
 		publishToSelf: false,
 	},
 
-	tls:
-		process.env.NODE_ENV === 'development'
-			? {
-					key: Bun.file(import.meta.dir + '/dev/localhost-key.pem'),
-					cert: Bun.file(import.meta.dir + '/dev/localhost.pem'),
-			  }
-			: undefined,
+	tls: {
+		key: Bun.file(import.meta.dir + '/dev/localhost-key.pem'),
+		cert: Bun.file(import.meta.dir + '/dev/localhost.pem'),
+	},
 });
 
 // Set Bun server instance for Socket.IO publishing BEFORE setting up events
 io.setBunServer(server);
 
-import './test-server';
+import './test/test-server';
 
 io.on('connection', (socket) => {
-	console.log('📡 Socket listeners:', socket.eventNames().length);
+	console.log(`🎉 [INDEX] Socket ${socket.id} connected successfully!`);
+	console.log(`📊 [INDEX] Total sockets: ${io.socketsCount}`);
 
-	// ✅ Проверим что socket.on() работает
+	// ✅ Базовые обработчики событий
 	socket.on('ping', () => {
-		console.log('📡 PING received from', socket.id);
+		console.log(`📡 [INDEX] PING received from ${socket.id}`);
 		socket.emit('pong');
-		console.log('📡 PONG sent to', socket.id);
+		console.log(`📡 [INDEX] PONG sent to ${socket.id}`);
 	});
 
-	io.emit('message', 'hello');
-	io.sockets.on('connect', (socket) => {
-		socket.emit('message', 'hello');
-	});
 	socket.on('message', (data) => {
-		console.log('📨 MESSAGE received from', socket.id, ':', data);
 		socket.emit('message', `Echo: ${data}`);
+		socket.broadcast.emit('message', `${socket.id} says: ${data}`);
 	});
 
 	socket.on('disconnect', (reason) => {
-		console.log('❌ DISCONNECT:', socket.id, 'reason:', reason);
+		console.log(`❌ [INDEX] Socket ${socket.id} disconnected: ${reason}`);
+		console.log(`📊 [INDEX] Remaining sockets: ${io.socketsCount}`);
 	});
 
-	console.log('📡 Socket listeners:', socket.eventNames());
-
+	// ✅ Отправляем приветственное сообщение через несколько секунд
 	setTimeout(() => {
-		console.log('📡 Sending MESSAGE...');
-		const a = socket.emit('message', 'New user connected!');
-		console.log(a);
+		console.log(`💬 [INDEX] Sending welcome message to ${socket.id}`);
+		try {
+			const success = socket.emit('message', `Welcome ${socket.id}! Server is ready.`);
+			console.log(`💬 [INDEX] Welcome message sent: ${success}`);
+		} catch (error) {
+			console.error(`💬 [INDEX] Error sending welcome message:`, error);
+		}
 	}, 2000);
+
+	// // ✅ Тестируем broadcast
+	// setTimeout(() => {
+	// 	console.log(`📢 [INDEX] Broadcasting notification...`);
+	// 	try {
+	// 		io.emit('message', `New user ${socket.id} joined! Total: ${io.socketsCount}`);
+	// 	} catch (error) {
+	// 		console.error(`📢 [INDEX] Error broadcasting:`, error);
+	// 	}
+	// }, 3000);
 });
 
-if (process.env.NODE_ENV === 'development') {
-	console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
-	console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
-	console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);
-	console.log();
-}
+// Дополнительная отладка
+io.on('connect', (socket) => {
+	console.log(`🔗 [INDEX] Connect event received for ${socket.id}`);
+});
+
+console.log('[INDEX] Event handlers registered');
+
+// if (process.env.NODE_ENV === 'development') {
+console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
+console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
+console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);
+console.log();
+// }
 
 // ✅ Export typed instances
 export type App = typeof app;

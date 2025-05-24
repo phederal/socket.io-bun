@@ -16,12 +16,6 @@ import type {
 } from '../shared/types/socket.types';
 import { SocketParser } from './parser';
 
-export interface SocketReservedEvents {
-	disconnect: (reason: DisconnectReason, description?: any) => void;
-	disconnecting: (reason: DisconnectReason, description?: any) => void;
-	error: (err: Error) => void;
-}
-
 export class Socket<
 	ListenEvents extends EventsMap = ClientToServerEvents,
 	EmitEvents extends EventsMap = ServerToClientEvents,
@@ -37,7 +31,7 @@ export class Socket<
 	private heartbeatTimer?: NodeJS.Timeout;
 	private readonly heartbeatInterval = 25000;
 	private _connected: boolean = true;
-	private _sessionId: string; // Для имитации Engine.IO сессии
+	private _sessionId: string;
 
 	public readonly ws: ServerWebSocket<WSContext>;
 	private namespace: any;
@@ -58,14 +52,11 @@ export class Socket<
 		// Join default room (socket's own ID)
 		this.rooms.add(this.id);
 		this.startHeartbeat();
-
-		// НЕ отправляем connect пакет автоматически - ждем запрос от клиента
 	}
 
 	private startHeartbeat(): void {
 		this.heartbeatTimer = setInterval(() => {
 			if (this.connected) {
-				// Отправляем Engine.IO ping вместо Socket.IO ping
 				this.ws.send('2'); // Engine.IO ping packet
 			}
 		}, this.heartbeatInterval);
@@ -78,75 +69,35 @@ export class Socket<
 		}
 	}
 
-	/**
-	 * Get namespace name
-	 */
 	get nsp(): string {
 		return this.namespace.name;
 	}
 
-	/**
-	 * Check if socket is connected
-	 */
 	get connected(): boolean {
 		return this._connected && this.ws.readyState === 1;
 	}
 
-	/**
-	 * Get session ID (для совместимости с Engine.IO)
-	 */
 	get sessionId(): string {
 		return this._sessionId;
 	}
 
-	/**
-	 * Typed event listeners with proper overloads
-	 */
-	override on<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
-	override on<Ev extends keyof SocketReservedEvents>(
-		event: Ev,
-		listener: SocketReservedEvents[Ev]
-	): this;
-	override on(event: string, listener: (...args: any[]) => void): this;
+	// ИСПРАВЛЕНИЕ: Упрощаем override методы для лучшей совместимости
 	override on(event: string | symbol, listener: (...args: any[]) => void): this {
 		return super.on(event, listener);
 	}
 
-	// ... остальные override методы остаются без изменений ...
-	override once<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
-	override once<Ev extends keyof SocketReservedEvents>(
-		event: Ev,
-		listener: SocketReservedEvents[Ev]
-	): this {
-		return super.once(event as string, listener);
+	override once(event: string | symbol, listener: (...args: any[]) => void): this {
+		return super.once(event, listener);
 	}
 
-	override removeListener<Ev extends keyof ListenEvents>(
-		event: Ev,
-		listener: ListenEvents[Ev]
-	): this;
-	override removeListener<Ev extends keyof SocketReservedEvents>(
-		event: Ev,
-		listener: SocketReservedEvents[Ev]
-	): this;
-	override removeListener(event: string, listener: (...args: any[]) => void): this;
 	override removeListener(event: string | symbol, listener: (...args: any[]) => void): this {
 		return super.removeListener(event, listener);
 	}
 
-	override off<Ev extends keyof ListenEvents>(event: Ev, listener: ListenEvents[Ev]): this;
-	override off<Ev extends keyof SocketReservedEvents>(
-		event: Ev,
-		listener: SocketReservedEvents[Ev]
-	): this;
-	override off(event: string, listener: (...args: any[]) => void): this;
 	override off(event: string | symbol, listener: (...args: any[]) => void): this {
 		return super.off(event, listener);
 	}
 
-	/**
-	 * Typed emit event to this socket with proper overloads (Socket.IO format)
-	 */
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
@@ -167,16 +118,12 @@ export class Socket<
 
 			// Handle different call signatures
 			if (typeof dataOrArg === 'function') {
-				// emit(event, ack)
 				ack = dataOrArg;
 				data = undefined;
 			} else if (typeof ack === 'function') {
-				// emit(event, data, ack)
 				data = dataOrArg;
 			} else {
-				// emit(event, ...args) or emit(event, data)
 				data = dataOrArg;
-				// Ensure data doesn't contain functions
 				if (data && typeof data === 'object') {
 					data = this.sanitizeData(data);
 				}
@@ -196,9 +143,21 @@ export class Socket<
 				}, 10000);
 			}
 
-			// Используем Socket.IO формат пакетов
 			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
-			console.log(`[Socket] Sending packet to ${this.id}:`, packet);
+
+			// Логирование только в development
+			if (process.env.NODE_ENV === 'development') {
+				console.log(`[Socket] Sending packet to ${this.id} for event '${event}':`, packet);
+			}
+
+			// Проверяем что пакет корректный
+			if (!packet || typeof packet !== 'string') {
+				if (process.env.NODE_ENV === 'development') {
+					console.error(`[Socket] Invalid packet generated for ${this.id}:`, packet);
+				}
+				return false;
+			}
+
 			const result = this.ws.send(packet);
 
 			return result !== 0 && result !== -1;
@@ -210,10 +169,8 @@ export class Socket<
 
 	private sanitizeData(data: any, seen = new WeakSet()): any {
 		if (data === null || data === undefined) return data;
-
 		if (typeof data === 'function') return undefined;
 
-		// Check for circular references
 		if (typeof data === 'object' && seen.has(data)) {
 			return '[Circular]';
 		}
@@ -240,9 +197,6 @@ export class Socket<
 		return data;
 	}
 
-	/**
-	 * Join a room
-	 */
 	join(room: Room | Room[]): this {
 		const rooms = Array.isArray(room) ? room : [room];
 
@@ -250,8 +204,6 @@ export class Socket<
 			if (!this.rooms.has(r)) {
 				this.rooms.add(r);
 				this.namespace.adapter.addSocket(this.id, r);
-
-				// Subscribe to Bun topic for room
 				this.ws.subscribe(`room:${this.nsp}:${r}`);
 			}
 		}
@@ -259,61 +211,38 @@ export class Socket<
 		return this;
 	}
 
-	/**
-	 * Leave a room
-	 */
 	leave(room: Room): this {
 		if (this.rooms.has(room) && room !== this.id) {
 			this.rooms.delete(room);
 			this.namespace.adapter.removeSocket(this.id, room);
-
-			// Unsubscribe from Bun topic
 			this.ws.unsubscribe(`room:${this.nsp}:${room}`);
 		}
 
 		return this;
 	}
 
-	/**
-	 * Leave all rooms except own ID
-	 */
 	leaveAll(): this {
 		const roomsToLeave = Array.from(this.rooms).filter((room) => room !== this.id);
 		roomsToLeave.forEach((room) => this.leave(room));
 		return this;
 	}
 
-	/**
-	 * Get broadcast operator for chaining
-	 */
 	get broadcast(): any {
 		return this.namespace.except(this.id);
 	}
 
-	/**
-	 * Target specific room(s) for broadcasting
-	 */
 	to(room: Room | Room[]): any {
 		return this.namespace.to(room);
 	}
 
-	/**
-	 * Target specific room(s) - alias for to()
-	 */
 	in(room: Room | Room[]): any {
 		return this.to(room);
 	}
 
-	/**
-	 * Add timeout for acknowledgements
-	 */
 	timeout(timeout: number): any {
 		return this.namespace.timeout(timeout);
 	}
 
-	/**
-	 * Disconnect the socket
-	 */
 	disconnect(close: boolean = false): this {
 		this.stopHeartbeat();
 		if (!this._connected) return this;
@@ -321,7 +250,6 @@ export class Socket<
 		this._connected = false;
 		this.emit('disconnecting' as any, 'server namespace disconnect');
 
-		// Отправляем Socket.IO disconnect packet
 		try {
 			const disconnectPacket = SocketParser.encodeDisconnect(this.nsp);
 			this.ws.send(disconnectPacket);
@@ -329,15 +257,9 @@ export class Socket<
 			console.warn('[Socket] Failed to send disconnect packet:', error);
 		}
 
-		// Leave all rooms
 		this.leaveAll();
-
-		// Clean up acknowledgement callbacks
 		this.ackCallbacks.clear();
-
-		// Remove from namespace
 		this.namespace.removeSocket(this);
-
 		this.emit('disconnect' as any, 'server namespace disconnect');
 
 		if (close && this.ws.readyState === 1) {
@@ -348,18 +270,17 @@ export class Socket<
 	}
 
 	/**
-	 * Handle incoming packet
-	 * @internal
+	 * ИСПРАВЛЕНИЕ: Улучшенная обработка входящих пакетов
 	 */
 	_handlePacket(packet: any): void {
 		if (!packet || !packet.event) return;
 
-		// Handle special Socket.IO events
-		if (packet.event === '__connect') {
-			// Namespace connection - уже обработано в конструкторе
-			return;
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`[Socket] Handling packet: ${packet.event} from ${this.id}`);
 		}
 
+		// Handle special Socket.IO events
+		if (packet.event === '__connect') return;
 		if (packet.event === '__disconnect') {
 			this._handleClose('client namespace disconnect');
 			return;
@@ -369,78 +290,105 @@ export class Socket<
 		if (packet.event === '__ack' && packet.ackId && this.ackCallbacks.has(packet.ackId)) {
 			const callback = this.ackCallbacks.get(packet.ackId)!;
 			this.ackCallbacks.delete(packet.ackId);
-			// Socket.IO ACK может содержать массив данных
 			const responseData = Array.isArray(packet.data) ? packet.data[0] : packet.data;
 			callback(null, responseData);
 			return;
 		}
 
-		// Handle Engine.IO ping - отвечаем pong
+		// Handle Engine.IO ping/pong
 		if (packet.event === 'ping') {
-			this.ws.send('3'); // Engine.IO pong
+			this.ws.send('3');
 			return;
 		}
+		if (packet.event === 'pong') return;
 
-		// Handle Engine.IO pong - просто игнорируем
-		if (packet.event === 'pong') {
-			return;
-		}
-
-		// Check if this is an ack request from client
+		// ИСПРАВЛЕНИЕ: Улучшенная обработка ACK запросов
 		if (packet.ackId && typeof packet.ackId === 'string') {
-			// Client expects an acknowledgment
 			const originalListeners = this.listeners(packet.event);
 
 			if (originalListeners.length > 0) {
-				// Find if any listener expects a callback
 				const listener = originalListeners[0] as Function;
 
-				if (listener.length > (packet.data !== undefined ? 1 : 0)) {
-					// Listener expects more parameters than we're providing - likely a callback
-					const ackWrapper = (...args: any[]) => {
-						const ackResponse = SocketParser.encodeAckResponse(
-							packet.ackId!,
-							args,
-							this.nsp
-						);
-						this.ws.send(ackResponse);
-					};
-
-					// Call listener with data and callback
-					if (packet.data !== undefined) {
-						listener.call(this, packet.data, ackWrapper);
-					} else {
-						listener.call(this, ackWrapper);
+				// Создаем ACK wrapper
+				const ackWrapper = (...args: any[]) => {
+					if (process.env.NODE_ENV === 'development') {
+						console.log(`[Socket] Sending ACK response for ${packet.ackId}:`, args);
 					}
-					return;
+					const ackResponse = SocketParser.encodeAckResponse(
+						packet.ackId!,
+						args,
+						this.nsp
+					);
+					this.ws.send(ackResponse);
+				};
+
+				try {
+					// Проверяем количество параметров у listener
+					if (packet.data !== undefined) {
+						if (listener.length > 1) {
+							// Listener ожидает callback
+							listener.call(this, packet.data, ackWrapper);
+						} else {
+							// Listener не ожидает callback, но ACK запрошен
+							listener.call(this, packet.data);
+							ackWrapper(); // Отправляем пустой ACK
+						}
+					} else {
+						if (listener.length > 0) {
+							// Listener ожидает callback
+							listener.call(this, ackWrapper);
+						} else {
+							// Listener не ожидает callback
+							listener.call(this);
+							ackWrapper(); // Отправляем пустой ACK
+						}
+					}
+				} catch (error) {
+					console.error(`[Socket] Error in event handler for ${packet.event}:`, error);
+					ackWrapper([{ error: 'Internal server error' }]);
 				}
+				return;
+			} else {
+				// Нет обработчиков, отправляем ошибку в ACK
+				console.warn(`[Socket] No listeners for event ${packet.event}, sending error ACK`);
+				const ackResponse = SocketParser.encodeAckResponse(
+					packet.ackId!,
+					[{ error: `No handler for event: ${packet.event}` }],
+					this.nsp
+				);
+				this.ws.send(ackResponse);
+				return;
 			}
 		}
 
-		// Emit the event to socket listeners
-		if (packet.data !== undefined) {
-			this.emit(packet.event as any, packet.data);
-		} else {
-			this.emit(packet.event as any);
+		// Обычное событие без ACK
+		try {
+			if (packet.data !== undefined) {
+				this.emit(packet.event as any, packet.data);
+			} else {
+				this.emit(packet.event as any);
+			}
+		} catch (error) {
+			console.error(`[Socket] Error emitting event ${packet.event}:`, error);
 		}
 	}
 
-	/**
-	 * Handle acknowledgement for outgoing packet
-	 * @internal
-	 */
 	_handleAck(ackId: string, data: any): void {
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`[Socket] Handling ACK ${ackId} for socket ${this.id}:`, data);
+		}
 		if (this.ackCallbacks.has(ackId)) {
 			const callback = this.ackCallbacks.get(ackId)!;
 			this.ackCallbacks.delete(ackId);
+			if (process.env.NODE_ENV === 'development') {
+				console.log(`[Socket] Calling ACK callback for ${ackId}`);
+			}
 			callback(null, data);
+		} else if (process.env.NODE_ENV === 'development') {
+			console.warn(`[Socket] No ACK callback found for ${ackId} on socket ${this.id}`);
 		}
 	}
 
-	/**
-	 * Handle socket close
-	 * @internal
-	 */
 	_handleClose(reason: DisconnectReason): void {
 		this.stopHeartbeat();
 		if (this._connected) {
@@ -452,10 +400,6 @@ export class Socket<
 		}
 	}
 
-	/**
-	 * Handle socket error
-	 * @internal
-	 */
 	_handleError(error: Error): void {
 		this.emit('error' as any, error);
 	}

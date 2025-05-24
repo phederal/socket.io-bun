@@ -144,36 +144,93 @@ export class BroadcastOperator<
 
 				if (targetSockets.size === 0) {
 					// No target sockets, call ack immediately
-					ack(null, []);
+					setTimeout(() => ack(null, []), 0);
 					return true;
 				}
 
 				ackId = SocketParser.generateAckId();
+				if (process.env.NODE_ENV === 'development') {
+					console.log(`[BroadcastOperator] Generated broadcast ACK ID: ${ackId}`);
+				}
 				const responses: any[] = [];
 				let responseCount = 0;
+				let timedOut = false;
 				const expectedResponses = targetSockets.size;
 
 				const timeout = this.flags.timeout || 5000;
 				const timer = setTimeout(() => {
-					ack!(new Error('Broadcast acknowledgement timeout'), responses);
+					if (!timedOut) {
+						timedOut = true;
+						if (process.env.NODE_ENV === 'development') {
+							console.log(
+								`[BroadcastOperator] ACK timeout for broadcast ${ackId}, expected ${expectedResponses}, got ${responseCount} responses`
+							);
+						}
+
+						// Clean up any remaining callbacks
+						targetSockets.forEach((socketId) => {
+							const socket = this.adapter.nsp.sockets.get(socketId);
+							if (socket && socket.ackCallbacks.has(ackId!)) {
+								socket.ackCallbacks.delete(ackId!);
+							}
+						});
+
+						ack(new Error('Broadcast acknowledgement timeout'), responses);
+					}
 				}, timeout);
+
+				// Create a shared callback that handles responses from all sockets
+				const sharedCallback = (socketId: string) => (err: any, responseData: any) => {
+					if (timedOut) return; // Ignore late responses
+
+					console.log(
+						`[BroadcastOperator] ACK response from ${socketId} for broadcast ${ackId}:`,
+						responseData
+					);
+
+					if (err) {
+						responses.push({ socketId, error: err.message || err });
+					} else {
+						responses.push({ socketId, data: responseData });
+					}
+					responseCount++;
+
+					if (responseCount >= expectedResponses) {
+						timedOut = true;
+						clearTimeout(timer);
+
+						// Clean up remaining callbacks
+						targetSockets.forEach((sid) => {
+							const socket = this.adapter.nsp.sockets.get(sid);
+							if (socket && socket.ackCallbacks.has(ackId!)) {
+								socket.ackCallbacks.delete(ackId!);
+							}
+						});
+
+						ack(null, responses);
+					}
+				};
 
 				// Register callback for each target socket
 				targetSockets.forEach((socketId) => {
 					const socket = this.adapter.nsp.sockets.get(socketId);
 					if (socket) {
-						socket.ackCallbacks.set(ackId!, (err: any, responseData: any) => {
-							if (err) {
-								responses.push({ socketId, error: err.message || err });
-							} else {
-								responses.push({ socketId, data: responseData });
-							}
-							responseCount++;
-							if (responseCount >= expectedResponses) {
-								clearTimeout(timer);
-								ack!(null, responses);
-							}
-						});
+						socket.ackCallbacks.set(ackId!, sharedCallback(socketId));
+						if (process.env.NODE_ENV === 'development') {
+							console.log(
+								`[BroadcastOperator] Registered ACK callback ${ackId} for socket ${socketId}`
+							);
+						}
+					} else {
+						// Socket not found, count as error response
+						responses.push({ socketId, error: 'Socket not found' });
+						responseCount++;
+
+						if (responseCount >= expectedResponses) {
+							timedOut = true;
+							clearTimeout(timer);
+							ack(null, responses);
+						}
 					}
 				});
 			}
@@ -198,11 +255,13 @@ export class BroadcastOperator<
 			let success = true;
 			for (const [nsp, sockets] of namespaces) {
 				const packet = SocketParser.encode(event as any, data, ackId, nsp);
-				// console.log(`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`, packet);
-				console.log(
-					`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`,
-					'<packet>'
-				);
+				if (process.env.NODE_ENV === 'development') {
+					// console.log(`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`, packet);
+					console.log(
+						`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`,
+						'<packet>'
+					);
+				}
 
 				// Отправляем каждому сокету в этом namespace
 				for (const socketId of sockets) {

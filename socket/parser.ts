@@ -8,7 +8,7 @@ import type {
 
 /**
  * Socket.IO compatible packet encoder/decoder
- * Имитирует формат пакетов Socket.IO для совместимости с клиентом
+ * Точно соответствует формату Socket.IO v4.x
  */
 export class SocketParser {
 	/**
@@ -20,53 +20,42 @@ export class SocketParser {
 		ackId?: string,
 		namespace: string = '/'
 	): string {
-		// Engine.IO packet types:
-		// 0=open, 1=close, 2=ping, 3=pong, 4=message
-		// Socket.IO packet types (after 4):
-		// 0=CONNECT, 1=DISCONNECT, 2=EVENT, 3=ACK, 4=CONNECT_ERROR, 5=BINARY_EVENT, 6=BINARY_ACK
-
 		// Handle ping/pong (Engine.IO level)
 		if (event === ('ping' as any)) return '2';
 		if (event === ('pong' as any)) return '3';
 
 		let packet = '4'; // Engine.IO message packet
-
-		if (ackId) {
-			// Socket.IO ACK packet
-			packet += '3';
-		} else {
-			// Socket.IO EVENT packet
-			packet += '2';
-		}
+		packet += '2'; // Socket.IO EVENT packet
 
 		// Add namespace if not default
 		if (namespace !== '/') {
 			packet += namespace + ',';
 		}
 
-		// Add ack ID if present
+		// Add ack ID if present (BEFORE payload for EVENT packets)
 		if (ackId) {
 			packet += ackId;
 		}
 
-		// Create payload array
-		let payload: any[];
-		if (ackId) {
-			// ACK format: [ackId, ...responseData]
-			payload = Array.isArray(data) ? data : [data];
-		} else {
-			// EVENT format: [eventName, data]
-			payload = data !== undefined ? [event, data] : [event];
-		}
+		// Create payload array - EVENT format: [eventName] or [eventName, data]
+		let payload: any[] = data !== undefined ? [event, data] : [event];
 
 		packet += JSON.stringify(payload);
+
+		// Логирование только в development режиме
+		if (process.env.NODE_ENV === 'development') {
+			console.log(
+				`[SocketParser] Encoded packet for event '${event}' with ACK ID '${ackId}':`,
+				packet
+			);
+		}
 		return packet;
 	}
 
 	/**
 	 * Encode acknowledgment response (Socket.IO format)
 	 */
-	static encodeAckResponse(ackId: string, data: any, namespace: string = '/'): string {
+	static encodeAckResponse(ackId: string, data: any[], namespace: string = '/'): string {
 		let packet = '43'; // Engine.IO message + Socket.IO ACK
 
 		// Add namespace if not default
@@ -77,9 +66,13 @@ export class SocketParser {
 		packet += ackId;
 
 		// ACK response format: [responseData] or [responseData1, responseData2, ...]
-		const payload = Array.isArray(data) ? data : [data];
+		// Если данных нет, отправляем пустой массив
+		const payload = data && data.length > 0 ? data : [];
 		packet += JSON.stringify(payload);
 
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`[SocketParser] Encoded ACK response: ${packet}`);
+		}
 		return packet;
 	}
 
@@ -97,11 +90,11 @@ export class SocketParser {
 		// Add connect data if present - для Socket.IO v4 должен содержать объект с sid
 		if (data) {
 			packet += JSON.stringify(data);
-		} else {
-			// По умолчанию отправляем пустой объект для Socket.IO v4 совместимости
-			packet += '{}';
 		}
 
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`[SocketParser] Encoded connect packet: ${packet}`);
+		}
 		return packet;
 	}
 
@@ -116,6 +109,9 @@ export class SocketParser {
 			packet += namespace + ',';
 		}
 
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`[SocketParser] Encoded disconnect packet: ${packet}`);
+		}
 		return packet;
 	}
 
@@ -145,7 +141,9 @@ export class SocketParser {
 				return null;
 			}
 
-			// Parse Engine.IO + Socket.IO packet
+			if (process.env.NODE_ENV === 'development') {
+				console.log(`[SocketParser] Decoding message: ${message}`);
+			}
 			return SocketParser.parseSocketIOPacket(message);
 		} catch (error) {
 			console.warn('[SocketParser] Decode error:', error);
@@ -177,15 +175,12 @@ export class SocketParser {
 
 		// Handle Engine.IO packets
 		if (engineType === 2) {
-			// Ping packet
 			return { event: 'ping' as any };
 		}
 		if (engineType === 3) {
-			// Pong packet
 			return { event: 'pong' as any };
 		}
 		if (engineType !== 4) {
-			// Not a message packet, ignore
 			console.warn(
 				'[SocketParser] Unknown Engine.IO packet type:',
 				engineType,
@@ -221,6 +216,9 @@ export class SocketParser {
 			if (match) {
 				ackId = match[1];
 				offset += match[1].length;
+				if (process.env.NODE_ENV === 'development') {
+					console.log(`[SocketParser] Parsed ACK ID: ${ackId} from message: ${message}`);
+				}
 			}
 		}
 
@@ -290,7 +288,11 @@ export class SocketParser {
 			pingTimeout: 20000,
 			maxPayload: 1000000,
 		};
-		return '0' + JSON.stringify(handshake);
+		const response = '0' + JSON.stringify(handshake);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`[SocketParser] Created handshake response: ${response}`);
+		}
+		return response;
 	}
 
 	/**
@@ -300,11 +302,15 @@ export class SocketParser {
 		return `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 	}
 
+	private static ackCounter = 1000; // Начинаем с большего числа
+
 	/**
-	 * Generate unique acknowledgement ID
+	 * Generate unique acknowledgement ID (только цифры для совместимости с Socket.IO)
 	 */
 	static generateAckId(): string {
-		return `${Date.now()}${Math.random().toString(36).substr(2, 5)}`;
+		// Используем простой счетчик вместо timestamp
+		this.ackCounter++;
+		return this.ackCounter.toString();
 	}
 
 	/**

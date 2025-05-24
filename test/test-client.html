@@ -126,6 +126,9 @@
 				<h3>📊 Batch Tests</h3>
 				<button onclick="runAllTests()">Run All Tests</button>
 				<button onclick="stressTestAck()">Stress Test (100 ACKs)</button>
+				<button onclick="stressTestAck(10)">Stress Test (1000 ACKs)</button>
+				<button onclick="stressTestAck(100)">Stress Test (10000 ACKs)</button>
+				<button onclick="stressTestAck(500)">Stress Test (50000 ACKs)</button>
 				<button onclick="clearLog()">Clear Log</button>
 			</div>
 
@@ -197,16 +200,28 @@
 				// Server-to-client ACK handlers
 				socket.on('server_ping', (callback) => {
 					log('📡 Server requested ping, responding with pong', 'info');
-					callback('pong');
+					if (typeof callback === 'function') {
+						callback('pong');
+					}
 				});
 
 				socket.on('validate_data', (data, callback) => {
 					log(`🔍 Server requested validation for: ${JSON.stringify(data)}`, 'info');
-					const isValid = data && typeof data.value === 'string' && data.value.length > 0;
-					callback({
-						valid: isValid,
-						message: isValid ? 'Data is valid' : 'Data is invalid',
-					});
+					if (typeof callback === 'function') {
+						const isValid =
+							data && typeof data.test === 'string' && data.test.length > 0;
+						callback({
+							valid: isValid,
+							message: isValid ? 'Data is valid' : 'Data is invalid',
+						});
+					}
+				});
+
+				socket.on('request_feedback', (message, callback) => {
+					log(`💬 Server requested feedback: ${message}`, 'info');
+					if (typeof callback === 'function') {
+						callback('Connection is working great!');
+					}
 				});
 			}
 
@@ -359,26 +374,28 @@
 				setTimeout(() => log('🏁 All tests completed!', 'success'), 700);
 			}
 
-			function stressTestAck() {
+			function stressTestAck(x = 1) {
 				if (!socket || !socket.connected) {
 					log('Not connected!', 'error');
 					return;
 				}
 
-				log('💪 Starting stress test: 100 ACK requests...', 'info');
+				log(`💪 Starting stress test: ${100 * x} ACK requests...`, 'info');
 				const startTime = Date.now();
 				let completed = 0;
 				let errors = 0;
 
-				for (let i = 0; i < 100; i++) {
+				for (let i = 0; i < 100 * x; i++) {
 					socket.emit('echo', `Stress test ${i}`, (response) => {
 						completed++;
 						if (response.includes('error')) errors++;
 
-						if (completed === 100) {
+						if (completed === 100 * x) {
 							const duration = Date.now() - startTime;
 							log(
-								`💪 Stress test completed: ${completed}/100 in ${duration}ms, ${errors} errors`,
+								`💪 Stress test completed: ${completed}/${
+									100 * x
+								} in ${duration}ms, ${errors} errors`,
 								'success'
 							);
 						}

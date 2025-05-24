@@ -3,7 +3,7 @@
  * Демонстрирует все типы acknowledgments в Socket.IO
  */
 
-import { io } from './socket/server';
+import { io } from '../socket/server';
 
 // Расширяем типы для тестирования
 interface TestClientEvents {
@@ -45,20 +45,25 @@ interface TestServerEvents {
 // Создаем типизированный namespace для тестов
 const testNamespace = io.of<TestClientEvents, TestServerEvents>('/');
 
-testNamespace.on('connect', (socket) => {
-	console.log('\n|||||||||||||||||||||||||||||||||||||||||||||\n');
-	console.log(`🧪 Test socket ${socket.id} connected`);
+testNamespace.on('connection', (socket) => {
+	if (process.env.NODE_ENV === 'development') {
+		console.log(`🧪 Test socket ${socket.id} connected`);
+	}
 
 	// ===== ОБРАБОТЧИКИ СОБЫТИЙ БЕЗ ACK =====
 
 	socket.on('message', (data) => {
-		console.log(`📨 Message from ${socket.id}:`, data);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`📨 Message from ${socket.id}:`, data);
+		}
 		socket.emit('message', `Server echo: ${data}`);
 		socket.broadcast.emit('message', `${socket.id} says: ${data}`);
 	});
 
 	socket.on('ping', () => {
-		console.log(`📡 Ping from ${socket.id}`);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`📡 Ping from ${socket.id}`);
+		}
 		socket.emit('pong');
 	});
 
@@ -66,7 +71,9 @@ testNamespace.on('connect', (socket) => {
 
 	// Простое эхо с ACK
 	socket.on('echo', (data, callback) => {
-		console.log(`🔄 Echo request from ${socket.id}:`, data);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`🔄 Echo request from ${socket.id}:`, data);
+		}
 
 		// Имитируем небольшую задержку
 		setTimeout(() => {
@@ -76,7 +83,9 @@ testNamespace.on('connect', (socket) => {
 
 	// Получение информации о пользователе
 	socket.on('get_user_info', (callback) => {
-		console.log(`👤 User info request from ${socket.id}`);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`👤 User info request from ${socket.id}`);
+		}
 
 		const userInfo = {
 			id: socket.id,
@@ -89,7 +98,9 @@ testNamespace.on('connect', (socket) => {
 
 	// Математические вычисления с обработкой ошибок
 	socket.on('calculate', (data, callback) => {
-		console.log(`🧮 Calculation request from ${socket.id}:`, data);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`🧮 Calculation request from ${socket.id}:`, data);
+		}
 
 		const { operation, a, b } = data;
 
@@ -123,7 +134,9 @@ testNamespace.on('connect', (socket) => {
 
 	// Принудительная ошибка для тестирования
 	socket.on('trigger_error', (callback) => {
-		console.log(`❌ Error trigger from ${socket.id}`);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`❌ Error trigger from ${socket.id}`);
+		}
 		callback({
 			error: 'This is a test error',
 			code: 400,
@@ -132,7 +145,9 @@ testNamespace.on('connect', (socket) => {
 
 	// Медленный ответ для тестирования timeout
 	socket.on('slow_response', (callback) => {
-		console.log(`⏰ Slow response request from ${socket.id}`);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`⏰ Slow response request from ${socket.id}`);
+		}
 
 		// Ждем 10 секунд перед ответом (больше чем timeout в клиенте)
 		setTimeout(() => {
@@ -144,21 +159,29 @@ testNamespace.on('connect', (socket) => {
 
 	// Запрос ping от клиента
 	socket.on('request_ping_back', () => {
-		console.log(`📡 Ping back request from ${socket.id}`);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`📡 Ping back request from ${socket.id}`);
+		}
 
 		// Отправляем ping клиенту и ждем ответ
 		socket.emit('server_ping', (response) => {
-			console.log(`📡 Ping response from ${socket.id}:`, response);
+			if (process.env.NODE_ENV === 'development') {
+				console.log(`📡 Ping response from ${socket.id}:`, response);
+			}
 		});
 	});
 
 	// Запрос валидации данных
 	socket.on('request_validation', (data) => {
-		console.log(`🔍 Validation request from ${socket.id}:`, data);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`🔍 Validation request from ${socket.id}:`, data);
+		}
 
 		// Отправляем данные клиенту для валидации
 		socket.emit('validate_data', data, (result) => {
-			console.log(`🔍 Validation result from ${socket.id}:`, result);
+			if (process.env.NODE_ENV === 'development') {
+				console.log(`🔍 Validation result from ${socket.id}:`, result);
+			}
 		});
 	});
 
@@ -169,27 +192,31 @@ testNamespace.on('connect', (socket) => {
 		socket.emit('message', '🎉 Welcome to Socket.IO ACK Test Server!');
 	}, 1000);
 
-	// Тестируем server-to-client ACK через 3 секунды
-	setTimeout(() => {
-		console.log(`🧪 Testing server-to-client ACK with ${socket.id}`);
+	// // Тестируем server-to-client ACK через 3 секунды
+	// setTimeout(() => {
+	// 	console.log(`🧪 Testing server-to-client ACK with ${socket.id}`);
 
-		socket.emit('server_ping', (response) => {
-			console.log(`✅ Auto-test ACK response from ${socket.id}:`, response);
-		});
-	}, 3000);
+	// 	socket.timeout(5000).emit('server_ping', (err, response) => {
+	// 		if (err) {
+	// 			console.log(`⏰ Auto-test ACK timeout from ${socket.id}:`, err.message);
+	// 		} else {
+	// 			console.log(`✅ Auto-test ACK response from ${socket.id}:`, response);
+	// 		}
+	// 	});
+	// }, 3000);
 
-	// Тестируем timeout ACK через 5 секунд
-	setTimeout(() => {
-		console.log(`⏰ Testing timeout ACK with ${socket.id}`);
+	// // Тестируем timeout ACK через 5 секунд
+	// setTimeout(() => {
+	// 	console.log(`⏰ Testing timeout ACK with ${socket.id}`);
 
-		socket.timeout(2000).emit('request_feedback', 'How is the connection?', (err, feedback) => {
-			if (err) {
-				console.log(`⏰ Timeout from ${socket.id}:`, err.message);
-			} else {
-				console.log(`✅ Feedback from ${socket.id}:`, feedback);
-			}
-		});
-	}, 5000);
+	// 	socket.timeout(2000).emit('request_feedback', 'How is the connection?', (err, feedback) => {
+	// 		if (err) {
+	// 			console.log(`⏰ Timeout test result for ${socket.id}:`, err.message);
+	// 		} else {
+	// 			console.log(`✅ Feedback from ${socket.id}:`, feedback);
+	// 		}
+	// 	});
+	// }, 5000);
 
 	// ===== ОБРАБОТЧИК ОТКЛЮЧЕНИЯ =====
 
@@ -202,34 +229,48 @@ testNamespace.on('connect', (socket) => {
 
 // Функция для тестирования broadcast ACK
 export function testBroadcastAck() {
-	console.log('\n🧪 Testing broadcast acknowledgments...');
+	if (process.env.NODE_ENV === 'development') {
+		console.log('\n🧪 Testing broadcast acknowledgments...');
+	}
 
 	const sockets = Array.from(testNamespace.sockets.values());
 	if (sockets.length === 0) {
-		console.log('❌ No sockets connected for broadcast test');
+		if (process.env.NODE_ENV === 'development') {
+			console.log('❌ No sockets connected for broadcast test');
+		}
 		return;
 	}
 
-	console.log(`📡 Broadcasting ping to ${sockets.length} sockets`);
+	if (process.env.NODE_ENV === 'development') {
+		console.log(`📡 Broadcasting ping to ${sockets.length} sockets`);
+	}
 
 	// Broadcast ACK test
 	testNamespace.emit('server_ping', (err, responses) => {
 		if (err) {
 			console.error('❌ Broadcast ACK error:', err.message);
 		} else {
-			console.log(`✅ Broadcast ACK: received ${responses.length} responses`);
-			responses.forEach((response, index) => {
-				console.log(`  Response ${index + 1}:`, response);
-			});
+			if (process.env.NODE_ENV === 'development') {
+				console.log(`✅ Broadcast ACK: received ${responses.length} responses`);
+			}
+			if (process.env.NODE_ENV === 'development') {
+				responses.forEach((response, index) => {
+					console.log(`  Response ${index + 1}:`, response);
+				});
+			}
 		}
 	});
 
 	// Timeout broadcast test
 	testNamespace.timeout(3000).emit('validate_data', { test: 'broadcast' }, (err, responses) => {
 		if (err) {
-			console.log(`⏰ Broadcast timeout: ${err.message}`);
+			console.error(`⏰ Broadcast timeout: ${err.message}`);
 		} else {
-			console.log(`✅ Broadcast validation: ${responses.length} responses within timeout`);
+			if (process.env.NODE_ENV === 'development') {
+				console.log(
+					`✅ Broadcast validation: ${responses.length} responses within timeout`
+				);
+			}
 		}
 	});
 }
@@ -239,7 +280,9 @@ export function testBroadcastAck() {
 export function stressTestAck(socketId: string, count: number = 100) {
 	const socket = testNamespace.sockets.get(socketId);
 	if (!socket) {
-		console.log(`❌ Socket ${socketId} not found`);
+		if (process.env.NODE_ENV === 'development') {
+			console.log(`❌ Socket ${socketId} not found`);
+		}
 		return;
 	}
 
@@ -281,15 +324,8 @@ export function sendTestMessage(socketId: string, message: string) {
 }
 
 // Автоматический запуск broadcast тестов каждые 30 секунд
-setInterval(() => {
-	if (testNamespace.sockets.size > 0) {
-		testBroadcastAck();
-	}
-}, 30000);
-
-console.log('🧪 ACK Test Server initialized!');
-console.log('📋 Available test functions:');
-console.log('  - testBroadcastAck()');
-console.log('  - stressTestAck(socketId, count)');
-console.log('  - getConnectedSockets()');
-console.log('  - sendTestMessage(socketId, message)');
+// setInterval(() => {
+// 	if (testNamespace.sockets.size > 0) {
+// 		testBroadcastAck();
+// 	}
+// }, 30000);
