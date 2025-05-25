@@ -599,8 +599,3 @@ export function sendBinaryTestMessage(socketId: string, message: string) {
 }
 
 console.log('🧪 Enhanced test server initialized');
-console.log('📝 Available functions:');
-console.log('  - runServerPerformanceTest() - Test server-side performance');
-console.log('  - runBroadcastPerformanceTest() - Test broadcast performance');
-console.log('  - runMemoryStressTest() - Test memory usage under load');
-console.log('🔥 Enhanced features: binary protocol, ultra-fast methods, batch operations');

@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "NODE_ENV=development bun run --watch index.ts",
-    "start": "NODE_ENV=production bun run index.ts"
+    "start": "NODE_ENV=production bun run index.ts",
+    "test": "NODE_ENV=production bun run test.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
