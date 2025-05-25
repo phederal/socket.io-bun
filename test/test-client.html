@@ -341,7 +341,7 @@
 				if (autoScroll) {
 					logDiv.scrollTop = logDiv.scrollHeight;
 				}
-				console.log(`[${timestamp}] ${message}`);
+				// console.log(`[${timestamp}] ${message}`);
 			}
 
 			function updateStatus(connected) {
@@ -464,9 +464,48 @@
 					}
 				});
 
+				// ===== ACK ОБРАБОТЧИКИ (ИСПРАВЛЕНИЕ) =====
+				socket.on('fast_ack_test', (data, callback) => {
+					if (typeof callback === 'function') {
+						callback(`ack_response_${data}`);
+					}
+				});
+
 				socket.on('benchmark_ping', (callback) => {
 					if (typeof callback === 'function') {
 						callback('benchmark_pong');
+					}
+				});
+
+				// 1. Обработчики для Fast ACK тестов
+				socket.on('fast_ack_test', (data, callback) => {
+					messagesReceived++;
+					updateMetrics();
+					log(`🔄 Fast ACK test received: ${data}`, 'info');
+
+					if (typeof callback === 'function') {
+						// Немедленный ответ для минимизации задержки
+						callback(`fast_ack_response_${data}`);
+					}
+				});
+
+				// 2. Обработчики для Benchmark тестов
+				socket.on('benchmark_ping', (callback) => {
+					messagesReceived++;
+					updateMetrics();
+
+					if (typeof callback === 'function') {
+						callback('benchmark_pong');
+					}
+				});
+
+				// 3. Обработчики для Stress ACK тестов
+				socket.on('stress_ack_test', (data, callback) => {
+					messagesReceived++;
+					updateMetrics();
+
+					if (typeof callback === 'function') {
+						callback(`stress_ack_${data}`);
 					}
 				});
 			}
@@ -575,10 +614,37 @@
 					return;
 				}
 				log('🔄 Testing basic ACK...', 'info');
+
+				// Используем событие, которое точно обрабатывается на сервере
 				socket.emit('echo', 'Hello Enhanced ACK!', (response) => {
 					log(`✅ ACK response: ${response}`, 'success');
 				});
 				messagesSent++;
+				updateMetrics();
+			}
+
+			function testFastAckManual() {
+				if (!socket || !socket.connected) {
+					log('Not connected!', 'error');
+					return;
+				}
+
+				log('🚀 Testing Fast ACK manually...', 'info');
+
+				let responseCount = 0;
+				const totalTests = 10;
+
+				for (let i = 0; i < totalTests; i++) {
+					socket.emit('fast_ack_test', `test_${i}`, (response) => {
+						responseCount++;
+						log(`⚡ Fast ACK ${i} response: ${response}`, 'success');
+
+						if (responseCount === totalTests) {
+							log(`✅ All ${totalTests} Fast ACK tests completed!`, 'success');
+						}
+					});
+					messagesSent++;
+				}
 				updateMetrics();
 			}
 

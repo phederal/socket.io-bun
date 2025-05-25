@@ -40,6 +40,16 @@ export class SocketParser {
 	private static readonly SOCKET_DISCONNECT = '41';
 
 	/**
+	 * Прекомпилированные пакеты для частых событий
+	 */
+	private static readonly PRECOMPILED_PACKETS = {
+		ping: '42["ping"]',
+		pong: '42["pong"]',
+		connect: '42["connect"]',
+		disconnect: '42["disconnect"]',
+	} as const;
+
+	/**
 	 * Generate unique acknowledgement ID (оптимизированный)
 	 */
 	static generateAckId(): string {
@@ -77,6 +87,49 @@ export class SocketParser {
 		// Прямое создание строки без JSON.stringify для производительности
 		packet += `["${event}","${data.replace(/"/g, '\\"')}"]`;
 		return packet;
+	}
+
+	/**
+	 * Instant encode для максимальной скорости
+	 */
+	static encodeInstant(event: string): string {
+		// Проверяем прекомпилированные пакеты
+		if (event in this.PRECOMPILED_PACKETS) {
+			return this.PRECOMPILED_PACKETS[event as keyof typeof this.PRECOMPILED_PACKETS];
+		}
+
+		// Прямое создание без кеширования
+		return `42["${event}"]`;
+	}
+
+	/**
+	 * Быстрое кодирование строковых событий
+	 */
+	static encodeStringInstant(event: string, data: string): string {
+		// Минимальное экранирование
+		const escaped = data.includes('"') ? data.replace(/"/g, '\\"') : data;
+		return `42["${event}","${escaped}"]`;
+	}
+
+	/**
+	 * Batch создание пакетов для предварительной компиляции
+	 */
+	static precompilePackets(events: Array<{ event: string; data?: any }>): string[] {
+		const packets: string[] = [];
+
+		for (const { event, data } of events) {
+			if (!data) {
+				packets.push(this.encodeInstant(event));
+			} else if (typeof data === 'string') {
+				packets.push(this.encodeStringInstant(event, data));
+			} else if (typeof data === 'number') {
+				packets.push(`42["${event}",${data}]`);
+			} else {
+				packets.push(this.encode(event as any, data));
+			}
+		}
+
+		return packets;
 	}
 
 	/**
@@ -220,6 +273,26 @@ export class SocketParser {
 			console.log(`[SocketParser] Encoded ACK response: ${packet}`);
 		}
 		return packet;
+	}
+
+	/**
+	 * Оптимизированное кодирование ACK ответа
+	 */
+	static encodeAckResponseFast(ackId: string, data: any): string {
+		if (data === undefined || data === null) {
+			return `43${ackId}[]`;
+		}
+
+		if (typeof data === 'string') {
+			return `43${ackId}["${data.replace(/"/g, '\\"')}"]`;
+		}
+
+		if (typeof data === 'number' || typeof data === 'boolean') {
+			return `43${ackId}[${data}]`;
+		}
+
+		// Fallback на JSON
+		return `43${ackId}${JSON.stringify([data])}`;
 	}
 
 	/**

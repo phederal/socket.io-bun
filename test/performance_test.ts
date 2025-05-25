@@ -72,6 +72,47 @@ export class PerformanceTest {
 	}
 
 	/**
+	 * Тест мгновенного emit
+	 */
+	async testInstantEmit(
+		socketId: string,
+		count: number = 10000
+	): Promise<PerformanceTestResults> {
+		const socket = this.getSocket(socketId);
+		if (!socket) {
+			throw new Error(`Socket ${socketId} not found`);
+		}
+
+		console.log(`⚡ Starting instant emit test: ${count} operations`);
+
+		const startTime = Date.now();
+		let successful = 0;
+
+		for (let i = 0; i < count; i++) {
+			if ((socket as any).emitInstant('ping')) {
+				successful++;
+			}
+		}
+
+		const endTime = Date.now();
+		const timeMs = endTime - startTime;
+		const opsPerSecond = Math.round((count / timeMs) * 1000);
+
+		const result: PerformanceTestResults = {
+			testName: 'Instant Emit',
+			totalOperations: count,
+			timeMs,
+			operationsPerSecond: opsPerSecond,
+			successful,
+			failed: count - successful,
+		};
+
+		this.results.push(result);
+		this.logResult(result);
+		return result;
+	}
+
+	/**
 	 * Тест производительности string emit
 	 */
 	async testStringEmit(socketId: string, count: number = 10000): Promise<PerformanceTestResults> {
@@ -135,6 +176,47 @@ export class PerformanceTest {
 
 		const result: PerformanceTestResults = {
 			testName: 'Binary Emit',
+			totalOperations: count,
+			timeMs,
+			operationsPerSecond: opsPerSecond,
+			successful,
+			failed: count - successful,
+		};
+
+		this.results.push(result);
+		this.logResult(result);
+		return result;
+	}
+
+	/**
+	 * Тест оптимизированного binary emit
+	 */
+	async testOptimizedBinaryEmit(
+		socketId: string,
+		count: number = 10000
+	): Promise<PerformanceTestResults> {
+		const socket = this.getSocket(socketId);
+		if (!socket) {
+			throw new Error(`Socket ${socketId} not found`);
+		}
+
+		console.log(`🔥 Starting optimized binary emit test: ${count} operations`);
+
+		const startTime = Date.now();
+		let successful = 0;
+
+		for (let i = 0; i < count; i++) {
+			if ((socket as any).emitBinaryOptimized('message', `binary_${i}`)) {
+				successful++;
+			}
+		}
+
+		const endTime = Date.now();
+		const timeMs = endTime - startTime;
+		const opsPerSecond = Math.round((count / timeMs) * 1000);
+
+		const result: PerformanceTestResults = {
+			testName: 'Optimized Binary Emit',
 			totalOperations: count,
 			timeMs,
 			operationsPerSecond: opsPerSecond,
@@ -232,6 +314,52 @@ export class PerformanceTest {
 			operationsPerSecond: opsPerSecond,
 			successful,
 			failed: totalOperations - successful,
+		};
+
+		this.results.push(result);
+		this.logResult(result);
+		return result;
+	}
+
+	/**
+	 * Тест precompiled batch
+	 */
+	async testPrecompiledBatch(
+		socketId: string,
+		count: number = 10000
+	): Promise<PerformanceTestResults> {
+		const socket = this.getSocket(socketId);
+		if (!socket) {
+			throw new Error(`Socket ${socketId} not found`);
+		}
+
+		console.log(`📦 Starting precompiled batch test: ${count} operations`);
+
+		const startTime = Date.now();
+
+		// Предварительная компиляция пакетов
+		const events = [];
+		for (let i = 0; i < count; i++) {
+			events.push({ event: 'test_result', data: `batch_${i}` });
+		}
+
+		const { SocketParser } = require('../socket/parser');
+		const precompiledPackets = SocketParser.precompilePackets(events);
+
+		// Отправка precompiled пакетов
+		const successful = (socket as any).emitBatchPrecompiled(precompiledPackets);
+
+		const endTime = Date.now();
+		const timeMs = endTime - startTime;
+		const opsPerSecond = Math.round((count / timeMs) * 1000);
+
+		const result: PerformanceTestResults = {
+			testName: 'Precompiled Batch',
+			totalOperations: count,
+			timeMs,
+			operationsPerSecond: opsPerSecond,
+			successful,
+			failed: count - successful,
 		};
 
 		this.results.push(result);
@@ -368,6 +496,57 @@ export class PerformanceTest {
 	}
 
 	/**
+	 * Тест супер-быстрого ACK
+	 */
+	async testSuperFastAck(
+		socketId: string,
+		count: number = 1000
+	): Promise<PerformanceTestResults> {
+		const socket = this.getSocket(socketId);
+		if (!socket) {
+			throw new Error(`Socket ${socketId} not found`);
+		}
+
+		console.log(`🚀 Starting super fast ACK test: ${count} operations`);
+
+		return new Promise((resolve) => {
+			const startTime = Date.now();
+			let successful = 0;
+			let completed = 0;
+
+			for (let i = 0; i < count; i++) {
+				(socket as any).emitWithSuperFastAck(
+					'fast_ack_test',
+					`data_${i}`,
+					(err: any, response: any) => {
+						completed++;
+						if (!err) successful++;
+
+						if (completed === count) {
+							const endTime = Date.now();
+							const timeMs = endTime - startTime;
+							const opsPerSecond = Math.round((count / timeMs) * 1000);
+
+							const result: PerformanceTestResults = {
+								testName: 'Super Fast ACK',
+								totalOperations: count,
+								timeMs,
+								operationsPerSecond: opsPerSecond,
+								successful,
+								failed: count - successful,
+							};
+
+							this.results.push(result);
+							this.logResult(result);
+							resolve(result);
+						}
+					}
+				);
+			}
+		});
+	}
+
+	/**
 	 * Тест производительности bulk operations
 	 */
 	async testBulkOperations(count: number = 5000): Promise<PerformanceTestResults> {
@@ -481,6 +660,40 @@ export class PerformanceTest {
 	}
 
 	/**
+	 * Обновленный быстрый тест с новыми методами
+	 */
+	async runOptimizedQuickTests(socketId?: string): Promise<PerformanceTestResults[]> {
+		if (!this.ioInstance) {
+			throw new Error('IO instance not set. Call setIOInstance() first.');
+		}
+
+		const namespace = this.ioInstance.of('/');
+		const availableSockets = Array.from(namespace.sockets.keys());
+
+		const testSocketId = socketId || availableSockets[0];
+
+		if (!testSocketId) {
+			throw new Error('No sockets connected for testing');
+		}
+
+		console.log(`\n⚡ Running optimized performance tests with socket: ${testSocketId}`);
+		console.log('='.repeat(60));
+
+		// Новые оптимизированные тесты
+		await this.testInstantEmit(testSocketId, 15000);
+		await this.testOptimizedBinaryEmit(testSocketId, 15000);
+		await this.testPrecompiledBatch(testSocketId, 10000);
+		await this.testSuperFastAck(testSocketId, 2000);
+
+		// Сравнение со старыми методами
+		await this.testSimpleEmit(testSocketId, 10000);
+		await this.testBinaryEmit(testSocketId, 10000);
+
+		this.printOptimizedSummary();
+		return this.results;
+	}
+
+	/**
 	 * Вывод результата одного теста
 	 */
 	private logResult(result: PerformanceTestResults): void {
@@ -533,6 +746,67 @@ export class PerformanceTest {
 				bestResult.testName
 			} - ${bestResult.operationsPerSecond.toLocaleString()} ops/sec`
 		);
+	}
+
+	/**
+	 * Печать оптимизированной сводки
+	 */
+	private printOptimizedSummary(): void {
+		console.log('\n🏆 OPTIMIZED PERFORMANCE SUMMARY');
+		console.log('='.repeat(70));
+
+		// Группируем результаты по категориям
+		const optimized = this.results.filter(
+			(r) =>
+				r.testName.includes('Instant') ||
+				r.testName.includes('Optimized') ||
+				r.testName.includes('Super') ||
+				r.testName.includes('Precompiled')
+		);
+
+		const standard = this.results.filter(
+			(r) =>
+				!r.testName.includes('Instant') &&
+				!r.testName.includes('Optimized') &&
+				!r.testName.includes('Super') &&
+				!r.testName.includes('Precompiled')
+		);
+
+		console.log('🚀 OPTIMIZED METHODS:');
+		optimized.forEach((result) => {
+			const opsFormatted = result.operationsPerSecond.toLocaleString().padStart(10);
+			const successRate = ((result.successful / result.totalOperations) * 100).toFixed(1);
+			console.log(
+				`${result.testName.padEnd(20)} | ${opsFormatted} ops/sec | ${successRate.padStart(
+					5
+				)}% success`
+			);
+		});
+
+		console.log('\n📊 STANDARD METHODS:');
+		standard.forEach((result) => {
+			const opsFormatted = result.operationsPerSecond.toLocaleString().padStart(10);
+			const successRate = ((result.successful / result.totalOperations) * 100).toFixed(1);
+			console.log(
+				`${result.testName.padEnd(20)} | ${opsFormatted} ops/sec | ${successRate.padStart(
+					5
+				)}% success`
+			);
+		});
+
+		// Сравнение производительности
+		const instantEmit = optimized.find((r) => r.testName === 'Instant Emit');
+		const simpleEmit = standard.find((r) => r.testName === 'Simple Emit');
+
+		if (instantEmit && simpleEmit) {
+			const improvement = (
+				(instantEmit.operationsPerSecond / simpleEmit.operationsPerSecond - 1) *
+				100
+			).toFixed(1);
+			console.log(
+				`\n📈 IMPROVEMENT: Instant Emit is ${improvement}% faster than Simple Emit`
+			);
+		}
 	}
 
 	/**

@@ -215,11 +215,23 @@ export class Socket<
 	}
 
 	/**
+	 * Мгновенный emit без проверок (максимальная скорость)
+	 */
+	emitInstant(event: string): boolean {
+		// Inline проверка состояния WebSocket
+		if (this.ws.readyState !== 1) return false;
+
+		// Прямое создание пакета без кеширования
+		const packet = `42["${event}"]`;
+		return this.ws.send(packet) > 0;
+	}
+
+	/**
 	 * Ultra-fast emit с возможностью бинарного кодирования ТОЛЬКО при наличии флага
 	 */
 	emitUltraFast(event: string, data?: string | number, forceBinary: boolean = false): boolean {
 		// Inline проверка состояния для максимальной скорости
-		if (!this._connected | (this.ws.readyState !== Socket.WS_READY_STATE_OPEN)) {
+		if (!this._connected || this.ws.readyState !== Socket.WS_READY_STATE_OPEN) {
 			return false;
 		}
 
@@ -251,6 +263,29 @@ export class Socket<
 		} catch {
 			return false;
 		}
+	}
+
+	/**
+	 * Ультра-быстрый emit с минимальными проверками
+	 */
+	emitUltraFastOptimized(event: string, data?: string | number): boolean {
+		// Inline проверка без переменных
+		if (this.ws.readyState !== 1) return false;
+
+		let packet: string;
+
+		if (!data) {
+			// Простое событие без данных
+			packet = `42["${event}"]`;
+		} else if (typeof data === 'string') {
+			// Строковые данные с экранированием
+			packet = `42["${event}","${data.replace(/"/g, '\\"')}"]`;
+		} else {
+			// Числовые данные
+			packet = `42["${event}",${data}]`;
+		}
+
+		return this.ws.send(packet) > 0;
 	}
 
 	/**
@@ -365,6 +400,21 @@ export class Socket<
 	}
 
 	/**
+	 * Batch emit с предварительно созданными пакетами
+	 */
+	emitBatchPrecompiled(precompiledPackets: string[]): number {
+		if (this.ws.readyState !== 1) return 0;
+
+		let successful = 0;
+		for (const packet of precompiledPackets) {
+			if (this.ws.send(packet) > 0) {
+				successful++;
+			}
+		}
+		return successful;
+	}
+
+	/**
 	 * Memory-efficient ACK с использованием typed arrays
 	 */
 	private ackResponseBuffer = new ArrayBuffer(1024);
@@ -423,6 +473,37 @@ export class Socket<
 		}, 5000); // Уменьшенный timeout для стресс-тестов
 
 		const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
+		return this.ws.send(packet) > 0;
+	}
+
+	/**
+	 * Супер-быстрый ACK с минимальным overhead
+	 */
+	emitWithSuperFastAck(event: string, data: any, callback: AckCallback): boolean {
+		if (this.ws.readyState !== 1) return false;
+
+		// Генерируем ACK ID inline
+		const ackId = (++SocketParser['ackCounter']).toString();
+
+		// Простое хранение callback
+		this.fastAckCallbacks[ackId] = callback;
+
+		// Timeout без лишних проверок
+		setTimeout(() => {
+			if (this.fastAckCallbacks[ackId]) {
+				delete this.fastAckCallbacks[ackId];
+				callback(new Error('Timeout'));
+			}
+		}, 3000);
+
+		// Прямое создание пакета с ACK
+		let packet: string;
+		if (typeof data === 'string') {
+			packet = `42${ackId}["${event}","${data.replace(/"/g, '\\"')}"]`;
+		} else {
+			packet = `42${ackId}["${event}",${JSON.stringify(data)}]`;
+		}
+
 		return this.ws.send(packet) > 0;
 	}
 
@@ -547,7 +628,9 @@ export class Socket<
 		if (!packet || !packet.event) return;
 
 		if (!isProduction) {
-			console.log(`[Socket] Handling packet: ${packet.event} from ${this.id}`);
+			console.log(
+				`[Socket] Handling packet: ${packet.event} from ${this.id}, ackId: ${packet.ackId}`
+			);
 		}
 
 		try {
@@ -558,12 +641,12 @@ export class Socket<
 				return;
 			}
 
-			// Handle acknowledgement response
-			if (packet.event === '__ack' && packet.ackId && this.ackCallbacks.has(packet.ackId)) {
-				const callback = this.ackCallbacks.get(packet.ackId)!;
-				this.ackCallbacks.delete(packet.ackId);
-				const responseData = Array.isArray(packet.data) ? packet.data[0] : packet.data;
-				callback(null, responseData);
+			// Handle acknowledgement response FROM CLIENT
+			if (packet.event === '__ack' && packet.ackId) {
+				if (!isProduction) {
+					console.log(`[Socket] Received ACK response: ${packet.ackId} from ${this.id}`);
+				}
+				this._handleAck(packet.ackId, packet.data);
 				return;
 			}
 
@@ -574,23 +657,41 @@ export class Socket<
 			}
 			if (packet.event === 'pong') return;
 
-			// ИСПРАВЛЕНИЕ: Улучшенная обработка ACK запросов без батчинга для stress test
+			// ИСПРАВЛЕНИЕ: Обработка событий С ACK запросом ОТ КЛИЕНТА
 			if (packet.ackId && typeof packet.ackId === 'string') {
-				const originalListeners = this.listeners(packet.event);
+				if (!isProduction) {
+					console.log(
+						`[Socket] Event ${packet.event} requires ACK response: ${packet.ackId}`
+					);
+				}
 
-				if (originalListeners.length > 0) {
-					const listener = originalListeners[0] as Function;
+				const listeners = this.listeners(packet.event);
 
-					// Создаем ACK wrapper без батчинга для stress test
+				if (listeners.length > 0) {
+					const listener = listeners[0] as Function;
+
+					// Создаем wrapper для ACK ответа
 					const ackWrapper = (...args: any[]) => {
 						try {
-							const ackResponse = SocketParser.encodeAckResponse(
+							if (!isProduction) {
+								console.log(`[Socket] Sending ACK response: ${packet.ackId}`, args);
+							}
+
+							const ackResponse = SocketParser.encodeAckResponseFast(
 								packet.ackId!,
-								args,
-								this.nsp
+								args.length === 1 ? args[0] : args
 							);
-							// Отправляем ACK немедленно без батчинга
-							this.ws.send(ackResponse);
+
+							// КРИТИЧНО: Немедленная отправка ACK
+							const success = this.ws.send(ackResponse);
+
+							if (!isProduction) {
+								console.log(
+									`[Socket] ACK sent successfully: ${success > 0}, ID: ${
+										packet.ackId
+									}`
+								);
+							}
 						} catch (error) {
 							if (!isProduction) {
 								console.error(`[Socket] Failed to send ACK response:`, error);
@@ -599,39 +700,48 @@ export class Socket<
 					};
 
 					try {
+						// Определяем количество аргументов которые ожидает обработчик
+						const listenerLength = listener.length;
+
 						if (packet.data !== undefined) {
-							if (listener.length > 1) {
+							if (listenerLength > 1) {
+								// Обработчик ожидает (data, callback)
 								listener.call(this, packet.data, ackWrapper);
 							} else {
-								listener.call(this, packet.data);
-								ackWrapper();
+								// Обработчик ожидает только (data)
+								const result = listener.call(this, packet.data);
+								ackWrapper(result);
 							}
 						} else {
-							if (listener.length > 0) {
+							if (listenerLength > 0) {
+								// Обработчик ожидает (callback)
 								listener.call(this, ackWrapper);
 							} else {
-								listener.call(this);
-								ackWrapper();
+								// Обработчик не ожидает аргументов
+								const result = listener.call(this);
+								ackWrapper(result);
 							}
 						}
 					} catch (error) {
 						if (!isProduction) {
 							console.error(
-								`[Socket] Error in event handler for ${packet.event}:`,
+								`[Socket] Error in ACK event handler for ${packet.event}:`,
 								error
 							);
 						}
-						ackWrapper([{ error: 'Internal server error' }]);
+						ackWrapper({ error: 'Internal server error' });
 					}
 					return;
 				} else {
-					// Нет обработчиков, отправляем ошибку в ACK без батчинга
+					// Нет обработчиков - отправляем ошибку в ACK
+					if (!isProduction) {
+						console.warn(`[Socket] No handler for ACK event: ${packet.event}`);
+					}
+
 					try {
-						const ackResponse = SocketParser.encodeAckResponse(
-							packet.ackId!,
-							[{ error: `No handler for event: ${packet.event}` }],
-							this.nsp
-						);
+						const ackResponse = SocketParser.encodeAckResponseFast(packet.ackId!, {
+							error: `No handler for event: ${packet.event}`,
+						});
 						this.ws.send(ackResponse);
 					} catch (error) {
 						if (!isProduction) {
@@ -643,6 +753,10 @@ export class Socket<
 			}
 
 			// Обычное событие без ACK
+			if (!isProduction) {
+				console.log(`[Socket] Emitting regular event: ${packet.event}`);
+			}
+
 			if (packet.data !== undefined) {
 				this.emit(packet.event as any, packet.data);
 			} else {

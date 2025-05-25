@@ -70,21 +70,21 @@ warmupPerformanceOptimizations();
 /**
  * Perfomance test
  */
-// // В index.ts добавьте:
-// import { runQuickPerformanceTest, saveResultsToFile } from './test/performance_test';
-// io.on('connection', (socket) => {
-// 	console.log(`🎉 Socket ${socket.id} connected`);
-// 	// Запускаем тест и сохраняем результаты
-// 	setTimeout(async () => {
-// 		try {
-// 			await runQuickPerformanceTest(io, socket.id);
-// 			// Сохраняем результаты в JSON файл
-// 			saveResultsToFile(`performance-${socket.id}-${Date.now()}.json`);
-// 		} catch (error) {
-// 			console.error('❌ Performance test failed:', error);
-// 		}
-// 	}, 3000);
-// });
+// В index.ts добавьте:
+import { runQuickPerformanceTest, saveResultsToFile } from './test/performance_test';
+io.on('connection', (socket) => {
+	console.log(`🎉 Socket ${socket.id} connected`);
+	// Запускаем тест и сохраняем результаты
+	setTimeout(async () => {
+		try {
+			await runQuickPerformanceTest(io, socket.id);
+			// Сохраняем результаты в JSON файл
+			saveResultsToFile(`performance-${socket.id}-${Date.now()}.json`);
+		} catch (error) {
+			console.error('❌ Performance test failed:', error);
+		}
+	}, 3000);
+});
 
 // /**
 //  * Perfomance test 2
