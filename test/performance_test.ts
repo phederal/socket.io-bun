@@ -235,76 +235,88 @@ export class PerformanceTest {
 			const startTime = Date.now();
 			let successful = 0;
 			let completed = 0;
+			const pendingRequests = new Map<number, () => void>();
 
-			// ИСПРАВЛЕНИЕ: Используем событие которое ТОЧНО обрабатывается на клиенте
+			// Единый обработчик для всех ответов
+			const responseHandler = (response: any) => {
+				const requestId = response.id;
+				const cleanup = pendingRequests.get(requestId);
+
+				if (cleanup) {
+					cleanup();
+					pendingRequests.delete(requestId);
+					completed++;
+					successful++;
+
+					if (completed >= count) {
+						finishTest();
+					}
+				}
+			};
+
+			const finishTest = () => {
+				// Удаляем обработчик событий
+				socket.off('performance_ack_response', responseHandler);
+
+				// Очищаем все pending requests
+				for (const cleanup of pendingRequests.values()) {
+					cleanup();
+				}
+				pendingRequests.clear();
+
+				const endTime = Date.now();
+				const timeMs = endTime - startTime;
+				const opsPerSecond = Math.round((count / timeMs) * 1000);
+
+				const result: PerformanceTestResults = {
+					testName: `ACK ${priority}`,
+					totalOperations: count,
+					timeMs,
+					operationsPerSecond: opsPerSecond,
+					successful,
+					failed: count - successful,
+				};
+
+				this.results.push(result);
+				this.logResult(result);
+				resolve(result);
+			};
+
+			// Добавляем единый обработчик
+			socket.on('performance_ack_response', responseHandler);
+
+			// Отправляем все запросы
 			for (let i = 0; i < count; i++) {
-				// Вместо socket.emitWithAck отправляем обычное событие и ждем ответ
 				socket.emit('performance_ack_request', {
 					id: i,
 					priority,
 					timestamp: Date.now(),
 				});
 
-				// Устанавливаем listener для ответа
-				const responseHandler = (response: any) => {
-					if (response.id === i) {
+				// Добавляем timeout для каждого запроса
+				const timeoutMs = priority === 'high' ? 1000 : priority === 'normal' ? 5000 : 15000;
+				const timeoutId = setTimeout(() => {
+					if (pendingRequests.has(i)) {
+						pendingRequests.delete(i);
 						completed++;
-						successful++;
-						socket.off('performance_ack_response', responseHandler);
 
-						if (completed === count) {
-							const endTime = Date.now();
-							const timeMs = endTime - startTime;
-							const opsPerSecond = Math.round((count / timeMs) * 1000);
-
-							const result: PerformanceTestResults = {
-								testName: `ACK ${priority}`,
-								totalOperations: count,
-								timeMs,
-								operationsPerSecond: opsPerSecond,
-								successful,
-								failed: count - successful,
-							};
-
-							this.results.push(result);
-							this.logResult(result);
-							resolve(result);
+						if (completed >= count) {
+							finishTest();
 						}
 					}
-				};
+				}, timeoutMs);
 
-				socket.on('performance_ack_response', responseHandler);
-
-				// Timeout для отдельной операции
-				setTimeout(
-					() => {
-						if (completed < count) {
-							completed++;
-							socket.off('performance_ack_response', responseHandler);
-
-							if (completed === count) {
-								const endTime = Date.now();
-								const timeMs = endTime - startTime;
-								const opsPerSecond = Math.round((count / timeMs) * 1000);
-
-								const result: PerformanceTestResults = {
-									testName: `ACK ${priority}`,
-									totalOperations: count,
-									timeMs,
-									operationsPerSecond: opsPerSecond,
-									successful,
-									failed: count - successful,
-								};
-
-								this.results.push(result);
-								this.logResult(result);
-								resolve(result);
-							}
-						}
-					},
-					priority === 'high' ? 1000 : priority === 'normal' ? 5000 : 15000
-				);
+				// Сохраняем cleanup функцию
+				pendingRequests.set(i, () => clearTimeout(timeoutId));
 			}
+
+			// Глобальный timeout на случай если что-то пойдет не так
+			setTimeout(() => {
+				if (completed < count) {
+					console.warn(`⚠️ ACK test timeout, completed: ${completed}/${count}`);
+					finishTest();
+				}
+			}, 30000);
 		});
 	}
 
