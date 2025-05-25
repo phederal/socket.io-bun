@@ -76,11 +76,24 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					return;
 				}
 
+				// Проверяем состояние сокета перед обработкой
+				if (!socket.connected || socket.ws.readyState !== 1) {
+					console.warn(`[WebSocket] Message from disconnected socket ${socket.id}`);
+					return;
+				}
+
 				const packet = await SocketParser.decode(
 					event.data as string | Blob | ArrayBuffer | ArrayBufferView<ArrayBufferLike>
 				);
 
 				if (!packet) {
+					return;
+				}
+
+				// Добавляем защиту от flood
+				if (!socket.checkRateLimit || !socket.checkRateLimit(1)) {
+					console.warn(`[WebSocket] Rate limit exceeded for ${socket.id}`);
+					ws.close(1008, 'Rate limit exceeded');
 					return;
 				}
 
@@ -141,21 +154,31 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 
 					// Определяем причину отключения по коду
 					let reason: string;
-					switch (event.code) {
-						case 1000:
-							reason = 'normal closure';
-							break;
-						case 1001:
-							reason = 'going away';
-							break;
-						case 1006:
-							reason = 'abnormal closure';
-							break;
-						case 1011:
-							reason = 'internal error';
-							break;
-						default:
-							reason = `transport close (${event.code})`;
+					if (event.code >= 4000) {
+						reason = 'application error';
+					} else {
+						switch (event.code) {
+							case 1000:
+								reason = 'normal closure';
+								break;
+							case 1001:
+								reason = 'going away';
+								break;
+							case 1006:
+								reason = 'abnormal closure';
+								break;
+							case 1008:
+								reason = 'rate limit exceeded';
+								break;
+							case 1011:
+								reason = 'internal error';
+								break;
+							case 1011:
+								reason = 'internal error';
+								break;
+							default:
+								reason = `transport close (${event.code})`;
+						}
 					}
 
 					socket._handleClose(reason as any);

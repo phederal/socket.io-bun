@@ -51,6 +51,7 @@ export const server = Bun.serve({
 		idleTimeout: 120,
 		maxPayloadLength: 16 * 1024 * 1024,
 		publishToSelf: false,
+		backpressureLimit: 64 * 1024, // 64KB backpressure limit
 	},
 
 	tls: {

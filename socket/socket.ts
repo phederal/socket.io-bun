@@ -43,9 +43,12 @@ export class Socket<
 	 * Батчинг ACK ответов для минимизации WebSocket фреймов
 	 */
 	private ackResponseBatch: string[] = [];
-	private ackBatchTimer?: NodeJS.Timeout;
 	private readonly ACK_BATCH_SIZE = 5; // Уменьшаем размер батча для стабильности
 	private readonly ACK_BATCH_TIMEOUT = 1; // Увеличиваем timeout
+	private ackBatchTimer?: NodeJS.Timeout;
+
+	private pendingAcks = new Map<string, { callback: AckCallback; timeoutId: NodeJS.Timeout }>();
+	private ackBatchQueue: Array<{ ackId: string; data: any }> = [];
 
 	// Предварительно скомпилированные регулярные выражения
 	private static readonly ACK_ID_REGEX = /^(\d+)/;
@@ -55,10 +58,13 @@ export class Socket<
 	private static readonly WS_READY_STATE_OPEN = 1;
 	private static readonly ENGINE_MESSAGE_TYPE = 4;
 
-	/**
-	 * Оптимизированная обработка ACK с использованием Object вместо Map для частых операций
-	 */
-	private fastAckCallbacks = Object.create(null);
+	// Добавляем rate limiting
+	private messageRateLimit = {
+		count: 0,
+		lastReset: Date.now(),
+		maxPerSecond: 1000, // Максимум 1000 сообщений в секунду
+		maxBurst: 100, // Максимум 100 сообщений в burst
+	};
 
 	constructor(
 		id: SocketId,
@@ -83,17 +89,10 @@ export class Socket<
 		const interval = this.heartbeatInterval / 2; // 12.5 секунд вместо 25
 
 		this.heartbeatTimer = setInterval(() => {
-			if (this._connected && this.ws.readyState === 1) {
+			// Проверяем rate limit перед отправкой ping
+			if (this.checkRateLimit(1)) {
 				try {
-					this.ws.send('2'); // Engine.IO ping packet
-
-					// Проверяем что WebSocket все еще отвечает
-					if (this.ws.readyState !== 1) {
-						console.warn(
-							`[Socket] ${this.id} WebSocket state changed to ${this.ws.readyState}`
-						);
-						this._handleClose('transport error');
-					}
+					this.ws.send('2'); // Engine.IO ping
 				} catch (error) {
 					console.error(`[Socket] ${this.id} heartbeat error:`, error);
 					this._handleClose('transport error');
@@ -116,6 +115,34 @@ export class Socket<
 			clearInterval(this.heartbeatTimer);
 			this.heartbeatTimer = undefined;
 		}
+	}
+
+	// Добавляем rate limiting
+	private checkRateLimit(messageCount: number = 1): boolean {
+		const now = Date.now();
+
+		// Сброс счетчика каждую секунду
+		if (now - this.messageRateLimit.lastReset >= 1000) {
+			this.messageRateLimit.count = 0;
+			this.messageRateLimit.lastReset = now;
+		}
+
+		// Проверяем лимиты
+		if (this.messageRateLimit.count + messageCount > this.messageRateLimit.maxPerSecond) {
+			console.warn(
+				`[Socket] ${this.id} rate limit exceeded: ${this.messageRateLimit.count}/sec`
+			);
+			return false;
+		}
+
+		// Проверяем burst лимит
+		if (messageCount > this.messageRateLimit.maxBurst) {
+			console.warn(`[Socket] ${this.id} burst limit exceeded: ${messageCount}`);
+			return false;
+		}
+
+		this.messageRateLimit.count += messageCount;
+		return true;
 	}
 
 	get nsp(): string {
@@ -523,44 +550,216 @@ export class Socket<
 	emitWithSuperFastAck(event: string, data: any, callback: AckCallback): boolean {
 		if (!this._connected || this.ws.readyState !== 1) return false;
 
-		const ackId = SocketParser.generateAckId();
-		this.fastAckCallbacks[ackId] = callback;
+		// Проверяем rate limit
+		if (!this.checkRateLimit(1)) {
+			callback(new Error('Rate limit exceeded'));
+			return false;
+		}
 
-		// ИСПРАВЛЕНИЕ: Увеличиваем timeout для массовых операций
-		const timeoutMs = 10000; // 10 секунд вместо 3
+		const ackId = SocketParser.generateAckId();
+
+		// Уменьшаем timeout для массовых операций
+		const timeoutMs = 5000; // 5 секунд вместо 10
 
 		const timeoutId = setTimeout(() => {
-			if (this.fastAckCallbacks[ackId]) {
-				delete this.fastAckCallbacks[ackId];
-				if (!isProduction) {
-					console.warn(
-						`[Socket] Super Fast ACK timeout for ${ackId} after ${timeoutMs}ms`
-					);
-				}
+			const pending = this.pendingAcks.get(ackId);
+			if (pending) {
+				this.pendingAcks.delete(ackId);
 				callback(new Error('Acknowledgement timeout'));
 			}
 		}, timeoutMs);
 
-		// Сохраняем timeoutId для возможной очистки
-		this.fastAckCallbacks[`${ackId}_timeout`] = timeoutId;
+		// Сохраняем в оптимизированную структуру
+		this.pendingAcks.set(ackId, { callback, timeoutId });
 
 		try {
 			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
 			const success = this.ws.send(packet) > 0;
 
 			if (!success) {
-				// Очищаем при неудаче
-				clearTimeout(timeoutId);
-				delete this.fastAckCallbacks[ackId];
-				delete this.fastAckCallbacks[`${ackId}_timeout`];
+				this.cleanupAck(ackId);
 			}
 
 			return success;
 		} catch (error) {
-			clearTimeout(timeoutId);
-			delete this.fastAckCallbacks[ackId];
-			delete this.fastAckCallbacks[`${ackId}_timeout`];
+			this.cleanupAck(ackId);
 			return false;
+		}
+	}
+
+	/**
+	 * Batch обработка ACK callbacks
+	 */
+	private processAckBatch(): void {
+		if (this.ackBatchTimer) {
+			clearTimeout(this.ackBatchTimer);
+			this.ackBatchTimer = undefined;
+		}
+
+		if (this.ackBatchQueue.length === 0) return;
+
+		// Обрабатываем все накопленные ACK
+		const batch = this.ackBatchQueue.splice(0);
+
+		for (const { ackId, data } of batch) {
+			try {
+				// Сначала проверяем новую систему (pendingAcks)
+				const pending = this.pendingAcks.get(ackId);
+				if (pending) {
+					clearTimeout(pending.timeoutId);
+					this.pendingAcks.delete(ackId);
+
+					if (!isProduction) {
+						console.log(`[Socket] Calling pending callback for ackId: ${ackId}`);
+					}
+
+					pending.callback(null, data);
+					continue;
+				}
+
+				// Затем проверяем быстрые callbacks
+				if (this.fastAckCallbacks[ackId]) {
+					const callback = this.fastAckCallbacks[ackId];
+
+					// Очищаем timeout если есть
+					const timeoutId = this.fastAckCallbacks[`${ackId}_timeout`];
+					if (timeoutId) {
+						clearTimeout(timeoutId);
+						delete this.fastAckCallbacks[`${ackId}_timeout`];
+					}
+
+					delete this.fastAckCallbacks[ackId];
+
+					if (!isProduction) {
+						console.log(`[Socket] Calling fast callback for ackId: ${ackId}`);
+					}
+
+					callback(null, data);
+					continue;
+				}
+
+				// Проверяем обычные Map callbacks
+				const callback = this.ackCallbacks.get(ackId);
+				if (callback) {
+					this.ackCallbacks.delete(ackId);
+
+					if (!isProduction) {
+						console.log(`[Socket] Calling regular callback for ackId: ${ackId}`);
+					}
+
+					callback(null, data);
+					continue;
+				}
+
+				if (!isProduction) {
+					console.warn(`[Socket] No callback found for ackId: ${ackId}`);
+				}
+			} catch (error) {
+				if (!isProduction) {
+					console.error(`[Socket] Error in ACK callback for ${ackId}:`, error);
+				}
+			}
+		}
+	}
+
+	/**
+	 * Альтернативно - можно унифицировать все в одну систему
+	 */
+	private unifiedAckCallbacks = new Map<
+		string,
+		{
+			callback: AckCallback;
+			timeoutId: NodeJS.Timeout;
+			type: 'regular' | 'fast' | 'super';
+		}
+	>();
+
+	// Унифицированная версия emit с ACK
+	emitWithUnifiedAck(
+		event: string,
+		data: any,
+		callback: AckCallback,
+		type: 'regular' | 'fast' | 'super' = 'regular'
+	): boolean {
+		if (!this._connected || this.ws.readyState !== 1) return false;
+
+		// Проверяем rate limit
+		if (!this.checkRateLimit(1)) {
+			callback(new Error('Rate limit exceeded'));
+			return false;
+		}
+
+		const ackId = SocketParser.generateAckId();
+
+		// Выбираем timeout в зависимости от типа
+		const timeoutMs = type === 'super' ? 3000 : type === 'fast' ? 5000 : 10000;
+
+		const timeoutId = setTimeout(() => {
+			const ack = this.unifiedAckCallbacks.get(ackId);
+			if (ack) {
+				this.unifiedAckCallbacks.delete(ackId);
+				callback(new Error('Acknowledgement timeout'));
+			}
+		}, timeoutMs);
+
+		// Сохраняем в унифицированную структуру
+		this.unifiedAckCallbacks.set(ackId, { callback, timeoutId, type });
+
+		try {
+			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
+			const success = this.ws.send(packet) > 0;
+
+			if (!success) {
+				this.cleanupUnifiedAck(ackId);
+			}
+
+			return success;
+		} catch (error) {
+			this.cleanupUnifiedAck(ackId);
+			return false;
+		}
+	}
+
+	/**
+	 * Унифицированная версия _handleAck
+	 */
+	_handleAckUnified(ackId: string, data: any): void {
+		// Добавляем в batch queue
+		this.ackBatchQueue.push({ ackId, data });
+
+		if (!this.ackBatchTimer) {
+			this.ackBatchTimer = setTimeout(() => this.processUnifiedAckBatch(), 1);
+		}
+	}
+
+	private processUnifiedAckBatch(): void {
+		if (this.ackBatchTimer) {
+			clearTimeout(this.ackBatchTimer);
+			this.ackBatchTimer = undefined;
+		}
+
+		const batch = this.ackBatchQueue.splice(0);
+
+		for (const { ackId, data } of batch) {
+			const ack = this.unifiedAckCallbacks.get(ackId);
+			if (ack) {
+				clearTimeout(ack.timeoutId);
+				this.unifiedAckCallbacks.delete(ackId);
+
+				try {
+					ack.callback(null, data);
+				} catch (error) {
+					console.error(`[Socket] ACK callback error:`, error);
+				}
+			}
+		}
+	}
+
+	private cleanupUnifiedAck(ackId: string): void {
+		const ack = this.unifiedAckCallbacks.get(ackId);
+		if (ack) {
+			clearTimeout(ack.timeoutId);
+			this.unifiedAckCallbacks.delete(ackId);
 		}
 	}
 
@@ -652,7 +851,23 @@ export class Socket<
 	}
 
 	disconnect(close: boolean = false): this {
-		this.flushAckBatch(); // Отправляем оставшиеся ACK
+		// Очищаем все pending ACKs
+		for (const [ackId, pending] of this.pendingAcks) {
+			clearTimeout(pending.timeoutId);
+			try {
+				pending.callback(new Error('Socket disconnected'));
+			} catch (error) {
+				// Ignore callback errors during disconnect
+			}
+		}
+		this.pendingAcks.clear();
+
+		if (this.ackBatchTimer) {
+			clearTimeout(this.ackBatchTimer);
+			this.ackBatchTimer = undefined;
+		}
+
+		// Остальная логика disconnect...
 		this.stopHeartbeat();
 		if (!this._connected) return this;
 
@@ -667,7 +882,6 @@ export class Socket<
 		}
 
 		this.leaveAll();
-		this.ackCallbacks.clear();
 		this.namespace.removeSocket(this);
 		this.emit('disconnect' as any, 'server namespace disconnect');
 
@@ -835,54 +1049,19 @@ export class Socket<
 			console.log(`[Socket] _handleAck called with ackId: ${ackId}, data:`, data);
 		}
 
-		// Проверяем быстрые callbacks
-		if (this.fastAckCallbacks[ackId]) {
-			const callback = this.fastAckCallbacks[ackId];
+		// Добавляем в batch queue вместо немедленной обработки
+		this.ackBatchQueue.push({ ackId, data });
 
-			// Очищаем timeout если есть
-			const timeoutId = this.fastAckCallbacks[`${ackId}_timeout`];
-			if (timeoutId) {
-				clearTimeout(timeoutId);
-				delete this.fastAckCallbacks[`${ackId}_timeout`];
-			}
-
-			delete this.fastAckCallbacks[ackId];
-
-			if (!isProduction) {
-				console.log(`[Socket] Calling fast callback for ackId: ${ackId}`);
-			}
-
-			try {
-				callback(null, data);
-			} catch (error) {
-				if (!isProduction) {
-					console.error(`[Socket] Error in fast callback:`, error);
-				}
-			}
-			return;
+		if (!this.ackBatchTimer) {
+			this.ackBatchTimer = setTimeout(() => this.processAckBatch(), 1);
 		}
+	}
 
-		// Обычные Map callbacks
-		const callback = this.ackCallbacks.get(ackId);
-		if (callback) {
-			this.ackCallbacks.delete(ackId);
-
-			if (!isProduction) {
-				console.log(`[Socket] Calling regular callback for ackId: ${ackId}`);
-			}
-
-			try {
-				callback(null, data);
-			} catch (error) {
-				if (!isProduction) {
-					console.error(`[Socket] Error in regular callback:`, error);
-				}
-			}
-			return;
-		}
-
-		if (!isProduction) {
-			console.warn(`[Socket] No callback found for ackId: ${ackId}`);
+	private cleanupAck(ackId: string): void {
+		const pending = this.pendingAcks.get(ackId);
+		if (pending) {
+			clearTimeout(pending.timeoutId);
+			this.pendingAcks.delete(ackId);
 		}
 	}
 
