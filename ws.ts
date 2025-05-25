@@ -134,9 +134,31 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 				const socket = ws.raw!.__socket;
 				if (socket) {
 					if (!isProduction) {
-						console.log(`[WebSocket] Socket ${socket.id} disconnected`);
+						console.log(
+							`[WebSocket] Socket ${socket.id} disconnected (code: ${event.code}, reason: ${event.reason})`
+						);
 					}
-					socket._handleClose('transport close');
+
+					// Определяем причину отключения по коду
+					let reason: string;
+					switch (event.code) {
+						case 1000:
+							reason = 'normal closure';
+							break;
+						case 1001:
+							reason = 'going away';
+							break;
+						case 1006:
+							reason = 'abnormal closure';
+							break;
+						case 1011:
+							reason = 'internal error';
+							break;
+						default:
+							reason = `transport close (${event.code})`;
+					}
+
+					socket._handleClose(reason as any);
 				}
 			} catch (error) {
 				if (!isProduction) {

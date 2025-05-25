@@ -79,11 +79,36 @@ export class Socket<
 	}
 
 	private startHeartbeat(): void {
+		// Более частый heartbeat для стабильности во время тестов
+		const interval = this.heartbeatInterval / 2; // 12.5 секунд вместо 25
+
 		this.heartbeatTimer = setInterval(() => {
-			if (this.connected) {
-				this.ws.send('2'); // Engine.IO ping packet
+			if (this._connected && this.ws.readyState === 1) {
+				try {
+					this.ws.send('2'); // Engine.IO ping packet
+
+					// Проверяем что WebSocket все еще отвечает
+					if (this.ws.readyState !== 1) {
+						console.warn(
+							`[Socket] ${this.id} WebSocket state changed to ${this.ws.readyState}`
+						);
+						this._handleClose('transport error');
+					}
+				} catch (error) {
+					console.error(`[Socket] ${this.id} heartbeat error:`, error);
+					this._handleClose('transport error');
+				}
+			} else {
+				console.warn(
+					`[Socket] ${this.id} heartbeat failed: connected=${this._connected}, readyState=${this.ws.readyState}`
+				);
+				this.stopHeartbeat();
 			}
-		}, this.heartbeatInterval);
+		}, interval);
+
+		if (!isProduction) {
+			console.log(`[Socket] ${this.id} heartbeat started with ${interval}ms interval`);
+		}
 	}
 
 	private stopHeartbeat(): void {
@@ -496,24 +521,47 @@ export class Socket<
 	 * Супер-быстрый ACK с минимальным overhead
 	 */
 	emitWithSuperFastAck(event: string, data: any, callback: AckCallback): boolean {
-		if (this.ws.readyState !== 1) return false;
+		if (!this._connected || this.ws.readyState !== 1) return false;
 
-		const ackId = (++SocketParser['ackCounter']).toString();
+		const ackId = SocketParser.generateAckId();
 		this.fastAckCallbacks[ackId] = callback;
 
-		setTimeout(() => {
+		// ИСПРАВЛЕНИЕ: Увеличиваем timeout для массовых операций
+		const timeoutMs = 10000; // 10 секунд вместо 3
+
+		const timeoutId = setTimeout(() => {
 			if (this.fastAckCallbacks[ackId]) {
 				delete this.fastAckCallbacks[ackId];
-				callback(new Error('Timeout'));
+				if (!isProduction) {
+					console.warn(
+						`[Socket] Super Fast ACK timeout for ${ackId} after ${timeoutMs}ms`
+					);
+				}
+				callback(new Error('Acknowledgement timeout'));
 			}
-		}, 3000);
+		}, timeoutMs);
 
-		const packet =
-			typeof data === 'string'
-				? `42${ackId}["${event}","${data.replace(/"/g, '\\"')}"]`
-				: `42${ackId}["${event}",${JSON.stringify(data)}]`;
+		// Сохраняем timeoutId для возможной очистки
+		this.fastAckCallbacks[`${ackId}_timeout`] = timeoutId;
 
-		return this.ws.send(packet) > 0;
+		try {
+			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
+			const success = this.ws.send(packet) > 0;
+
+			if (!success) {
+				// Очищаем при неудаче
+				clearTimeout(timeoutId);
+				delete this.fastAckCallbacks[ackId];
+				delete this.fastAckCallbacks[`${ackId}_timeout`];
+			}
+
+			return success;
+		} catch (error) {
+			clearTimeout(timeoutId);
+			delete this.fastAckCallbacks[ackId];
+			delete this.fastAckCallbacks[`${ackId}_timeout`];
+			return false;
+		}
 	}
 
 	/**
@@ -783,19 +831,58 @@ export class Socket<
 	 * Обновленный _handleAck с поддержкой fastAckCallbacks
 	 */
 	_handleAck(ackId: string, data: any): void {
-		// Сначала проверяем быстрые callbacks
+		if (!isProduction) {
+			console.log(`[Socket] _handleAck called with ackId: ${ackId}, data:`, data);
+		}
+
+		// Проверяем быстрые callbacks
 		if (this.fastAckCallbacks[ackId]) {
 			const callback = this.fastAckCallbacks[ackId];
+
+			// Очищаем timeout если есть
+			const timeoutId = this.fastAckCallbacks[`${ackId}_timeout`];
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+				delete this.fastAckCallbacks[`${ackId}_timeout`];
+			}
+
 			delete this.fastAckCallbacks[ackId];
-			callback(null, data);
+
+			if (!isProduction) {
+				console.log(`[Socket] Calling fast callback for ackId: ${ackId}`);
+			}
+
+			try {
+				callback(null, data);
+			} catch (error) {
+				if (!isProduction) {
+					console.error(`[Socket] Error in fast callback:`, error);
+				}
+			}
 			return;
 		}
 
-		// Затем обычные Map callbacks
+		// Обычные Map callbacks
 		const callback = this.ackCallbacks.get(ackId);
 		if (callback) {
 			this.ackCallbacks.delete(ackId);
-			callback(null, data);
+
+			if (!isProduction) {
+				console.log(`[Socket] Calling regular callback for ackId: ${ackId}`);
+			}
+
+			try {
+				callback(null, data);
+			} catch (error) {
+				if (!isProduction) {
+					console.error(`[Socket] Error in regular callback:`, error);
+				}
+			}
+			return;
+		}
+
+		if (!isProduction) {
+			console.warn(`[Socket] No callback found for ackId: ${ackId}`);
 		}
 	}
 

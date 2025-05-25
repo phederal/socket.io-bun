@@ -11,6 +11,8 @@ export interface PerformanceTestResults {
 	failed: number;
 }
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export class PerformanceTest {
 	private results: PerformanceTestResults[] = [];
 	private ioInstance: any = null;
@@ -23,7 +25,7 @@ export class PerformanceTest {
 	}
 
 	/**
-	 * Получить сокет по ID
+	 * Получить активный сокет по ID с fallback логикой
 	 */
 	private getSocket(socketId: string) {
 		if (!this.ioInstance) {
@@ -31,40 +33,40 @@ export class PerformanceTest {
 		}
 
 		const namespace = this.ioInstance.of('/');
-		const socket = namespace.sockets.get(socketId);
 
-		if (!socket) {
-			// Логируем доступные сокеты для отладки
-			const availableSockets = Array.from(namespace.sockets.keys());
-			console.log(`❌ Socket ${socketId} not found`);
-			console.log(`📊 Available sockets (${availableSockets.length}):`, availableSockets);
+		// Сначала пытаемся найти точный сокет
+		let socket = namespace.sockets.get(socketId);
 
-			// Возвращаем первый доступный сокет если целевой не найден
-			if (availableSockets.length > 0) {
-				const fallbackSocket = namespace.sockets.get(availableSockets[0]);
-				console.log(`🔄 Using fallback socket: ${availableSockets[0]}`);
-				return fallbackSocket;
-			}
-
-			return null;
+		if (socket && socket.connected && socket.ws.readyState === 1) {
+			return socket;
 		}
 
-		// Проверяем что сокет подключен
-		if (!socket.connected) {
-			console.log(`⚠️ Socket ${socketId} is not connected`);
+		// Если целевой сокет не найден или отключен, ищем любой активный
+		console.warn(`⚠️ Socket ${socketId} not available, searching for alternatives...`);
 
-			// Ищем подключенный сокет
-			for (const [id, sock] of namespace.sockets) {
-				if (sock.connected) {
-					console.log(`🔄 Using connected socket: ${id}`);
-					return sock;
-				}
+		const availableSockets = Array.from(namespace.sockets.entries());
+		console.log(`📊 Total sockets in namespace: ${availableSockets.length}`);
+
+		for (const [id, sock] of availableSockets) {
+			console.log(
+				`🔍 Checking socket ${id}: connected=${sock.connected}, readyState=${sock.ws?.readyState}`
+			);
+
+			if (sock.connected && sock.ws && sock.ws.readyState === 1) {
+				console.log(`✅ Using fallback socket: ${id}`);
+				return sock;
 			}
-
-			return null;
 		}
 
-		return socket;
+		// Если активных сокетов нет, возвращаем null
+		console.error(`❌ No active sockets found. Available sockets: ${availableSockets.length}`);
+		availableSockets.forEach(([id, sock]) => {
+			console.log(
+				`  - ${id}: connected=${sock.connected}, readyState=${sock.ws?.readyState}`
+			);
+		});
+
+		return null;
 	}
 
 	/**
@@ -73,23 +75,39 @@ export class PerformanceTest {
 	async testSimpleEmit(socketId: string, count: number = 10000): Promise<PerformanceTestResults> {
 		const socket = this.getSocket(socketId);
 		if (!socket) {
-			throw new Error(`Socket ${socketId} not found`);
+			console.warn(`❌ No active socket available for Simple Emit test`);
+			return {
+				testName: 'Simple Emit',
+				totalOperations: count,
+				timeMs: 0,
+				operationsPerSecond: 0,
+				successful: 0,
+				failed: count,
+			};
 		}
 
-		console.log(`🚀 Starting simple emit test: ${count} operations`);
+		console.log(`🚀 Starting simple emit test: ${count} operations with socket ${socket.id}`);
 
 		const startTime = Date.now();
 		let successful = 0;
 
 		for (let i = 0; i < count; i++) {
-			if ((socket as any).emitFast('test_event')) {
+			// Проверяем сокет каждые 1000 операций
+			if (i % 1000 === 0 && (!socket.connected || socket.ws.readyState !== 1)) {
+				console.warn(`⚠️ Socket disconnected during test at operation ${i}`);
+				break;
+			}
+
+			if ((socket as any).emitFast && (socket as any).emitFast('test_event')) {
+				successful++;
+			} else if (socket.emit && socket.emit('test_event')) {
 				successful++;
 			}
 		}
 
 		const endTime = Date.now();
 		const timeMs = endTime - startTime;
-		const opsPerSecond = Math.round((count / timeMs) * 1000);
+		const opsPerSecond = timeMs > 0 ? Math.round((successful / timeMs) * 1000) : 0;
 
 		const result: PerformanceTestResults = {
 			testName: 'Simple Emit',
@@ -103,6 +121,46 @@ export class PerformanceTest {
 		this.results.push(result);
 		this.logResult(result);
 		return result;
+	}
+
+	/**
+	 * Ждем подключения хотя бы одного сокета
+	 */
+	private async waitForSocket(timeoutMs: number = 10000): Promise<string | null> {
+		return new Promise((resolve) => {
+			const startTime = Date.now();
+
+			const checkSockets = () => {
+				if (!this.ioInstance) {
+					resolve(null);
+					return;
+				}
+
+				const namespace = this.ioInstance.of('/');
+				const activeSockets = Array.from(namespace.sockets.entries()).filter(
+					([id, socket]) => socket.connected && socket.ws?.readyState === 1
+				);
+
+				if (activeSockets.length > 0) {
+					const [socketId, socket] = activeSockets[0];
+					console.log(`✅ Found active socket: ${socketId}`);
+					resolve(socketId);
+					return;
+				}
+
+				const elapsed = Date.now() - startTime;
+				if (elapsed >= timeoutMs) {
+					console.error(`❌ Timeout waiting for socket after ${timeoutMs}ms`);
+					resolve(null);
+					return;
+				}
+
+				// Повторная проверка через 100ms
+				setTimeout(checkSockets, 100);
+			};
+
+			checkSockets();
+		});
 	}
 
 	/**
@@ -578,49 +636,134 @@ export class PerformanceTest {
 	 */
 	async testSuperFastAck(
 		socketId: string,
-		count: number = 1000
+		count: number = 2000
 	): Promise<PerformanceTestResults> {
 		const socket = this.getSocket(socketId);
 		if (!socket) {
 			throw new Error(`Socket ${socketId} not found`);
 		}
 
-		console.log(`🚀 Starting super fast ACK test: ${count} operations`);
+		// Уменьшаем количество операций если метод недоступен
+		if (!(socket as any).emitWithSuperFastAck) {
+			console.warn(`⚠️ emitWithSuperFastAck method not available, skipping test`);
+			return {
+				testName: 'Super Fast ACK',
+				totalOperations: count,
+				timeMs: 0,
+				operationsPerSecond: 0,
+				successful: 0,
+				failed: count,
+			};
+		}
+
+		console.log(
+			`🚀 Starting super fast ACK test: ${count} operations with socket ${socket.id}`
+		);
 
 		return new Promise((resolve) => {
 			const startTime = Date.now();
 			let successful = 0;
 			let completed = 0;
 
-			for (let i = 0; i < count; i++) {
-				(socket as any).emitWithSuperFastAck(
-					'super_fast_ack_test',
-					`data_${i}`,
-					(err: any, response: any) => {
-						completed++;
-						if (!err) successful++;
+			// Проверяем что сокет подключен
+			if (!socket.connected || socket.ws.readyState !== 1) {
+				console.warn(`⚠️ Socket ${socketId} is not properly connected`);
+				resolve({
+					testName: 'Super Fast ACK',
+					totalOperations: count,
+					timeMs: 0,
+					operationsPerSecond: 0,
+					successful: 0,
+					failed: count,
+				});
+				return;
+			}
 
-						if (completed === count) {
-							const endTime = Date.now();
-							const timeMs = endTime - startTime;
-							const opsPerSecond = Math.round((count / timeMs) * 1000);
+			const batchSize = 25; // Уменьшаем размер батча для стабильности
+			const batches = Math.ceil(count / batchSize);
+			let batchesCompleted = 0;
 
-							const result: PerformanceTestResults = {
-								testName: 'Super Fast ACK',
-								totalOperations: count,
-								timeMs,
-								operationsPerSecond: opsPerSecond,
-								successful,
-								failed: count - successful,
-							};
+			console.log(`📦 Sending ${count} operations in ${batches} batches of ${batchSize}`);
 
-							this.results.push(result);
-							this.logResult(result);
-							resolve(result);
+			for (let batch = 0; batch < batches; batch++) {
+				setTimeout(() => {
+					const batchStart = batch * batchSize;
+					const batchEnd = Math.min(batchStart + batchSize, count);
+
+					for (let i = batchStart; i < batchEnd; i++) {
+						// Проверяем сокет перед каждой отправкой
+						if (!socket.connected || socket.ws.readyState !== 1) {
+							console.warn(
+								`⚠️ Socket disconnected during Super Fast ACK at operation ${i}`
+							);
+							completed += batchEnd - i;
+							checkCompletion();
+							break;
+						}
+
+						try {
+							(socket as any).emitWithSuperFastAck(
+								'super_fast_ack_test',
+								`super_fast_ack_${i}`,
+								(err: any, response: any) => {
+									completed++;
+									if (!err && response) {
+										successful++;
+									} else if (err && !isProduction) {
+										console.warn(`Super Fast ACK error for ${i}:`, err.message);
+									}
+									checkCompletion();
+								}
+							);
+						} catch (error) {
+							completed++;
+							if (!isProduction) {
+								console.warn(`Super Fast ACK send error for ${i}:`, error);
+							}
+							checkCompletion();
 						}
 					}
-				);
+
+					batchesCompleted++;
+					if (!isProduction && batchesCompleted % 10 === 0) {
+						console.log(
+							`📊 Super Fast ACK progress: ${batchesCompleted}/${batches} batches sent`
+						);
+					}
+				}, batch * 5); // Минимальная задержка между батчами
 			}
+
+			function checkCompletion() {
+				if (completed >= count) {
+					const endTime = Date.now();
+					const timeMs = endTime - startTime;
+					const opsPerSecond = timeMs > 0 ? Math.round((count / timeMs) * 1000) : 0;
+
+					const result: PerformanceTestResults = {
+						testName: 'Super Fast ACK',
+						totalOperations: count,
+						timeMs,
+						operationsPerSecond: opsPerSecond,
+						successful,
+						failed: count - successful,
+					};
+
+					console.log(
+						`✅ Super Fast ACK completed: ${successful}/${count} successful in ${timeMs}ms`
+					);
+					resolve(result);
+				}
+			}
+
+			// Защитный timeout - 20 секунд
+			setTimeout(() => {
+				if (completed < count) {
+					console.warn(
+						`⚠️ Super Fast ACK test timeout, completed: ${completed}/${count}`
+					);
+					checkCompletion();
+				}
+			}, 20000);
 		});
 	}
 
@@ -745,94 +888,183 @@ export class PerformanceTest {
 			throw new Error('IO instance not set. Call setIOInstance() first.');
 		}
 
-		const namespace = this.ioInstance.of('/');
-		const availableSockets = Array.from(namespace.sockets.keys());
+		console.log(`\n🚀 Starting OPTIMIZED performance tests...`);
 
-		if (availableSockets.length === 0) {
-			throw new Error('No sockets connected for testing');
-		}
-
-		// Используем первый доступный сокет если указанный не найден
+		// Ждем активный сокет если нужно
 		let testSocketId = socketId;
-		if (!testSocketId || !namespace.sockets.has(testSocketId)) {
-			testSocketId = availableSockets[0];
-			console.log(
-				`🔄 Using available socket: ${testSocketId} (${availableSockets.length} total)`
-			);
+
+		if (!testSocketId || !this.getSocket(testSocketId)) {
+			console.log(`🔍 Waiting for active socket...`);
+			testSocketId = await this.waitForSocket(10000);
+
+			if (!testSocketId) {
+				throw new Error('No active sockets available for testing after 10 second timeout');
+			}
 		}
 
-		// Дополнительная проверка что сокет подключен
-		const testSocket = namespace.sockets.get(testSocketId);
-		if (!testSocket || !testSocket.connected) {
-			// Ищем любой подключенный сокет
-			for (const [id, socket] of namespace.sockets) {
-				if (socket.connected) {
-					testSocketId = id;
-					console.log(`🔄 Using connected socket: ${testSocketId}`);
-					break;
+		console.log(`🎯 Using socket: ${testSocketId}`);
+		console.log('='.repeat(70));
+
+		this.clearResults();
+
+		// Определяем план тестов
+		const testPlan = [
+			{
+				name: 'Instant Emit',
+				method: 'testInstantEmit',
+				params: [15000],
+				checkMethod: 'emitInstant',
+			},
+			{
+				name: 'Optimized Binary Emit',
+				method: 'testOptimizedBinaryEmit',
+				params: [15000],
+				checkMethod: 'emitBinaryOptimized',
+			},
+			{
+				name: 'Ultra Fast Optimized',
+				method: 'testUltraFastOptimized',
+				params: [20000],
+				checkMethod: 'emitUltraFastOptimized',
+			},
+			{
+				name: 'Precompiled Batch',
+				method: 'testPrecompiledBatch',
+				params: [20000],
+				checkMethod: 'emitBatchPrecompiled',
+			},
+			{
+				name: 'Super Fast ACK',
+				method: 'testSuperFastAck',
+				params: [2000],
+				checkMethod: 'emitWithSuperFastAck',
+			},
+		];
+
+		const comparisonPlan = [
+			{
+				name: 'Simple Emit',
+				method: 'testSimpleEmit',
+				params: [10000],
+			},
+			{
+				name: 'Binary Emit',
+				method: 'testBinaryEmit',
+				params: [10000],
+			},
+			{
+				name: 'Ultra Fast Emit',
+				method: 'testUltraFastEmit',
+				params: [10000],
+			},
+			{
+				name: 'Fast ACK',
+				method: 'testFastAck',
+				params: [1000],
+			},
+		];
+
+		// Выполняем оптимизированные тесты
+		console.log(`📊 Running optimized tests...`);
+		await this.executeTestPlan(testPlan, testSocketId, 'optimized');
+
+		// Выполняем сравнительные тесты
+		console.log('\n📊 Running comparison tests...');
+		await this.executeTestPlan(comparisonPlan, testSocketId, 'comparison');
+
+		this.printOptimizedComparison();
+		return this.results;
+	}
+
+	/**
+	 * Выполнение плана тестов с retry логикой
+	 */
+	private async executeTestPlan(
+		testPlan: Array<{
+			name: string;
+			method: string;
+			params: any[];
+			checkMethod?: string;
+		}>,
+		initialSocketId: string,
+		phase: string
+	): Promise<void> {
+		for (const test of testPlan) {
+			let currentSocketId = initialSocketId;
+			let attempts = 0;
+			const maxAttempts = 3;
+			let testCompleted = false;
+
+			while (attempts < maxAttempts && !testCompleted) {
+				try {
+					// Получаем активный сокет
+					const socket = this.getSocket(currentSocketId);
+					if (!socket) {
+						throw new Error(`No active socket available`);
+					}
+
+					// Проверяем доступность метода если указан
+					if (test.checkMethod && !(socket as any)[test.checkMethod]) {
+						console.log(
+							`⚠️ ${test.checkMethod} method not available on socket ${socket.id}, skipping ${test.name}`
+						);
+						testCompleted = true;
+						break;
+					}
+
+					console.log(
+						`🧪 Running ${test.name} with socket ${socket.id} (attempt ${
+							attempts + 1
+						})...`
+					);
+
+					// Выполняем тест
+					const testMethod = (this as any)[test.method];
+					if (!testMethod) {
+						throw new Error(`Test method ${test.method} not found`);
+					}
+
+					await testMethod.call(this, socket.id, ...test.params);
+					testCompleted = true;
+				} catch (error) {
+					attempts++;
+					console.error(`❌ ${test.name} attempt ${attempts} failed:`, error);
+
+					if (attempts < maxAttempts) {
+						console.log(
+							`🔄 Retrying ${test.name} in 1 second... (attempt ${
+								attempts + 1
+							}/${maxAttempts})`
+						);
+						await new Promise((resolve) => setTimeout(resolve, 1000));
+
+						// Ищем новый активный сокет
+						const newSocketId = await this.waitForSocket(5000);
+						if (newSocketId) {
+							currentSocketId = newSocketId;
+							console.log(`🔄 Retry ${test.name} with socket: ${currentSocketId}`);
+						} else {
+							console.error(`❌ No active sockets for retry of ${test.name}`);
+							break;
+						}
+					} else {
+						console.error(
+							`❌ ${test.name} failed after ${maxAttempts} attempts, adding empty result`
+						);
+
+						// Добавляем пустой результат чтобы тест был учтен
+						this.results.push({
+							testName: test.name,
+							totalOperations: test.params[0] || 0,
+							timeMs: 0,
+							operationsPerSecond: 0,
+							successful: 0,
+							failed: test.params[0] || 0,
+						});
+					}
 				}
 			}
 		}
-
-		console.log(`\n🚀 Running OPTIMIZED performance tests with socket: ${testSocketId}`);
-		console.log('='.repeat(70));
-
-		this.clearResults(); // Очищаем предыдущие результаты
-
-		try {
-			// Новые оптимизированные тесты с проверкой доступности методов
-			if ((testSocket as any)?.emitInstant) {
-				await this.testInstantEmit(testSocketId, 15000);
-			} else {
-				console.log('⚠️ emitInstant method not available, skipping test');
-			}
-
-			if ((testSocket as any)?.emitBinaryOptimized) {
-				await this.testOptimizedBinaryEmit(testSocketId, 15000);
-			} else {
-				console.log('⚠️ emitBinaryOptimized method not available, skipping test');
-			}
-
-			if ((testSocket as any)?.emitUltraFastOptimized) {
-				await this.testUltraFastOptimized(testSocketId, 20000);
-			} else {
-				console.log('⚠️ emitUltraFastOptimized method not available, skipping test');
-			}
-
-			if ((testSocket as any)?.emitBatchPrecompiled) {
-				await this.testPrecompiledBatch(testSocketId, 20000);
-			} else {
-				console.log('⚠️ emitBatchPrecompiled method not available, skipping test');
-			}
-
-			if ((testSocket as any)?.emitWithSuperFastAck) {
-				await this.testSuperFastAck(testSocketId, 2000);
-			} else {
-				console.log('⚠️ emitWithSuperFastAck method not available, skipping test');
-			}
-
-			// Сравнительные тесты со старыми методами
-			console.log('\n📊 Running comparison tests...');
-			await this.testSimpleEmit(testSocketId, 10000);
-			await this.testBinaryEmit(testSocketId, 10000);
-			await this.testUltraFastEmit(testSocketId, 10000);
-			await this.testFastAck(testSocketId, 1000);
-
-			this.printOptimizedComparison();
-		} catch (error) {
-			console.error('❌ Error during optimized tests:', error);
-			console.log('📊 Falling back to basic performance test...');
-
-			// Fallback на базовые тесты
-			await this.testSimpleEmit(testSocketId, 10000);
-			await this.testBinaryEmit(testSocketId, 10000);
-			await this.testUltraFastEmit(testSocketId, 10000);
-			await this.testFastAck(testSocketId, 1000);
-
-			this.printSummary();
-		}
-
-		return this.results;
 	}
 
 	/**

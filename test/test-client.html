@@ -466,6 +466,9 @@
 
 				// ===== ACK ОБРАБОТЧИКИ (ИСПРАВЛЕНИЕ) =====
 				socket.on('super_fast_ack_test', (data, callback) => {
+					messagesReceived++;
+					updateMetrics();
+
 					if (typeof callback === 'function') {
 						callback(`super_fast_ack_${data}`);
 					}

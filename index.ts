@@ -75,33 +75,150 @@ import {
 	saveResultsToFile,
 	performanceTest,
 } from './test/performance_test';
-// Флаг для одноразового запуска
-let performanceTestCompleted = false;
+
+/**
+ * Улучшенная система управления performance тестами
+ */
+let performanceTestState = {
+	completed: false,
+	running: false,
+	targetSocket: null as string | null,
+	timeoutId: null as NodeJS.Timeout | null,
+};
+
 io.on('connection', (socket) => {
 	console.log(`🎉 Socket ${socket.id} connected`);
-	// Запускаем тест только один раз
-	if (!performanceTestCompleted) {
-		performanceTestCompleted = true;
-		setTimeout(async () => {
-			try {
-				console.log('\n🚀 Starting ONE-TIME performance test...');
-				// Устанавливаем IO instance
-				performanceTest.setIOInstance(io);
-				// Запускаем полный набор тестов
-				await performanceTest.runOptimizedQuickTests(socket.id);
-				// Сохраняем результаты
-				const filename = `final-performance-${socket.id.slice(-8)}-${Date.now()}.json`;
-				saveResultsToFile(filename);
-				console.log(`\n✅ Performance test completed! Results saved to ${filename}`);
-				console.log('📊 No more tests will run for new connections.');
-			} catch (error) {
-				console.error('❌ Performance test failed:', error);
-				// Сбрасываем флаг при ошибке, чтобы можно было попробовать снова
-				performanceTestCompleted = false;
-			}
-		}, 3000);
-	} else {
+
+	// Если тест уже завершен, просто уведомляем
+	if (performanceTestState.completed) {
 		console.log('📊 Performance test already completed. Skipping for this connection.');
+		return;
+	}
+
+	// Если тест уже запущен, ждем его завершения
+	if (performanceTestState.running) {
+		console.log(
+			`⏳ Performance test is running with socket: ${performanceTestState.targetSocket}`
+		);
+		return;
+	}
+
+	// Запускаем тест с текущим сокетом
+	startPerformanceTest(socket.id);
+});
+
+async function startPerformanceTest(socketId: string) {
+	performanceTestState.running = true;
+	performanceTestState.targetSocket = socketId;
+
+	// Отменяем предыдущий timeout если есть
+	if (performanceTestState.timeoutId) {
+		clearTimeout(performanceTestState.timeoutId);
+	}
+
+	performanceTestState.timeoutId = setTimeout(async () => {
+		try {
+			console.log(`\n🚀 Starting performance test with socket: ${socketId}...`);
+
+			// Проверяем что сокет все еще активен
+			const namespace = io.of('/');
+			const testSocket = namespace.sockets.get(socketId);
+
+			if (!testSocket || !testSocket.connected) {
+				console.warn(
+					`⚠️ Target socket ${socketId} disconnected, searching for alternatives...`
+				);
+
+				// Ищем любой активный сокет
+				const activeSockets = Array.from(namespace.sockets.entries()).filter(
+					([id, socket]) => socket.connected && socket.ws?.readyState === 1
+				);
+
+				if (activeSockets.length === 0) {
+					console.error(`❌ No active sockets available for testing`);
+					resetPerformanceTestState();
+					return;
+				}
+
+				const [newSocketId] = activeSockets[0];
+				console.log(`🔄 Using alternative socket: ${newSocketId}`);
+				performanceTestState.targetSocket = newSocketId;
+			}
+
+			// Устанавливаем IO instance
+			performanceTest.setIOInstance(io);
+
+			// Запускаем тесты с retry логикой
+			let attempts = 0;
+			const maxAttempts = 3;
+
+			while (attempts < maxAttempts) {
+				try {
+					await performanceTest.runOptimizedQuickTests(performanceTestState.targetSocket);
+					break; // Успешно завершили
+				} catch (error) {
+					attempts++;
+					console.error(`❌ Performance test attempt ${attempts} failed:`, error);
+
+					if (attempts < maxAttempts) {
+						console.log(
+							`🔄 Retrying in 2 seconds... (attempt ${attempts + 1}/${maxAttempts})`
+						);
+						await new Promise((resolve) => setTimeout(resolve, 2000));
+
+						// Ищем новый активный сокет для retry
+						const namespace = io.of('/');
+						const activeSockets = Array.from(namespace.sockets.entries()).filter(
+							([id, socket]) => socket.connected && socket.ws?.readyState === 1
+						);
+
+						if (activeSockets.length > 0) {
+							performanceTestState.targetSocket = activeSockets[0][0];
+							console.log(
+								`🔄 Retry with socket: ${performanceTestState.targetSocket}`
+							);
+						} else {
+							console.error(`❌ No active sockets for retry`);
+							break;
+						}
+					}
+				}
+			}
+
+			// Сохраняем результаты
+			const filename = `final-performance-${performanceTestState.targetSocket?.slice(
+				-8
+			)}-${Date.now()}.json`;
+			saveResultsToFile(filename);
+			console.log(`\n✅ Performance test completed! Results saved to ${filename}`);
+
+			performanceTestState.completed = true;
+			console.log('📊 No more tests will run for new connections.');
+		} catch (error) {
+			console.error('❌ Fatal performance test error:', error);
+		} finally {
+			resetPerformanceTestState();
+		}
+	}, 3000);
+}
+
+function resetPerformanceTestState() {
+	performanceTestState.running = false;
+	performanceTestState.targetSocket = null;
+	if (performanceTestState.timeoutId) {
+		clearTimeout(performanceTestState.timeoutId);
+		performanceTestState.timeoutId = null;
+	}
+}
+
+// Обработка отключения сокетов
+io.on('disconnect', (socket, reason) => {
+	console.log(`❌ Socket ${socket.id} disconnected: ${reason}`);
+
+	// Если отключился сокет который использовался для тестов
+	if (performanceTestState.targetSocket === socket.id && performanceTestState.running) {
+		console.warn(`⚠️ Performance test socket disconnected, will try to find alternative...`);
+		// Не сбрасываем состояние, позволяем тесту найти альтернативный сокет
 	}
 });
 
@@ -221,17 +338,10 @@ io.on('connection', (socket) => {
 // });
 
 // Дополнительная отладка
-io.on('connect', (socket) => {
-	if (!isProduction) {
+if (!isProduction) {
+	io.on('connect', (socket) => {
 		console.log(`🔗 [INDEX] Connect event received for ${socket.id}`);
-	}
-});
-
-if (!isProduction) {
-	console.log('[INDEX] Event handlers registered');
-}
-
-if (!isProduction) {
+	});
 	console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
 	console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
 	console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);

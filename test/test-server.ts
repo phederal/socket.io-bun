@@ -71,7 +71,29 @@ const isProduction = process.env.NODE_ENV === 'production';
 testNamespace.on('connection', (socket) => {
 	if (!isProduction) {
 		console.log(`🧪 Enhanced test socket ${socket.id} connected`);
+		console.log(`📊 Total connected sockets: ${testNamespace.socketsCount}`);
+		console.log(
+			`🔗 Socket details: connected=${socket.connected}, readyState=${socket.ws?.readyState}`
+		);
 	}
+
+	// Увеличиваем таймауты для стабильности тестов
+	socket.ws.timeout = 60000; // 60 секунд timeout
+
+	// Добавляем ping-pong для проверки связи
+	const pingInterval = setInterval(() => {
+		if (socket.connected && socket.ws.readyState === 1) {
+			socket.emit('ping');
+		} else {
+			clearInterval(pingInterval);
+		}
+	}, 10000); // Каждые 10 секунд
+
+	socket.on('pong', () => {
+		if (!isProduction) {
+			console.log(`🏓 Pong received from ${socket.id}`);
+		}
+	});
 
 	// ===== БАЗОВЫЕ ОБРАБОТЧИКИ =====
 
@@ -392,6 +414,19 @@ testNamespace.on('connection', (socket) => {
 		}
 	});
 
+	socket.on('super_fast_ack_test', (data, callback) => {
+		if (!isProduction) {
+			console.log(`🚀 Super Fast ACK test from ${socket.id}:`, data);
+		}
+
+		if (typeof callback === 'function') {
+			// Немедленный ответ для максимальной скорости
+			callback(`super_fast_ack_${data}`);
+		} else {
+			console.warn(`[Server] Super Fast ACK callback is not a function for ${socket.id}`);
+		}
+	});
+
 	// ===== АВТОМАТИЧЕСКИЕ ТЕСТЫ ПРИ ПОДКЛЮЧЕНИИ =====
 
 	setTimeout(() => {
@@ -404,7 +439,11 @@ testNamespace.on('connection', (socket) => {
 	console.log(`🏠 Socket ${socket.id} joined test-room`);
 
 	socket.on('disconnect', (reason) => {
-		console.log(`🧪 Enhanced test socket ${socket.id} disconnected: ${reason}`);
+		if (!isProduction) {
+			console.log(`🧪 Enhanced test socket ${socket.id} disconnected: ${reason}`);
+			console.log(`📊 Remaining connected sockets: ${testNamespace.socketsCount}`);
+		}
+		clearInterval(pingInterval);
 	});
 });
 
