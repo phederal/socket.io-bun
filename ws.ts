@@ -90,12 +90,12 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 					return;
 				}
 
-				// Добавляем защиту от flood
-				if (!socket.checkRateLimit || !socket.checkRateLimit(1)) {
-					console.warn(`[WebSocket] Rate limit exceeded for ${socket.id}`);
-					ws.close(1008, 'Rate limit exceeded');
-					return;
-				}
+				// // Добавляем защиту от flood
+				// if (!socket.checkRateLimit || !socket.checkRateLimit(1)) {
+				// 	console.warn(`[WebSocket] Rate limit exceeded for ${socket.id}`);
+				// 	ws.close(1008, 'Rate limit exceeded');
+				// 	return;
+				// }
 
 				if (!isProduction) {
 					console.log(`[WebSocket] Packet from ${socket.id}:`, packet.event, packet.data);

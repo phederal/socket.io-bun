@@ -428,11 +428,11 @@
 				socket.on('test_result', (data) => {
 					messagesReceived++;
 					updateMetrics();
-					if (typeof data === 'object') {
-						log(`📊 Test result: ${JSON.stringify(data)}`, 'success');
-					} else {
-						log(`📊 Test result: ${data}`, 'success');
-					}
+					// if (typeof data === 'object') {
+					// 	log(`📊 Test result: ${JSON.stringify(data)}`, 'success');
+					// } else {
+					// 	log(`📊 Test result: ${data}`, 'success');
+					// }
 				});
 
 				socket.on('performance_result', (data) => {
@@ -539,6 +539,9 @@
 				});
 
 				socket.on('performance_ack_request', (data) => {
+					messagesReceived++;
+					updateMetrics();
+
 					// Немедленно отвечаем серверу
 					socket.emit('performance_ack_response', {
 						id: data.id,
@@ -546,6 +549,40 @@
 						serverTimestamp: Date.now(),
 						clientTimestamp: data.timestamp,
 					});
+				});
+
+				// Остальные обработчики для полноты
+				socket.on('super_fast_ack_test', (data, callback) => {
+					messagesReceived++;
+					updateMetrics();
+
+					if (typeof callback === 'function') {
+						callback(`super_fast_ack_${data}`);
+					}
+				});
+
+				socket.on('benchmark_ping', (callback) => {
+					if (typeof callback === 'function') {
+						callback('benchmark_pong');
+					}
+				});
+
+				socket.on('stress_ack_test', (data, callback) => {
+					messagesReceived++;
+					updateMetrics();
+
+					if (typeof callback === 'function') {
+						callback(`stress_ack_${data}`);
+					}
+				});
+
+				socket.on('fast_ack_test', (data, callback) => {
+					messagesReceived++;
+					updateMetrics();
+
+					if (typeof callback === 'function') {
+						callback(`fast_ack_response_${data}`);
+					}
 				});
 			}
 
