@@ -481,7 +481,7 @@
 				socket.on('fast_ack_test', (data, callback) => {
 					messagesReceived++;
 					updateMetrics();
-					log(`🔄 Fast ACK test received: ${data}`, 'info');
+					// log(`🔄 Fast ACK test received: ${data}`, 'info');
 
 					if (typeof callback === 'function') {
 						// Немедленный ответ для минимизации задержки
