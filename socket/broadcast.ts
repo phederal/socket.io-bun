@@ -1,6 +1,5 @@
 import type {
 	ServerToClientEvents,
-	ClientToServerEvents,
 	SocketId,
 	Room,
 	AckCallback,
@@ -8,8 +7,8 @@ import type {
 	DefaultEventsMap,
 	SocketData as DefaultSocketData,
 } from '../shared/types/socket.types';
-import { BinaryProtocol } from './object-pool';
 import { SocketParser } from './parser';
+import { BinaryProtocol } from './object-pool';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -19,11 +18,12 @@ export interface BroadcastFlags {
 	local?: boolean;
 	broadcast?: boolean;
 	timeout?: number;
-	binary?: boolean; // НОВЫЙ: флаг для принудительного использования бинарного формата
+	binary?: boolean;
+	priority?: 'low' | 'normal' | 'high';
 }
 
 /**
- * Broadcast operator for chaining operations with full TypeScript support
+ * Упрощенный Broadcast operator под новый унифицированный API
  */
 export class BroadcastOperator<
 	EmitEvents extends EventsMap = ServerToClientEvents,
@@ -34,13 +34,7 @@ export class BroadcastOperator<
 	private exceptSockets: Set<SocketId> = new Set();
 	private flags: BroadcastFlags = {};
 
-	private ackBatch: Array<{ ackId: string; socketId: string; data: any; callback: Function }> =
-		[];
-	private batchTimer?: NodeJS.Timeout;
-	private readonly BATCH_SIZE = 100; // Обрабатываем по 100 ACK за раз
-	private readonly BATCH_TIMEOUT = 1; // 1ms для мгновенной обработки
-
-	constructor(private adapter: any) {} // Избегаем циклических импортов
+	constructor(private adapter: any) {}
 
 	/**
 	 * Target specific room(s)
@@ -104,7 +98,7 @@ export class BroadcastOperator<
 	}
 
 	/**
-	 * НОВЫЙ: Set binary flag - принудительное использование бинарного формата
+	 * Set binary flag - принудительное использование бинарного формата
 	 */
 	get binary(): BroadcastOperator<EmitEvents, SocketData> {
 		const operator = this.clone();
@@ -122,7 +116,7 @@ export class BroadcastOperator<
 	}
 
 	/**
-	 * Typed emit to all sockets in namespace with proper overloads (Socket.IO format)
+	 * Основной emit метод с поддержкой ACK
 	 */
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
@@ -142,16 +136,12 @@ export class BroadcastOperator<
 
 			// Handle different call signatures
 			if (typeof dataOrArg === 'function') {
-				// emit(event, ack)
 				ack = dataOrArg;
 				data = undefined;
 			} else if (typeof ack === 'function') {
-				// emit(event, data, ack)
 				data = dataOrArg;
 			} else {
-				// emit(event, ...args) or emit(event, data)
 				data = dataOrArg;
-				// Ensure data doesn't contain functions
 				if (data && typeof data === 'object') {
 					data = this.sanitizeData(data);
 				}
@@ -162,15 +152,11 @@ export class BroadcastOperator<
 				const targetSockets = this.getTargetSockets();
 
 				if (targetSockets.size === 0) {
-					// No target sockets, call ack immediately
 					setTimeout(() => ack(null, []), 0);
 					return true;
 				}
 
 				ackId = SocketParser.generateAckId();
-				if (!isProduction) {
-					console.log(`[BroadcastOperator] Generated broadcast ACK ID: ${ackId}`);
-				}
 				const responses: any[] = [];
 				let responseCount = 0;
 				let timedOut = false;
@@ -180,34 +166,18 @@ export class BroadcastOperator<
 				const timer = setTimeout(() => {
 					if (!timedOut) {
 						timedOut = true;
-						if (!isProduction) {
-							console.log(
-								`[BroadcastOperator] ACK timeout for broadcast ${ackId}, expected ${expectedResponses}, got ${responseCount} responses`
-							);
-						}
-
-						// Clean up any remaining callbacks
 						targetSockets.forEach((socketId) => {
 							const socket = this.adapter.nsp.sockets.get(socketId);
 							if (socket && socket.ackCallbacks.has(ackId!)) {
 								socket.ackCallbacks.delete(ackId!);
 							}
 						});
-
 						ack(new Error('Broadcast acknowledgement timeout'), responses);
 					}
 				}, timeout);
 
-				// Create a shared callback that handles responses from all sockets
 				const sharedCallback = (socketId: string) => (err: any, responseData: any) => {
-					if (timedOut) return; // Ignore late responses
-
-					if (!isProduction) {
-						console.log(
-							`[BroadcastOperator] ACK response from ${socketId} for broadcast ${ackId}:`,
-							responseData
-						);
-					}
+					if (timedOut) return;
 
 					if (err) {
 						responses.push({ socketId, error: err.message || err });
@@ -219,15 +189,6 @@ export class BroadcastOperator<
 					if (responseCount >= expectedResponses) {
 						timedOut = true;
 						clearTimeout(timer);
-
-						// Clean up remaining callbacks
-						targetSockets.forEach((sid) => {
-							const socket = this.adapter.nsp.sockets.get(sid);
-							if (socket && socket.ackCallbacks.has(ackId!)) {
-								socket.ackCallbacks.delete(ackId!);
-							}
-						});
-
 						ack(null, responses);
 					}
 				};
@@ -236,93 +197,66 @@ export class BroadcastOperator<
 				targetSockets.forEach((socketId) => {
 					const socket = this.adapter.nsp.sockets.get(socketId);
 					if (socket) {
-						socket.ackCallbacks.set(ackId!, sharedCallback(socketId));
-						if (!isProduction) {
-							console.log(
-								`[BroadcastOperator] Registered ACK callback ${ackId} for socket ${socketId}`
-							);
-						}
-					} else {
-						// Socket not found, count as error response
-						responses.push({ socketId, error: 'Socket not found' });
-						responseCount++;
-
-						if (responseCount >= expectedResponses) {
-							timedOut = true;
-							clearTimeout(timer);
-							ack(null, responses);
-						}
+						socket.ackCallbacks.set(ackId!, {
+							callback: sharedCallback(socketId),
+							timeoutId: timer,
+							createdAt: Date.now(),
+						});
 					}
 				});
 			}
 
-			// Создаем пакеты для отправки
-			const namespaces = new Map<string, Set<SocketId>>();
 			const targetSockets = this.getTargetSockets();
+			if (targetSockets.size === 0) return true;
 
-			// Группируем сокеты по namespace
-			targetSockets.forEach((socketId) => {
-				const socket = this.adapter.nsp.sockets.get(socketId);
-				if (socket && socket.connected) {
-					const nsp = socket.nsp;
-					if (!namespaces.has(nsp)) {
-						namespaces.set(nsp, new Set());
-					}
-					namespaces.get(nsp)!.add(socketId);
-				}
-			});
-
-			// Отправляем пакет в каждый namespace
 			let success = true;
-			for (const [nsp, sockets] of namespaces) {
-				let packet: string | Uint8Array;
 
-				// ИЗМЕНЕНО: Проверяем флаг binary для принудительного использования бинарного формата
-				if (
-					this.flags.binary &&
-					BinaryProtocol.supportsBinaryEncoding(event as string) &&
-					(typeof data === 'string' || typeof data === 'number') &&
-					!ackId
-				) {
-					// Принудительное бинарное кодирование
-					const binaryPacket = BinaryProtocol.encodeBinaryEvent(event as string, data);
-					if (binaryPacket) {
-						packet = binaryPacket;
+			// Определяем тип отправки
+			const useBinary = this.flags.binary;
+			const useAck = !!ackId;
+
+			for (const socketId of targetSockets) {
+				const socket = this.adapter.nsp.sockets.get(socketId);
+				if (!socket || !socket.connected || socket.ws.readyState !== 1) {
+					success = false;
+					continue;
+				}
+
+				try {
+					// Выбираем оптимальный метод отправки
+					let result: boolean;
+
+					if (useAck) {
+						// С ACK используем обычный emit
+						result = socket.emit(event, data);
+					} else if (useBinary && !data) {
+						// Бинарный без данных
+						result = socket.emitBinary(event);
+					} else if (useBinary && typeof data === 'string') {
+						// Бинарный со строковыми данными
+						result = socket.emitBinary(event, data);
+					} else if (!data) {
+						// Быстрый emit без данных
+						result = socket.emitFast(event as string);
+					} else if (typeof data === 'string') {
+						// Быстрый emit со строкой
+						result = socket.emitFast(event as string, data);
 					} else {
-						// Fallback на обычное кодирование
-						packet = SocketParser.encode(event as any, data, ackId, nsp);
+						// Обычный emit для сложных данных
+						result = socket.emit(event, data);
 					}
-				} else {
-					// Обычное текстовое кодирование (по умолчанию)
-					packet = SocketParser.encode(event as any, data, ackId, nsp);
-				}
 
-				if (!isProduction) {
-					console.log(
-						`[BroadcastOperator] Broadcasting packet to namespace ${nsp}:`,
-						'<packet>'
-					);
-				}
-
-				// Отправляем каждому сокету в этом namespace
-				for (const socketId of sockets) {
-					const socket = this.adapter.nsp.sockets.get(socketId);
-					if (socket && socket.connected && socket.ws.readyState === 1) {
-						try {
-							const result = socket.ws.send(packet);
-							if (result === 0 || result === -1) {
-								success = false;
-							}
-						} catch (error) {
-							if (!isProduction) {
-								console.warn(
-									`[BroadcastOperator] Failed to send to socket ${socketId}:`,
-									error
-								);
-							}
-							success = false;
-						}
+					if (!result) {
+						success = false;
 					}
+				} catch (error) {
+					if (!isProduction) {
+						console.warn(
+							`[BroadcastOperator] Failed to send to socket ${socketId}:`,
+							error
+						);
+					}
+					success = false;
 				}
 			}
 
@@ -336,204 +270,8 @@ export class BroadcastOperator<
 	}
 
 	/**
-	 * Memory pool для broadcast операций
+	 * Быстрый emit без проверок для максимальной производительности
 	 */
-	private static broadcastPacketPool: string[] = [];
-	private static readonly MAX_BROADCAST_POOL_SIZE = 200;
-
-	/**
-	 * Ultra-fast broadcast с object pooling и опциональным binary protocol
-	 */
-	emitUltraFast<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0],
-		forceBinary: boolean = false
-	): boolean {
-		const targetSockets = this.getTargetSockets();
-		if (targetSockets.size === 0) return true;
-
-		// ИЗМЕНЕНО: Используем forceBinary параметр или флаг binary
-		const useBinary = forceBinary || this.flags.binary;
-
-		// Попытка использования бинарного протокола если запрошено
-		let binaryPacket: Uint8Array | null = null;
-		if (
-			useBinary &&
-			BinaryProtocol.supportsBinaryEncoding(event as string) &&
-			(typeof data === 'string' || typeof data === 'number')
-		) {
-			binaryPacket = BinaryProtocol.encodeBinaryEvent(event as string, data);
-		}
-
-		let success = true;
-
-		if (binaryPacket) {
-			// Отправляем бинарный пакет всем
-			for (const socketId of targetSockets) {
-				const socket = this.adapter.nsp.sockets.get(socketId);
-				if (socket && socket.connected && socket.ws.readyState === 1) {
-					try {
-						if (socket.ws.send(binaryPacket) <= 0) {
-							success = false;
-						}
-					} catch {
-						success = false;
-					}
-				}
-			}
-		} else {
-			// Fallback на обычные пакеты с pooling
-			const namespaces = new Map<string, Set<SocketId>>();
-
-			targetSockets.forEach((socketId) => {
-				const socket = this.adapter.nsp.sockets.get(socketId);
-				if (socket && socket.connected) {
-					const nsp = socket.nsp;
-					if (!namespaces.has(nsp)) {
-						namespaces.set(nsp, new Set());
-					}
-					namespaces.get(nsp)!.add(socketId);
-				}
-			});
-
-			for (const [nsp, sockets] of namespaces) {
-				// Используем pooled packet
-				let packet: string;
-
-				if (BroadcastOperator.broadcastPacketPool.length > 0) {
-					packet = BroadcastOperator.broadcastPacketPool.pop()!;
-					// Переиспользуем packet с новыми данными (требует модификации SocketParser)
-				} else {
-					packet = SocketParser.encode(event as any, data, undefined, nsp);
-				}
-
-				for (const socketId of sockets) {
-					const socket = this.adapter.nsp.sockets.get(socketId);
-					if (socket && socket.connected && socket.ws.readyState === 1) {
-						try {
-							if (socket.ws.send(packet) <= 0) {
-								success = false;
-							}
-						} catch {
-							success = false;
-						}
-					}
-				}
-
-				// Возвращаем packet в pool
-				if (
-					BroadcastOperator.broadcastPacketPool.length <
-					BroadcastOperator.MAX_BROADCAST_POOL_SIZE
-				) {
-					BroadcastOperator.broadcastPacketPool.push(packet);
-				}
-			}
-		}
-
-		return success;
-	}
-
-	/**
-	 * Parallel broadcast для maximum throughput
-	 */
-	async emitParallel<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0]
-	): Promise<{ successful: number; failed: number }> {
-		const targetSockets = this.getTargetSockets();
-		if (targetSockets.size === 0) return { successful: 0, failed: 0 };
-
-		const promises: Promise<boolean>[] = [];
-
-		for (const socketId of targetSockets) {
-			const socket = this.adapter.nsp.sockets.get(socketId);
-			if (socket && socket.connected) {
-				const promise = new Promise<boolean>((resolve) => {
-					try {
-						// Используем binary flag если установлен
-						const success = this.flags.binary
-							? (socket as any).emitUltraFast(event, data, true)
-							: (socket as any).emitUltraFast(event, data);
-						resolve(success);
-					} catch {
-						resolve(false);
-					}
-				});
-				promises.push(promise);
-			}
-		}
-
-		const results = await Promise.all(promises);
-		const successful = results.filter((r) => r).length;
-		const failed = results.length - successful;
-
-		return { successful, failed };
-	}
-
-	private sanitizeData(data: any, seen = new WeakSet()): any {
-		if (data === null || data === undefined) return data;
-
-		if (typeof data === 'function') return undefined;
-
-		// Check for circular references
-		if (typeof data === 'object' && seen.has(data)) {
-			return '[Circular]';
-		}
-
-		if (Array.isArray(data)) {
-			seen.add(data);
-			const result = data.map((item) => this.sanitizeData(item, seen));
-			seen.delete(data);
-			return result;
-		}
-
-		if (typeof data === 'object') {
-			seen.add(data);
-			const sanitized: any = {};
-			for (const [key, value] of Object.entries(data)) {
-				if (typeof value !== 'function') {
-					sanitized[key] = this.sanitizeData(value, seen);
-				}
-			}
-			seen.delete(data);
-			return sanitized;
-		}
-
-		return data;
-	}
-
-	private addToBatch(ackId: string, socketId: string, data: any, callback: Function): void {
-		this.ackBatch.push({ ackId, socketId, data, callback });
-
-		// Обрабатываем немедленно если batch заполнен
-		if (this.ackBatch.length >= this.BATCH_SIZE) {
-			this.processBatch();
-		} else if (!this.batchTimer) {
-			// Устанавливаем timer для обработки оставшихся
-			this.batchTimer = setTimeout(() => this.processBatch(), this.BATCH_TIMEOUT);
-		}
-	}
-
-	private processBatch(): void {
-		if (this.batchTimer) {
-			clearTimeout(this.batchTimer);
-			this.batchTimer = undefined;
-		}
-
-		if (this.ackBatch.length === 0) return;
-
-		const batch = this.ackBatch.splice(0);
-
-		// Обрабатываем все ACK в одном цикле без await
-		for (const { callback, data } of batch) {
-			try {
-				callback(null, data);
-			} catch (error) {
-				// Игнорируем ошибки callback чтобы не замедлять обработку
-			}
-		}
-	}
-
 	emitFast<Ev extends keyof EmitEvents>(
 		event: Ev,
 		data?: Parameters<EmitEvents[Ev]>[0]
@@ -541,46 +279,20 @@ export class BroadcastOperator<
 		const targetSockets = this.getTargetSockets();
 		if (targetSockets.size === 0) return true;
 
-		// Группируем сокеты по namespace для оптимизации
-		const namespaces = new Map<string, Set<SocketId>>();
-
-		targetSockets.forEach((socketId) => {
-			const socket = this.adapter.nsp.sockets.get(socketId);
-			if (socket && socket.connected) {
-				const nsp = socket.nsp;
-				if (!namespaces.has(nsp)) {
-					namespaces.set(nsp, new Set());
-				}
-				namespaces.get(nsp)!.add(socketId);
-			}
-		});
-
+		const useBinary = this.flags.binary;
 		let success = true;
 
-		// Отправляем пакет в каждый namespace
-		for (const [nsp, sockets] of namespaces) {
-			let packet: string;
-
-			// Используем быстрые методы кодирования
-			if (data === undefined) {
-				packet = SocketParser.encodeSimpleEvent(event as string, nsp);
-			} else if (typeof data === 'string') {
-				packet = SocketParser.encodeStringEvent(event as string, data, nsp);
-			} else {
-				packet = SocketParser.encode(event as any, data, undefined, nsp);
-			}
-
-			// Отправляем всем сокетам в namespace
-			for (const socketId of sockets) {
-				const socket = this.adapter.nsp.sockets.get(socketId);
-				if (socket && socket.connected && socket.ws.readyState === 1) {
-					try {
-						if (socket.ws.send(packet) <= 0) {
-							success = false;
-						}
-					} catch (error) {
-						success = false;
+		for (const socketId of targetSockets) {
+			const socket = this.adapter.nsp.sockets.get(socketId);
+			if (socket && socket.connected && socket.ws.readyState === 1) {
+				try {
+					if (useBinary) {
+						if (!socket.emitBinary(event, data)) success = false;
+					} else {
+						if (!socket.emitFast(event as string, data as string)) success = false;
 					}
+				} catch {
+					success = false;
 				}
 			}
 		}
@@ -589,9 +301,9 @@ export class BroadcastOperator<
 	}
 
 	/**
-	 * Bulk operations для массовых операций
+	 * Batch операции для broadcast
 	 */
-	emitBulk<Ev extends keyof EmitEvents>(
+	emitBatch<Ev extends keyof EmitEvents>(
 		operations: Array<{
 			event: Ev;
 			data?: Parameters<EmitEvents[Ev]>[0];
@@ -609,7 +321,6 @@ export class BroadcastOperator<
 					operator = this.to(op.rooms);
 				}
 
-				// Применяем binary флаг если указан
 				if (op.binary) {
 					operator = operator.binary;
 				}
@@ -618,23 +329,11 @@ export class BroadcastOperator<
 					successful++;
 				}
 			} catch (error) {
-				// Продолжаем обработку остальных операций
 				continue;
 			}
 		}
 
 		return successful;
-	}
-
-	/**
-	 * Cleanup метод для освобождения ресурсов
-	 */
-	cleanup(): void {
-		if (this.batchTimer) {
-			clearTimeout(this.batchTimer);
-			this.batchTimer = undefined;
-		}
-		this.processBatch(); // Обрабатываем оставшиеся
 	}
 
 	/**
@@ -696,7 +395,7 @@ export class BroadcastOperator<
 	}
 
 	/**
-	 * Get all matching socket instances with full typing
+	 * Get all matching socket instances
 	 */
 	fetchSockets(): Promise<any[]> {
 		const targetSockets = this.getTargetSockets();
@@ -705,13 +404,13 @@ export class BroadcastOperator<
 		targetSockets.forEach((socketId) => {
 			const socket = this.adapter.nsp.sockets.get(socketId);
 			if (socket) {
-				// Create a simplified socket representation for safety
 				sockets.push({
 					id: socket.id,
 					handshake: socket.handshake,
 					rooms: new Set(socket.rooms),
 					data: socket.data,
 					emit: socket.emit.bind(socket),
+					emitWithAck: socket.emitWithAck.bind(socket),
 					join: socket.join.bind(socket),
 					leave: socket.leave.bind(socket),
 					disconnect: socket.disconnect.bind(socket),
@@ -761,9 +460,42 @@ export class BroadcastOperator<
 		operator.flags = { ...this.flags };
 		return operator;
 	}
+
+	private sanitizeData(data: any, seen = new WeakSet()): any {
+		if (data === null || data === undefined) return data;
+
+		if (typeof data === 'function') return undefined;
+
+		if (typeof data === 'object' && seen.has(data)) {
+			return '[Circular]';
+		}
+
+		if (Array.isArray(data)) {
+			seen.add(data);
+			const result = data.map((item) => this.sanitizeData(item, seen));
+			seen.delete(data);
+			return result;
+		}
+
+		if (typeof data === 'object') {
+			seen.add(data);
+			const sanitized: any = {};
+			for (const [key, value] of Object.entries(data)) {
+				if (typeof value !== 'function') {
+					sanitized[key] = this.sanitizeData(value, seen);
+				}
+			}
+			seen.delete(data);
+			return sanitized;
+		}
+
+		return data;
+	}
 }
 
-// RemoteSocket остается без изменений - он уже работает правильно
+/**
+ * Упрощенный RemoteSocket под новый API
+ */
 export class RemoteSocket<
 	EmitEvents extends EventsMap = ServerToClientEvents,
 	SocketData extends DefaultSocketData = DefaultSocketData
@@ -791,15 +523,27 @@ export class RemoteSocket<
 		return this.operator.timeout(timeout);
 	}
 
-	/**
-	 * НОВЫЙ: binary метод для remote socket
-	 */
 	get binary(): BroadcastOperator<EmitEvents, SocketData> {
 		return this.operator.binary;
 	}
 
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean {
 		return this.operator.emit(event, ...args);
+	}
+
+	emitWithAck(
+		event: string,
+		data: any,
+		callback: AckCallback,
+		options?: { timeout?: number; priority?: 'low' | 'normal' | 'high' }
+	): boolean {
+		// Получаем реальный сокет и используем его метод
+		const adapter = (this.operator as any).adapter;
+		const socket = adapter.nsp.sockets.get(this.id);
+		if (socket) {
+			return socket.emitWithAck(event, data, callback, options);
+		}
+		return false;
 	}
 
 	join(room: Room | Room[]): void {

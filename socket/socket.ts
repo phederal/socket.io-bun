@@ -7,7 +7,6 @@ import type {
 	SocketId,
 	Room,
 	AckCallback,
-	AckMap,
 	DisconnectReason,
 	Handshake,
 	SocketData as DefaultSocketData,
@@ -15,7 +14,7 @@ import type {
 	DefaultEventsMap,
 } from '../shared/types/socket.types';
 import { SocketParser } from './parser';
-import { packetPool, ackResponsePool, BinaryProtocol, PoolManager } from './object-pool';
+import { BinaryProtocol } from './object-pool';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -29,41 +28,35 @@ export class Socket<
 	public readonly handshake: Handshake;
 	public readonly rooms: Set<Room> = new Set();
 	public readonly data: SocketData = {} as SocketData;
-	public readonly ackCallbacks: AckMap = new Map();
 
 	private heartbeatTimer?: NodeJS.Timeout;
-	private readonly heartbeatInterval = 25000;
+	private readonly heartbeatInterval = 30000; // 30 секунд
 	private _connected: boolean = true;
 	private _sessionId: string;
 
 	public readonly ws: ServerWebSocket<WSContext>;
 	private namespace: any;
 
-	/**
-	 * Батчинг ACK ответов для минимизации WebSocket фреймов
-	 */
-	private ackResponseBatch: string[] = [];
-	private readonly ACK_BATCH_SIZE = 5; // Уменьшаем размер батча для стабильности
-	private readonly ACK_BATCH_TIMEOUT = 1; // Увеличиваем timeout
+	// ЕДИНАЯ система ACK callbacks
+	private ackCallbacks = new Map<
+		string,
+		{
+			callback: AckCallback;
+			timeoutId: NodeJS.Timeout;
+			createdAt: number;
+		}
+	>();
+
+	// Batch обработка ACK для производительности
+	private ackBatchQueue: Array<{ ackId: string; data: any }> = [];
 	private ackBatchTimer?: NodeJS.Timeout;
 
-	private pendingAcks = new Map<string, { callback: AckCallback; timeoutId: NodeJS.Timeout }>();
-	private ackBatchQueue: Array<{ ackId: string; data: any }> = [];
-
-	// Предварительно скомпилированные регулярные выражения
-	private static readonly ACK_ID_REGEX = /^(\d+)/;
-	private static readonly NAMESPACE_REGEX = /^(\/[^,]*)/;
-
-	// Inline константы для избежания поиска в объектах
-	private static readonly WS_READY_STATE_OPEN = 1;
-	private static readonly ENGINE_MESSAGE_TYPE = 4;
-
-	// Добавляем rate limiting
+	// Rate limiting
 	private messageRateLimit = {
 		count: 0,
 		lastReset: Date.now(),
-		maxPerSecond: 1000, // Максимум 1000 сообщений в секунду
-		maxBurst: 100, // Максимум 100 сообщений в burst
+		maxPerSecond: 1000,
+		maxBurst: 100,
 	};
 
 	constructor(
@@ -85,28 +78,23 @@ export class Socket<
 	}
 
 	private startHeartbeat(): void {
-		// Более частый heartbeat для стабильности во время тестов
-		const interval = this.heartbeatInterval / 2; // 12.5 секунд вместо 25
-
 		this.heartbeatTimer = setInterval(() => {
-			// Проверяем rate limit перед отправкой ping
-			if (this.checkRateLimit(1)) {
-				try {
-					this.ws.send('2'); // Engine.IO ping
-				} catch (error) {
-					console.error(`[Socket] ${this.id} heartbeat error:`, error);
-					this._handleClose('transport error');
+			if (this._connected && this.ws.readyState === 1) {
+				if (this.checkRateLimit(1)) {
+					try {
+						this.ws.send('2'); // Engine.IO ping
+					} catch (error) {
+						console.error(`[Socket] ${this.id} heartbeat error:`, error);
+						this._handleClose('transport error');
+					}
 				}
-			} else {
-				console.warn(
-					`[Socket] ${this.id} heartbeat failed: connected=${this._connected}, readyState=${this.ws.readyState}`
-				);
-				this.stopHeartbeat();
 			}
-		}, interval);
+		}, this.heartbeatInterval);
 
 		if (!isProduction) {
-			console.log(`[Socket] ${this.id} heartbeat started with ${interval}ms interval`);
+			console.log(
+				`[Socket] ${this.id} heartbeat started with ${this.heartbeatInterval}ms interval`
+			);
 		}
 	}
 
@@ -117,7 +105,6 @@ export class Socket<
 		}
 	}
 
-	// Добавляем rate limiting
 	private checkRateLimit(messageCount: number = 1): boolean {
 		const now = Date.now();
 
@@ -135,7 +122,6 @@ export class Socket<
 			return false;
 		}
 
-		// Проверяем burst лимит
 		if (messageCount > this.messageRateLimit.maxBurst) {
 			console.warn(`[Socket] ${this.id} burst limit exceeded: ${messageCount}`);
 			return false;
@@ -157,7 +143,6 @@ export class Socket<
 		return this._sessionId;
 	}
 
-	// ИСПРАВЛЕНИЕ: Упрощаем override методы для лучшей совместимости
 	override on(event: string | symbol, listener: (...args: any[]) => void): this {
 		return super.on(event, listener);
 	}
@@ -208,32 +193,34 @@ export class Socket<
 			// Handle acknowledgement callback
 			if (typeof ack === 'function') {
 				ackId = SocketParser.generateAckId();
-				this.ackCallbacks.set(ackId, ack);
 
-				// Clean up callback after timeout
-				setTimeout(() => {
-					if (this.ackCallbacks.has(ackId!)) {
+				const timeoutId = setTimeout(() => {
+					const callback = this.ackCallbacks.get(ackId!);
+					if (callback) {
 						this.ackCallbacks.delete(ackId!);
 						ack!(new Error('Acknowledgement timeout'));
 					}
 				}, 10000);
+
+				this.ackCallbacks.set(ackId, {
+					callback: ack,
+					timeoutId,
+					createdAt: Date.now(),
+				});
 			}
 
 			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
 
-			// Логирование только в development
 			if (!isProduction) {
 				console.log(`[Socket] Sending packet to ${this.id} for event '${event}':`, packet);
 			}
 
-			// Проверяем что пакет корректный
 			if (!packet || typeof packet !== 'string') {
 				console.error(`[Socket] Invalid packet generated for ${this.id}:`, packet);
 				return false;
 			}
 
 			const result = this.ws.send(packet);
-
 			return result !== 0 && result !== -1;
 		} catch (error) {
 			console.error('[Socket] Emit error:', error);
@@ -242,17 +229,100 @@ export class Socket<
 	}
 
 	/**
-	 * НОВЫЙ: Emit с принудительным использованием бинарного формата
+	 * ЕДИНСТВЕННЫЙ метод для emit с ACK и настройками
+	 */
+	emitWithAck(
+		event: string,
+		data: any,
+		callback: AckCallback,
+		options: {
+			timeout?: number;
+			priority?: 'low' | 'normal' | 'high';
+			binary?: boolean;
+			batch?: boolean;
+		} = {}
+	): boolean {
+		if (!this._connected || this.ws.readyState !== 1) {
+			callback(new Error('Socket not connected'));
+			return false;
+		}
+
+		if (!this.checkRateLimit(1)) {
+			callback(new Error('Rate limit exceeded'));
+			return false;
+		}
+
+		const ackId = SocketParser.generateAckId();
+
+		// Настраиваемый timeout в зависимости от приоритета
+		let timeout = options.timeout;
+		if (!timeout) {
+			switch (options.priority) {
+				case 'high':
+					timeout = 1000;
+					break;
+				case 'low':
+					timeout = 15000;
+					break;
+				default:
+					timeout = 5000;
+					break;
+			}
+		}
+
+		const timeoutId = setTimeout(() => {
+			const ack = this.ackCallbacks.get(ackId);
+			if (ack) {
+				this.ackCallbacks.delete(ackId);
+				callback(new Error(`Acknowledgement timeout after ${timeout}ms`));
+			}
+		}, timeout);
+
+		this.ackCallbacks.set(ackId, {
+			callback,
+			timeoutId,
+			createdAt: Date.now(),
+		});
+
+		try {
+			let packet: string | Uint8Array;
+
+			// Бинарное кодирование если запрошено
+			if (options.binary && BinaryProtocol.supportsBinaryEncoding(event)) {
+				const binaryPacket = BinaryProtocol.encodeBinaryEvent(event, data);
+				if (binaryPacket) {
+					packet = binaryPacket;
+				} else {
+					packet = SocketParser.encode(event as any, data, ackId, this.nsp);
+				}
+			} else {
+				packet = SocketParser.encode(event as any, data, ackId, this.nsp);
+			}
+
+			const success = this.ws.send(packet) > 0;
+
+			if (!success) {
+				this.cleanupAck(ackId);
+				callback(new Error('Failed to send packet'));
+			}
+
+			return success;
+		} catch (error) {
+			this.cleanupAck(ackId);
+			callback(error as Error);
+			return false;
+		}
+	}
+
+	/**
+	 * Бинарный emit
 	 */
 	emitBinary<Ev extends keyof EmitEvents>(
 		event: Ev,
 		data?: Parameters<EmitEvents[Ev]>[0]
 	): boolean {
-		if (!this._connected || this.ws.readyState !== Socket.WS_READY_STATE_OPEN) {
-			return false;
-		}
+		if (!this._connected || this.ws.readyState !== 1) return false;
 
-		// Попытка бинарного кодирования
 		const binaryPacket = SocketParser.encodeBinary(event, data, this.nsp);
 		if (binaryPacket) {
 			try {
@@ -262,147 +332,38 @@ export class Socket<
 			}
 		}
 
-		// Fallback на обычное кодирование
 		return this.emit(event, data as any);
 	}
 
 	/**
-	 * Оптимизированный Binary Emit
+	 * Быстрый emit для простых случаев
 	 */
-	emitBinaryOptimized<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0]
-	): boolean {
-		if (this.ws.readyState !== 1) return false;
-
-		const eventStr = event as string;
-		if ((eventStr === 'ping' || eventStr === 'message') && typeof data === 'string') {
-			const dataBytes = new TextEncoder().encode(data);
-			const binaryPacket = new Uint8Array(4 + dataBytes.length);
-			binaryPacket[0] = 0xff; // magic
-			binaryPacket[1] = 0x01; // version
-			binaryPacket[2] = eventStr === 'ping' ? 0x01 : 0x03;
-			binaryPacket[3] = dataBytes.length;
-			binaryPacket.set(dataBytes, 4);
-			return this.ws.send(binaryPacket) > 0;
-		}
-
-		return this.emitUltraFastOptimized(eventStr, data);
-	}
-
-	/**
-	 * Мгновенный emit без проверок (максимальная скорость)
-	 */
-	emitInstant(event: string): boolean {
-		if (this.ws.readyState !== 1) return false;
-		const packet = `42["${event}"]`;
-		return this.ws.send(packet) > 0;
-	}
-
-	/**
-	 * Ultra-fast emit с возможностью бинарного кодирования ТОЛЬКО при наличии флага
-	 */
-	emitUltraFast(event: string, data?: string | number, forceBinary: boolean = false): boolean {
-		// Inline проверка состояния для максимальной скорости
-		if (!this._connected || this.ws.readyState !== Socket.WS_READY_STATE_OPEN) {
-			return false;
-		}
-
-		let packet: Uint8Array | string;
-
-		// Бинарное кодирование ТОЛЬКО если принудительно запрошено
-		if (forceBinary && (typeof data === 'string' || typeof data === 'number')) {
-			const binaryPacket = SocketParser.encodeBinary(event as any, data, this.nsp);
-			if (binaryPacket) {
-				packet = binaryPacket;
-			} else {
-				// Fallback на обычное кодирование
-				packet =
-					typeof data === 'string'
-						? SocketParser.encodeStringEvent(event, data, this.nsp)
-						: SocketParser.encodeSimpleEvent(event, this.nsp);
-			}
-		} else {
-			// Обычное текстовое кодирование (по умолчанию)
-			if (typeof data === 'string') {
-				packet = SocketParser.encodeStringEvent(event, data, this.nsp);
-			} else {
-				packet = SocketParser.encodeSimpleEvent(event, this.nsp);
-			}
-		}
-
-		try {
-			return this.ws.send(packet) > 0;
-		} catch {
-			return false;
-		}
-	}
-
-	/**
-	 * Ультра-быстрый emit оптимизированный
-	 */
-	emitUltraFastOptimized(event: string, data?: string | number): boolean {
-		if (this.ws.readyState !== 1) return false;
+	emitFast(event: string, data?: string): boolean {
+		if (!this._connected || this.ws.readyState !== 1) return false;
 
 		let packet: string;
-		if (!data) {
-			packet = `42["${event}"]`;
-		} else if (typeof data === 'string') {
-			packet = `42["${event}","${data.replace(/"/g, '\\"')}"]`;
+		if (data) {
+			packet = SocketParser.encodeStringEvent(event, data, this.nsp);
 		} else {
-			packet = `42["${event}",${data}]`;
+			packet = SocketParser.encodeSimpleEvent(event, this.nsp);
 		}
 
 		return this.ws.send(packet) > 0;
 	}
 
 	/**
-	 * Сверх-быстрый emit для простых событий без данных (без ACK)
+	 * Batch emit
 	 */
-	emitFast(event: string): boolean {
-		// Самая быстрая проверка подключения
-		if (!this._connected || this.ws.readyState !== 1) return false;
-
-		const packet = SocketParser.encodeSimpleEvent(event, this.nsp);
-		return this.ws.send(packet) > 0;
-	}
-
-	/**
-	 * Сверх-быстрый emit для строковых данных (без ACK)
-	 */
-	emitString(event: string, data: string): boolean {
-		if (!this._connected || this.ws.readyState !== 1) return false;
-
-		const packet = SocketParser.encodeStringEvent(event, data, this.nsp);
-		return this.ws.send(packet) > 0;
-	}
-
-	/**
-	 * Batch операции с опциональным использованием бинарного формата
-	 */
-	emitBatchPooled(
-		events: Array<{ event: string; data?: any; binary?: boolean }>,
-		defaultBinary: boolean = false
-	): number {
-		if (!this._connected || this.ws.readyState !== Socket.WS_READY_STATE_OPEN) {
-			return 0;
-		}
+	emitBatch(events: Array<{ event: string; data?: any; binary?: boolean }>): number {
+		if (!this._connected || this.ws.readyState !== 1) return 0;
 
 		let successful = 0;
-		const packets: (string | Uint8Array)[] = [];
 
-		// Формируем batch пакетов
 		for (const { event, data, binary } of events) {
 			try {
-				const useBinary = binary !== undefined ? binary : defaultBinary;
 				let packet: string | Uint8Array;
 
-				// Попытка бинарного кодирования если запрошено
-				if (
-					useBinary &&
-					BinaryProtocol.supportsBinaryEncoding(event) &&
-					(typeof data === 'string' || typeof data === 'number')
-				) {
+				if (binary && BinaryProtocol.supportsBinaryEncoding(event)) {
 					const binaryPacket = BinaryProtocol.encodeBinaryEvent(event, data);
 					if (binaryPacket) {
 						packet = binaryPacket;
@@ -410,398 +371,18 @@ export class Socket<
 						packet = SocketParser.encode(event as any, data, undefined, this.nsp);
 					}
 				} else {
-					// Обычное текстовое кодирование
 					packet = SocketParser.encode(event as any, data, undefined, this.nsp);
 				}
 
-				packets.push(packet);
-			} catch (error) {
-				// Продолжаем обработку остальных
-				continue;
-			}
-		}
-
-		// Отправляем все пакеты
-		for (const packet of packets) {
-			try {
 				if (this.ws.send(packet) > 0) {
 					successful++;
 				}
 			} catch {
-				// Ignore individual failures
-			}
-		}
-
-		return successful;
-	}
-
-	/**
-	 * Batch emit для массовой отправки (оптимизация для множественных emit)
-	 */
-	emitBatch(events: Array<{ event: string; data?: any }>): number {
-		if (!this._connected || this.ws.readyState !== 1) return 0;
-
-		let successful = 0;
-
-		for (const { event, data } of events) {
-			try {
-				let packet: string;
-
-				if (data === undefined) {
-					packet = SocketParser.encodeSimpleEvent(event, this.nsp);
-				} else if (typeof data === 'string') {
-					packet = SocketParser.encodeStringEvent(event, data, this.nsp);
-				} else {
-					packet = SocketParser.encode(event as any, data, undefined, this.nsp);
-				}
-
-				if (this.ws.send(packet) > 0) {
-					successful++;
-				}
-			} catch (error) {
-				// Продолжаем отправку остальных
 				continue;
 			}
 		}
 
 		return successful;
-	}
-
-	/**
-	 * Batch emit с предварительно созданными пакетами
-	 */
-	emitBatchPrecompiled(precompiledPackets: string[]): number {
-		if (this.ws.readyState !== 1) return 0;
-
-		let successful = 0;
-		for (const packet of precompiledPackets) {
-			if (this.ws.send(packet) > 0) {
-				successful++;
-			}
-		}
-		return successful;
-	}
-
-	/**
-	 * Memory-efficient ACK с использованием typed arrays
-	 */
-	private ackResponseBuffer = new ArrayBuffer(1024);
-	private ackResponseView = new DataView(this.ackResponseBuffer);
-
-	emitWithTypedAck(event: string, data: any, callback: AckCallback): boolean {
-		if (!this._connected || this.ws.readyState !== Socket.WS_READY_STATE_OPEN) {
-			return false;
-		}
-
-		const ackId = SocketParser.generateAckId();
-
-		// Используем typed callback для лучшей производительности
-		this.fastAckCallbacks[ackId] = callback;
-
-		// Установка timeout с использованием pool
-		const timeoutId = setTimeout(() => {
-			if (this.fastAckCallbacks[ackId]) {
-				delete this.fastAckCallbacks[ackId];
-				callback(new Error('Timeout'));
-			}
-		}, 3000); // Уменьшенный timeout для стресс-тестов
-
-		try {
-			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
-			const success = this.ws.send(packet) > 0;
-
-			if (!success) {
-				clearTimeout(timeoutId);
-				delete this.fastAckCallbacks[ackId];
-			}
-
-			return success;
-		} catch (error) {
-			clearTimeout(timeoutId);
-			delete this.fastAckCallbacks[ackId];
-			return false;
-		}
-	}
-
-	/**
-	 * Fast ACK для высокочастотных операций
-	 */
-	emitWithFastAck(event: string, data: any, callback: AckCallback): boolean {
-		if (!this._connected || this.ws.readyState !== 1) return false;
-
-		const ackId = SocketParser.generateAckId();
-		this.fastAckCallbacks[ackId] = callback;
-
-		// Простая cleanup через setTimeout (можно заменить на batch cleanup)
-		setTimeout(() => {
-			if (this.fastAckCallbacks[ackId]) {
-				delete this.fastAckCallbacks[ackId];
-				callback(new Error('Acknowledgement timeout'));
-			}
-		}, 5000); // Уменьшенный timeout для стресс-тестов
-
-		const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
-		return this.ws.send(packet) > 0;
-	}
-
-	/**
-	 * Супер-быстрый ACK с минимальным overhead
-	 */
-	emitWithSuperFastAck(event: string, data: any, callback: AckCallback): boolean {
-		if (!this._connected || this.ws.readyState !== 1) return false;
-
-		// Проверяем rate limit
-		if (!this.checkRateLimit(1)) {
-			callback(new Error('Rate limit exceeded'));
-			return false;
-		}
-
-		const ackId = SocketParser.generateAckId();
-
-		// Уменьшаем timeout для массовых операций
-		const timeoutMs = 5000; // 5 секунд вместо 10
-
-		const timeoutId = setTimeout(() => {
-			const pending = this.pendingAcks.get(ackId);
-			if (pending) {
-				this.pendingAcks.delete(ackId);
-				callback(new Error('Acknowledgement timeout'));
-			}
-		}, timeoutMs);
-
-		// Сохраняем в оптимизированную структуру
-		this.pendingAcks.set(ackId, { callback, timeoutId });
-
-		try {
-			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
-			const success = this.ws.send(packet) > 0;
-
-			if (!success) {
-				this.cleanupAck(ackId);
-			}
-
-			return success;
-		} catch (error) {
-			this.cleanupAck(ackId);
-			return false;
-		}
-	}
-
-	/**
-	 * Batch обработка ACK callbacks
-	 */
-	private processAckBatch(): void {
-		if (this.ackBatchTimer) {
-			clearTimeout(this.ackBatchTimer);
-			this.ackBatchTimer = undefined;
-		}
-
-		if (this.ackBatchQueue.length === 0) return;
-
-		// Обрабатываем все накопленные ACK
-		const batch = this.ackBatchQueue.splice(0);
-
-		for (const { ackId, data } of batch) {
-			try {
-				// Сначала проверяем новую систему (pendingAcks)
-				const pending = this.pendingAcks.get(ackId);
-				if (pending) {
-					clearTimeout(pending.timeoutId);
-					this.pendingAcks.delete(ackId);
-
-					if (!isProduction) {
-						console.log(`[Socket] Calling pending callback for ackId: ${ackId}`);
-					}
-
-					pending.callback(null, data);
-					continue;
-				}
-
-				// Затем проверяем быстрые callbacks
-				if (this.fastAckCallbacks[ackId]) {
-					const callback = this.fastAckCallbacks[ackId];
-
-					// Очищаем timeout если есть
-					const timeoutId = this.fastAckCallbacks[`${ackId}_timeout`];
-					if (timeoutId) {
-						clearTimeout(timeoutId);
-						delete this.fastAckCallbacks[`${ackId}_timeout`];
-					}
-
-					delete this.fastAckCallbacks[ackId];
-
-					if (!isProduction) {
-						console.log(`[Socket] Calling fast callback for ackId: ${ackId}`);
-					}
-
-					callback(null, data);
-					continue;
-				}
-
-				// Проверяем обычные Map callbacks
-				const callback = this.ackCallbacks.get(ackId);
-				if (callback) {
-					this.ackCallbacks.delete(ackId);
-
-					if (!isProduction) {
-						console.log(`[Socket] Calling regular callback for ackId: ${ackId}`);
-					}
-
-					callback(null, data);
-					continue;
-				}
-
-				if (!isProduction) {
-					console.warn(`[Socket] No callback found for ackId: ${ackId}`);
-				}
-			} catch (error) {
-				if (!isProduction) {
-					console.error(`[Socket] Error in ACK callback for ${ackId}:`, error);
-				}
-			}
-		}
-	}
-
-	/**
-	 * Альтернативно - можно унифицировать все в одну систему
-	 */
-	private unifiedAckCallbacks = new Map<
-		string,
-		{
-			callback: AckCallback;
-			timeoutId: NodeJS.Timeout;
-			type: 'regular' | 'fast' | 'super';
-		}
-	>();
-
-	// Унифицированная версия emit с ACK
-	emitWithUnifiedAck(
-		event: string,
-		data: any,
-		callback: AckCallback,
-		type: 'regular' | 'fast' | 'super' = 'regular'
-	): boolean {
-		if (!this._connected || this.ws.readyState !== 1) return false;
-
-		// Проверяем rate limit
-		if (!this.checkRateLimit(1)) {
-			callback(new Error('Rate limit exceeded'));
-			return false;
-		}
-
-		const ackId = SocketParser.generateAckId();
-
-		// Выбираем timeout в зависимости от типа
-		const timeoutMs = type === 'super' ? 3000 : type === 'fast' ? 5000 : 10000;
-
-		const timeoutId = setTimeout(() => {
-			const ack = this.unifiedAckCallbacks.get(ackId);
-			if (ack) {
-				this.unifiedAckCallbacks.delete(ackId);
-				callback(new Error('Acknowledgement timeout'));
-			}
-		}, timeoutMs);
-
-		// Сохраняем в унифицированную структуру
-		this.unifiedAckCallbacks.set(ackId, { callback, timeoutId, type });
-
-		try {
-			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
-			const success = this.ws.send(packet) > 0;
-
-			if (!success) {
-				this.cleanupUnifiedAck(ackId);
-			}
-
-			return success;
-		} catch (error) {
-			this.cleanupUnifiedAck(ackId);
-			return false;
-		}
-	}
-
-	/**
-	 * Унифицированная версия _handleAck
-	 */
-	_handleAckUnified(ackId: string, data: any): void {
-		// Добавляем в batch queue
-		this.ackBatchQueue.push({ ackId, data });
-
-		if (!this.ackBatchTimer) {
-			this.ackBatchTimer = setTimeout(() => this.processUnifiedAckBatch(), 1);
-		}
-	}
-
-	private processUnifiedAckBatch(): void {
-		if (this.ackBatchTimer) {
-			clearTimeout(this.ackBatchTimer);
-			this.ackBatchTimer = undefined;
-		}
-
-		const batch = this.ackBatchQueue.splice(0);
-
-		for (const { ackId, data } of batch) {
-			const ack = this.unifiedAckCallbacks.get(ackId);
-			if (ack) {
-				clearTimeout(ack.timeoutId);
-				this.unifiedAckCallbacks.delete(ackId);
-
-				try {
-					ack.callback(null, data);
-				} catch (error) {
-					console.error(`[Socket] ACK callback error:`, error);
-				}
-			}
-		}
-	}
-
-	private cleanupUnifiedAck(ackId: string): void {
-		const ack = this.unifiedAckCallbacks.get(ackId);
-		if (ack) {
-			clearTimeout(ack.timeoutId);
-			this.unifiedAckCallbacks.delete(ackId);
-		}
-	}
-
-	/**
-	 * Добавить ACK ответ в batch
-	 */
-	private batchAckResponse(ackResponse: string): void {
-		this.ackResponseBatch.push(ackResponse);
-
-		// Отправляем немедленно если batch заполнен
-		if (this.ackResponseBatch.length >= this.ACK_BATCH_SIZE) {
-			this.flushAckBatch();
-		} else if (!this.ackBatchTimer) {
-			// Micro-timeout для отправки оставшихся
-			this.ackBatchTimer = setTimeout(() => this.flushAckBatch(), this.ACK_BATCH_TIMEOUT);
-		}
-	}
-
-	/**
-	 * Отправка всех накопленных ACK в одном фрейме
-	 */
-	private flushAckBatch(): void {
-		if (this.ackBatchTimer) {
-			clearTimeout(this.ackBatchTimer);
-			this.ackBatchTimer = undefined;
-		}
-
-		if (this.ackResponseBatch.length === 0) return;
-
-		// ИСПРАВЛЕНИЕ: Отправляем каждый ACK отдельно вместо объединения
-		// Объединение с разделителем вызывает parse error на клиенте
-		for (const ackResponse of this.ackResponseBatch) {
-			try {
-				this.ws.send(ackResponse);
-			} catch (error) {
-				if (!isProduction) {
-					console.warn(`[Socket] Failed to send ACK response:`, error);
-				}
-			}
-		}
-
-		this.ackResponseBatch = [];
 	}
 
 	join(room: Room | Room[]): this {
@@ -852,22 +433,21 @@ export class Socket<
 
 	disconnect(close: boolean = false): this {
 		// Очищаем все pending ACKs
-		for (const [ackId, pending] of this.pendingAcks) {
-			clearTimeout(pending.timeoutId);
+		for (const [ackId, ack] of this.ackCallbacks) {
+			clearTimeout(ack.timeoutId);
 			try {
-				pending.callback(new Error('Socket disconnected'));
+				ack.callback(new Error('Socket disconnected'));
 			} catch (error) {
 				// Ignore callback errors during disconnect
 			}
 		}
-		this.pendingAcks.clear();
+		this.ackCallbacks.clear();
 
 		if (this.ackBatchTimer) {
 			clearTimeout(this.ackBatchTimer);
 			this.ackBatchTimer = undefined;
 		}
 
-		// Остальная логика disconnect...
 		this.stopHeartbeat();
 		if (!this._connected) return this;
 
@@ -893,7 +473,7 @@ export class Socket<
 	}
 
 	/**
-	 * ИСПРАВЛЕНИЕ: Улучшенная обработка входящих пакетов
+	 * Обработка входящих пакетов
 	 */
 	_handlePacket(packet: any): void {
 		if (!packet || !packet.event) return;
@@ -905,14 +485,12 @@ export class Socket<
 		}
 
 		try {
-			// Handle special Socket.IO events
 			if (packet.event === '__connect') return;
 			if (packet.event === '__disconnect') {
 				this._handleClose('client namespace disconnect');
 				return;
 			}
 
-			// Handle acknowledgement response FROM CLIENT
 			if (packet.event === '__ack' && packet.ackId) {
 				if (!isProduction) {
 					console.log(`[Socket] Received ACK response: ${packet.ackId} from ${this.id}`);
@@ -921,14 +499,13 @@ export class Socket<
 				return;
 			}
 
-			// Handle Engine.IO ping/pong
 			if (packet.event === 'ping') {
 				this.ws.send('3');
 				return;
 			}
 			if (packet.event === 'pong') return;
 
-			// ИСПРАВЛЕНИЕ: Обработка событий С ACK запросом ОТ КЛИЕНТА
+			// Обработка событий с ACK запросом от клиента
 			if (packet.ackId && typeof packet.ackId === 'string') {
 				if (!isProduction) {
 					console.log(
@@ -941,7 +518,6 @@ export class Socket<
 				if (listeners.length > 0) {
 					const listener = listeners[0] as Function;
 
-					// Создаем wrapper для ACK ответа
 					const ackWrapper = (...args: any[]) => {
 						try {
 							if (!isProduction) {
@@ -953,7 +529,6 @@ export class Socket<
 								args.length === 1 ? args[0] : args
 							);
 
-							// КРИТИЧНО: Немедленная отправка ACK
 							const success = this.ws.send(ackResponse);
 
 							if (!isProduction) {
@@ -971,24 +546,19 @@ export class Socket<
 					};
 
 					try {
-						// Определяем количество аргументов которые ожидает обработчик
 						const listenerLength = listener.length;
 
 						if (packet.data !== undefined) {
 							if (listenerLength > 1) {
-								// Обработчик ожидает (data, callback)
 								listener.call(this, packet.data, ackWrapper);
 							} else {
-								// Обработчик ожидает только (data)
 								const result = listener.call(this, packet.data);
 								ackWrapper(result);
 							}
 						} else {
 							if (listenerLength > 0) {
-								// Обработчик ожидает (callback)
 								listener.call(this, ackWrapper);
 							} else {
-								// Обработчик не ожидает аргументов
 								const result = listener.call(this);
 								ackWrapper(result);
 							}
@@ -1004,7 +574,6 @@ export class Socket<
 					}
 					return;
 				} else {
-					// Нет обработчиков - отправляем ошибку в ACK
 					if (!isProduction) {
 						console.warn(`[Socket] No handler for ACK event: ${packet.event}`);
 					}
@@ -1037,19 +606,17 @@ export class Socket<
 			if (!isProduction) {
 				console.error(`[Socket] Error handling packet ${packet.event}:`, error);
 			}
-			// Не прерываем соединение при ошибке обработки пакета
 		}
 	}
 
 	/**
-	 * Обновленный _handleAck с поддержкой fastAckCallbacks
+	 * ЕДИНАЯ обработка ACK ответов
 	 */
 	_handleAck(ackId: string, data: any): void {
 		if (!isProduction) {
 			console.log(`[Socket] _handleAck called with ackId: ${ackId}, data:`, data);
 		}
 
-		// Добавляем в batch queue вместо немедленной обработки
 		this.ackBatchQueue.push({ ackId, data });
 
 		if (!this.ackBatchTimer) {
@@ -1057,11 +624,42 @@ export class Socket<
 		}
 	}
 
+	private processAckBatch(): void {
+		if (this.ackBatchTimer) {
+			clearTimeout(this.ackBatchTimer);
+			this.ackBatchTimer = undefined;
+		}
+
+		if (this.ackBatchQueue.length === 0) return;
+
+		const batch = this.ackBatchQueue.splice(0);
+
+		for (const { ackId, data } of batch) {
+			const ack = this.ackCallbacks.get(ackId);
+			if (ack) {
+				clearTimeout(ack.timeoutId);
+				this.ackCallbacks.delete(ackId);
+
+				try {
+					ack.callback(null, data);
+				} catch (error) {
+					if (!isProduction) {
+						console.error(`[Socket] ACK callback error:`, error);
+					}
+				}
+			} else {
+				if (!isProduction) {
+					console.warn(`[Socket] No callback found for ackId: ${ackId}`);
+				}
+			}
+		}
+	}
+
 	private cleanupAck(ackId: string): void {
-		const pending = this.pendingAcks.get(ackId);
-		if (pending) {
-			clearTimeout(pending.timeoutId);
-			this.pendingAcks.delete(ackId);
+		const ack = this.ackCallbacks.get(ackId);
+		if (ack) {
+			clearTimeout(ack.timeoutId);
+			this.ackCallbacks.delete(ackId);
 		}
 	}
 
@@ -1085,7 +683,6 @@ export class Socket<
 
 		if (typeof data === 'function') return undefined;
 
-		// Check for circular references
 		if (typeof data === 'object' && seen.has(data)) {
 			return '[Circular]';
 		}
@@ -1111,24 +708,28 @@ export class Socket<
 
 		return data;
 	}
+
+	/**
+	 * Статистика для отладки
+	 */
+	getAckStats() {
+		const now = Date.now();
+		const pending = Array.from(this.ackCallbacks.values());
+
+		return {
+			total: pending.length,
+			oldestAge: pending.length > 0 ? Math.max(...pending.map((a) => now - a.createdAt)) : 0,
+			batchQueueSize: this.ackBatchQueue.length,
+		};
+	}
 }
 
 /**
- * Warm-up функция для инициализации всех pools и кешей
+ * Warm-up функция для инициализации pools и кешей
  */
 export function warmupPerformanceOptimizations(): void {
-	const isProduction = process.env.NODE_ENV === 'production';
-
 	if (!isProduction) {
 		console.log('🔥 Warming up performance optimizations...');
-	}
-
-	// Предварительно создаем объекты в pools
-	for (let i = 0; i < 100; i++) {
-		const packet = packetPool.acquire();
-		const ackResponse = ackResponsePool.acquire();
-		packetPool.release(packet);
-		ackResponsePool.release(ackResponse);
 	}
 
 	// Прогреваем кеши парсера
@@ -1141,6 +742,5 @@ export function warmupPerformanceOptimizations(): void {
 
 	if (!isProduction) {
 		console.log('✅ Performance optimizations warmed up!');
-		console.log('📊 Pool stats:', PoolManager.getAllStats());
 	}
 }

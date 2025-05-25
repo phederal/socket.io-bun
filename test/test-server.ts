@@ -1,6 +1,6 @@
 /**
  * Enhanced Server Test Example
- * Демонстрирует все новые методы и оптимизации
+ * Обновлен под новый унифицированный Socket API
  */
 
 import { io } from '../socket/server';
@@ -22,11 +22,9 @@ interface EnhancedClientEvents {
 		callback: (result: { result?: number; error?: string }) => void
 	) => void;
 
-	// Новые события для тестирования бинарного формата
+	// Новые события для тестирования
 	binary_ping: () => void;
 	binary_message: (data: string) => void;
-	ultra_fast_test: (data: string) => void;
-	batch_test: () => void;
 	performance_test: (type: string, iterations: number) => void;
 	stress_test: (type: string, count: number) => void;
 
@@ -38,6 +36,10 @@ interface EnhancedClientEvents {
 	// Server-to-client ACK тесты
 	request_ping_back: () => void;
 	request_validation: (data: any) => void;
+
+	// Унифицированные ACK тесты
+	ack_test: (data: string, callback: (response: string) => void) => void;
+	batch_test: () => void;
 }
 
 interface EnhancedServerEvents {
@@ -60,7 +62,6 @@ interface EnhancedServerEvents {
 		data: any,
 		callback: (result: { valid: boolean; message: string }) => void
 	) => void;
-	benchmark_ping: (callback: (response: string) => void) => void;
 }
 
 // Создаем типизированный namespace для тестов
@@ -72,28 +73,7 @@ testNamespace.on('connection', (socket) => {
 	if (!isProduction) {
 		console.log(`🧪 Enhanced test socket ${socket.id} connected`);
 		console.log(`📊 Total connected sockets: ${testNamespace.socketsCount}`);
-		console.log(
-			`🔗 Socket details: connected=${socket.connected}, readyState=${socket.ws?.readyState}`
-		);
 	}
-
-	// Увеличиваем таймауты для стабильности тестов
-	socket.ws.timeout = 60000; // 60 секунд timeout
-
-	// Добавляем ping-pong для проверки связи
-	const pingInterval = setInterval(() => {
-		if (socket.connected && socket.ws.readyState === 1) {
-			socket.emit('ping');
-		} else {
-			clearInterval(pingInterval);
-		}
-	}, 10000); // Каждые 10 секунд
-
-	socket.on('pong', () => {
-		if (!isProduction) {
-			console.log(`🏓 Pong received from ${socket.id}`);
-		}
-	});
 
 	// ===== БАЗОВЫЕ ОБРАБОТЧИКИ =====
 
@@ -112,13 +92,12 @@ testNamespace.on('connection', (socket) => {
 		socket.emit('pong');
 	});
 
-	// ===== НОВЫЕ БИНАРНЫЕ ОБРАБОТЧИКИ =====
+	// ===== БИНАРНЫЕ ОБРАБОТЧИКИ =====
 
 	socket.on('binary_ping', () => {
 		if (!isProduction) {
 			console.log(`🔥 Binary ping from ${socket.id}`);
 		}
-		// Отвечаем в бинарном формате
 		socket.emitBinary('binary_pong');
 	});
 
@@ -126,33 +105,20 @@ testNamespace.on('connection', (socket) => {
 		if (!isProduction) {
 			console.log(`🔥 Binary message from ${socket.id}:`, data);
 		}
-		// Эхо в бинарном формате
 		socket.emitBinary('binary_notification', `Binary echo: ${data}`);
 	});
 
-	socket.on('ultra_fast_test', (data) => {
-		if (!isProduction) {
-			console.log(`⚡ Ultra fast test from ${socket.id}:`, data);
-		}
-		// Тестируем все варианты ultra fast
-		socket.emitUltraFast('notification', `Ultra text: ${data}`, false);
-		socket.emitUltraFast('notification', `Ultra binary: ${data}`, true);
-	});
-
-	// ===== ACK ОБРАБОТЧИКИ =====
+	// ===== УНИФИЦИРОВАННЫЕ ACK ОБРАБОТЧИКИ =====
 
 	socket.on('echo', (data, callback) => {
 		if (!isProduction) {
 			console.log(`🔄 Echo request from ${socket.id}:`, data);
 		}
 
-		// Проверяем что callback действительно функция
 		if (typeof callback === 'function') {
 			setTimeout(() => {
 				callback(`Echo: ${data} (from ${socket.id})`);
-			}, 5); // Минимальная задержка
-		} else {
-			console.warn(`[Server] Echo callback is not a function for ${socket.id}`);
+			}, 5);
 		}
 	});
 
@@ -200,133 +166,207 @@ testNamespace.on('connection', (socket) => {
 		callback({ result });
 	});
 
-	// ===== НОВЫЕ ТЕСТОВЫЕ ОБРАБОТЧИКИ =====
+	// ===== НОВЫЕ УНИФИЦИРОВАННЫЕ ACK ТЕСТЫ =====
+
+	socket.on('ack_test', (data, callback) => {
+		if (!isProduction) {
+			console.log(`🔄 Unified ACK test from ${socket.id}:`, data);
+		}
+
+		if (typeof callback === 'function') {
+			callback(`ack_response_${data}`);
+		}
+	});
+
+	socket.on('performance_ack_request', (data) => {
+		// Немедленно отвечаем
+		socket.emit('performance_ack_response', {
+			id: data.id,
+			priority: data.priority,
+			serverTimestamp: Date.now(),
+			clientTimestamp: data.timestamp,
+		});
+	});
+
+	// ===== ТЕСТОВЫЕ ОБРАБОТЧИКИ =====
 
 	socket.on('batch_test', () => {
 		if (!isProduction) {
 			console.log(`📦 Batch test from ${socket.id}`);
 		}
 
-		// Тестируем обычный batch
-		const success1 = socket.emitBatch([
+		// Тестируем batch операции
+		const success = socket.emitBatch([
 			{ event: 'test_result', data: 'Batch item 1' },
-			{ event: 'test_result', data: 'Batch item 2' },
+			{ event: 'test_result', data: 'Batch item 2', binary: false },
+			{ event: 'notification', data: 'Binary batch item', binary: true },
 			{ event: 'test_result', data: 'Batch item 3' },
 		]);
 
-		// Тестируем pooled batch с binary контролем
-		const success2 = socket.emitBatchPooled([
-			{ event: 'test_result', data: 'Pooled text 1' },
-			{ event: 'notification', data: 'Pooled binary 1', binary: true },
-			{ event: 'test_result', data: 'Pooled text 2' },
-			{ event: 'notification', data: 'Pooled binary 2', binary: true },
-		]);
-
-		console.log(`📦 Batch results: normal=${success1}, pooled=${success2}`);
+		console.log(`📦 Batch results: ${success} successful operations`);
 	});
 
 	socket.on('performance_test', (type, iterations) => {
 		console.log(`⚡ Performance test: ${type} x ${iterations} from ${socket.id}`);
 
-		if (type === 'fastAck') {
-			// Специальная обработка для Fast ACK тестов
-			const startTime = Date.now();
-			let completed = 0;
-			let successful = 0;
+		const startTime = Date.now();
+		let successful = 0;
 
-			const finish = () => {
-				const endTime = Date.now();
-				const duration = endTime - startTime;
-				const opsPerSecond = Math.round((iterations / duration) * 1000);
+		switch (type) {
+			case 'emit':
+				for (let i = 0; i < iterations; i++) {
+					if (socket.emit('test_result', `emit_${i}`)) successful++;
+				}
+				break;
 
-				socket.emit('performance_result', {
-					type: 'Fast ACK',
-					time: duration,
-					ops: opsPerSecond,
-					successful,
-					total: iterations,
-				});
+			case 'emitBinary':
+				for (let i = 0; i < iterations; i++) {
+					if (socket.emitBinary('notification', `binary_${i}`)) successful++;
+				}
+				break;
 
-				console.log(
-					`⚡ Fast ACK Performance: ${duration}ms, ${opsPerSecond} ops/sec, ${successful}/${iterations} successful`
-				);
-			};
+			case 'emitFast':
+				for (let i = 0; i < iterations; i++) {
+					if (socket.emitFast('test_result', `fast_${i}`)) successful++;
+				}
+				break;
 
-			for (let i = 0; i < iterations; i++) {
-				setTimeout(() => {
-					socket.emit('fast_ack_test', `perf_${i}`, (response) => {
-						if (response) successful++;
-						completed++;
-						if (completed === iterations) finish();
+			case 'emitWithAck':
+				let completed = 0;
+				const finish = () => {
+					const endTime = Date.now();
+					const duration = endTime - startTime;
+					const opsPerSecond = Math.round((iterations / duration) * 1000);
+
+					socket.emit('performance_result', {
+						type: 'emitWithAck',
+						time: duration,
+						ops: opsPerSecond,
 					});
-				}, Math.floor(i / 500)); // Батчинг для избежания перегрузки
-			}
-		} else {
-			// Остальные performance тесты без изменений
-			const startTime = Date.now();
 
-			switch (
-				type
-				// ... остальные случаи
-			) {
-			}
+					console.log(`⚡ ACK Performance: ${duration}ms, ${opsPerSecond} ops/sec`);
+				};
+
+				for (let i = 0; i < iterations; i++) {
+					socket.emitWithAck(
+						'ack_test',
+						`perf_${i}`,
+						(err, response) => {
+							if (!err && response) successful++;
+							completed++;
+							if (completed === iterations) finish();
+						},
+						{ priority: 'high' } // Быстрые ACK для performance тестов
+					);
+				}
+				return; // Не отправляем результат сразу
+
+			case 'batch':
+				const batchEvents = [];
+				for (let i = 0; i < iterations; i++) {
+					batchEvents.push({
+						event: 'test_result',
+						data: `batch_${i}`,
+						binary: i % 2 === 0,
+					});
+				}
+				successful = socket.emitBatch(batchEvents);
+				break;
+
+			default:
+				socket.emit('test_result', { error: `Unknown test type: ${type}` });
+				return;
 		}
+
+		const endTime = Date.now();
+		const duration = endTime - startTime;
+		const opsPerSecond = Math.round((iterations / duration) * 1000);
+
+		socket.emit('performance_result', {
+			type,
+			time: duration,
+			ops: opsPerSecond,
+		});
+
+		console.log(
+			`⚡ ${type} Performance: ${duration}ms, ${opsPerSecond} ops/sec, ${successful}/${iterations} successful`
+		);
 	});
 
 	socket.on('stress_test', (type, count) => {
 		console.log(`💪 Stress test: ${type} x ${count} from ${socket.id}`);
 
-		if (type === 'ack') {
-			// Для ACK stress test отправляем события которые клиент ТОЧНО обработает
-			const startTime = Date.now();
-			let completed = 0;
-			let errors = 0;
+		const startTime = Date.now();
+		let completed = 0;
+		let errors = 0;
 
-			const finish = () => {
-				const duration = Date.now() - startTime;
-				const opsPerSecond = Math.round((count / duration) * 1000);
+		const finish = () => {
+			const duration = Date.now() - startTime;
+			const opsPerSecond = Math.round((count / duration) * 1000);
 
-				socket.emit('test_result', {
-					type: `stress_${type}`,
-					completed,
-					errors,
-					duration,
-					opsPerSecond,
-				});
+			socket.emit('test_result', {
+				type: `stress_${type}`,
+				completed,
+				errors,
+				duration,
+				opsPerSecond,
+			});
 
-				console.log(
-					`💪 Stress ACK: ${completed}/${count}, ${duration}ms, ${opsPerSecond} ops/sec`
-				);
-			};
+			console.log(
+				`💪 Stress ${type}: ${completed}/${count}, ${duration}ms, ${opsPerSecond} ops/sec`
+			);
+		};
 
-			// Отправляем stress_ack_test события вместо benchmark_ping
-			for (let i = 0; i < count; i++) {
-				setTimeout(() => {
-					try {
-						socket.emit('stress_ack_test', `data_${i}`, (response) => {
+		switch (type) {
+			case 'ack':
+				for (let i = 0; i < count; i++) {
+					setTimeout(() => {
+						try {
+							socket.emitWithAck(
+								'ack_test',
+								`stress_${i}`,
+								(err, response) => {
+									completed++;
+									if (err) errors++;
+									if (completed === count) finish();
+								},
+								{ priority: 'high', timeout: 3000 }
+							);
+						} catch (error) {
+							errors++;
 							completed++;
 							if (completed === count) finish();
-						});
-					} catch (error) {
+						}
+					}, Math.floor(i / 50)); // Батчинг по 50
+				}
+				break;
+
+			case 'emit':
+				for (let i = 0; i < count; i++) {
+					if (socket.emit('test_result', `stress_emit_${i}`)) {
+						completed++;
+					} else {
 						errors++;
 						completed++;
-						if (completed === count) finish();
 					}
-				}, Math.floor(i / 100)); // Небольшая задержка для предотвращения перегрузки
-			}
-		} else {
-			// Обработка других типов stress тестов без изменений
-			// ... остальной код
-		}
-	});
+				}
+				finish();
+				break;
 
-	socket.on('benchmark_ping', (callback) => {
-		if (!isProduction) {
-			console.log(`📊 Benchmark ping from ${socket.id}`);
-		}
+			case 'binary':
+				for (let i = 0; i < count; i++) {
+					if (socket.emitBinary('notification', `stress_binary_${i}`)) {
+						completed++;
+					} else {
+						errors++;
+						completed++;
+					}
+				}
+				finish();
+				break;
 
-		if (typeof callback === 'function') {
-			callback('benchmark_pong');
+			default:
+				socket.emit('test_result', { error: `Unknown stress type: ${type}` });
 		}
 	});
 
@@ -343,14 +383,6 @@ testNamespace.on('connection', (socket) => {
 
 		// Room broadcast
 		testNamespace.to('test-room').emit('notification', 'Room broadcast');
-		testNamespace.to('test-room').binary.emit('binary_notification', 'Binary room broadcast');
-
-		// Bulk broadcast
-		testNamespace.emitBulk([
-			{ event: 'notification', data: 'Bulk broadcast 1' },
-			{ event: 'binary_notification', data: 'Bulk binary 1', binary: true },
-			{ event: 'notification', data: 'Bulk broadcast 2', rooms: 'test-room' },
-		]);
 
 		socket.emit('test_result', 'Broadcast tests completed');
 	});
@@ -358,12 +390,8 @@ testNamespace.on('connection', (socket) => {
 	socket.on('room_test', () => {
 		console.log(`🏠 Room test from ${socket.id}`);
 
-		// Присоединяемся к тестовой комнате
 		socket.join('test-room');
-
-		// Broadcast в комнату
 		socket.to('test-room').emit('notification', `${socket.id} joined test-room`);
-		socket.to('test-room').binary.emit('binary_notification', `Binary: ${socket.id} in room`);
 
 		socket.emit('test_result', 'Room tests completed');
 	});
@@ -371,15 +399,8 @@ testNamespace.on('connection', (socket) => {
 	socket.on('binary_broadcast_test', () => {
 		console.log(`🔥 Binary broadcast test from ${socket.id}`);
 
-		// Различные бинарные broadcast операции
 		testNamespace.binary.emit('binary_notification', 'Global binary broadcast');
 		testNamespace.binary.to('test-room').emit('binary_notification', 'Room binary broadcast');
-		testNamespace.binary.except(socket.id).emit('binary_notification', 'Binary except sender');
-
-		// Ultra fast broadcast
-		testNamespace
-			.to('test-room')
-			.emitUltraFast('binary_notification', 'Ultra fast binary', true);
 
 		socket.emit('test_result', 'Binary broadcast tests completed');
 	});
@@ -400,33 +421,6 @@ testNamespace.on('connection', (socket) => {
 		});
 	});
 
-	// 2. Добавляем правильный обработчик для fast_ack_test
-	socket.on('fast_ack_test', (data, callback) => {
-		if (!isProduction) {
-			console.log(`⚡ Fast ACK test from ${socket.id}:`, data);
-		}
-
-		if (typeof callback === 'function') {
-			// Немедленный ответ без setTimeout для максимальной скорости
-			callback(`fast_ack_response_${data}`);
-		} else {
-			console.warn(`[Server] Fast ACK callback is not a function for ${socket.id}`);
-		}
-	});
-
-	socket.on('super_fast_ack_test', (data, callback) => {
-		if (!isProduction) {
-			console.log(`🚀 Super Fast ACK test from ${socket.id}:`, data);
-		}
-
-		if (typeof callback === 'function') {
-			// Немедленный ответ для максимальной скорости
-			callback(`super_fast_ack_${data}`);
-		} else {
-			console.warn(`[Server] Super Fast ACK callback is not a function for ${socket.id}`);
-		}
-	});
-
 	// ===== АВТОМАТИЧЕСКИЕ ТЕСТЫ ПРИ ПОДКЛЮЧЕНИИ =====
 
 	setTimeout(() => {
@@ -443,7 +437,6 @@ testNamespace.on('connection', (socket) => {
 			console.log(`🧪 Enhanced test socket ${socket.id} disconnected: ${reason}`);
 			console.log(`📊 Remaining connected sockets: ${testNamespace.socketsCount}`);
 		}
-		clearInterval(pingInterval);
 	});
 });
 
@@ -463,37 +456,56 @@ export function runServerPerformanceTest() {
 	sockets.forEach((socket, index) => {
 		console.log(`🧪 Testing socket ${index + 1}: ${socket.id}`);
 
-		// Тест различных методов emit
 		const iterations = 1000;
 
+		// Тест обычного emit
 		console.time(`Socket ${index + 1} - Regular emit`);
 		for (let i = 0; i < iterations; i++) {
 			socket.emit('test_result', `regular ${i}`);
 		}
 		console.timeEnd(`Socket ${index + 1} - Regular emit`);
 
+		// Тест бинарного emit
 		console.time(`Socket ${index + 1} - Binary emit`);
 		for (let i = 0; i < iterations; i++) {
 			socket.emitBinary('notification', `binary ${i}`);
 		}
 		console.timeEnd(`Socket ${index + 1} - Binary emit`);
 
-		console.time(`Socket ${index + 1} - Ultra fast`);
+		// Тест быстрого emit
+		console.time(`Socket ${index + 1} - Fast emit`);
 		for (let i = 0; i < iterations; i++) {
-			socket.emitUltraFast('notification', `ultra ${i}`, true);
+			socket.emitFast('test_result', `fast ${i}`);
 		}
-		console.timeEnd(`Socket ${index + 1} - Ultra fast`);
+		console.timeEnd(`Socket ${index + 1} - Fast emit`);
 
+		// Тест batch
 		console.time(`Socket ${index + 1} - Batch`);
-		const batchSize = 100;
-		for (let i = 0; i < iterations / batchSize; i++) {
-			const batch = [];
-			for (let j = 0; j < batchSize; j++) {
-				batch.push({ event: 'test_result', data: `batch ${i}_${j}` });
-			}
-			socket.emitBatch(batch);
+		const batchEvents = [];
+		for (let i = 0; i < iterations; i++) {
+			batchEvents.push({ event: 'test_result', data: `batch ${i}` });
 		}
+		socket.emitBatch(batchEvents);
 		console.timeEnd(`Socket ${index + 1} - Batch`);
+
+		// Тест ACK
+		console.time(`Socket ${index + 1} - ACK`);
+		let ackCompleted = 0;
+		const ackIterations = 100; // Меньше для ACK тестов
+
+		for (let i = 0; i < ackIterations; i++) {
+			socket.emitWithAck(
+				'ack_test',
+				`ack_${i}`,
+				(err, response) => {
+					ackCompleted++;
+					if (ackCompleted === ackIterations) {
+						console.timeEnd(`Socket ${index + 1} - ACK`);
+					}
+				},
+				{ priority: 'high' }
+			);
+		}
 	});
 
 	console.log('✅ Server performance tests completed');
@@ -516,63 +528,13 @@ export function runBroadcastPerformanceTest() {
 	}
 	console.timeEnd('Binary broadcast');
 
-	console.time('Ultra fast broadcast');
+	console.time('Fast broadcast');
 	for (let i = 0; i < iterations; i++) {
-		testNamespace.emitUltraFast('notification', `ultra broadcast ${i}`, true);
+		testNamespace.emitFast('test_result', `fast broadcast ${i}`);
 	}
-	console.timeEnd('Ultra fast broadcast');
-
-	console.time('Bulk broadcast');
-	const bulkOps = [];
-	for (let i = 0; i < iterations; i++) {
-		bulkOps.push({ event: 'test_result', data: `bulk ${i}` });
-	}
-	testNamespace.emitBulk(bulkOps);
-	console.timeEnd('Bulk broadcast');
+	console.timeEnd('Fast broadcast');
 
 	console.log('✅ Broadcast performance tests completed');
-}
-
-export function runMemoryStressTest() {
-	console.log('\n🧠 Running memory stress test...');
-
-	const sockets = Array.from(testNamespace.sockets.values());
-	if (sockets.length === 0) {
-		console.log('❌ No sockets connected for testing');
-		return;
-	}
-
-	const socket = sockets[0];
-	const iterations = 50000;
-
-	console.log(`🔥 Sending ${iterations} messages...`);
-
-	const startMemory = process.memoryUsage();
-	const startTime = Date.now();
-
-	for (let i = 0; i < iterations; i++) {
-		if (i % 5 === 0) {
-			socket.emitBinary('notification', `memory test ${i}`);
-		} else {
-			socket.emit('test_result', `memory test ${i}`);
-		}
-	}
-
-	const endTime = Date.now();
-	const endMemory = process.memoryUsage();
-
-	console.log(`⏱️  Duration: ${endTime - startTime}ms`);
-	console.log(`🧠 Memory delta: ${(endMemory.heapUsed - startMemory.heapUsed) / 1024 / 1024} MB`);
-	console.log(`📊 Rate: ${Math.round((iterations / (endTime - startTime)) * 1000)} ops/sec`);
-
-	// Принудительная сборка мусора если доступна
-	if (global.gc) {
-		global.gc();
-		const afterGC = process.memoryUsage();
-		console.log(`🗑️  After GC: ${afterGC.heapUsed / 1024 / 1024} MB`);
-	}
-
-	console.log('✅ Memory stress test completed');
 }
 
 // Экспорт утилит
@@ -598,4 +560,4 @@ export function sendBinaryTestMessage(socketId: string, message: string) {
 	return false;
 }
 
-console.log('🧪 Enhanced test server initialized');
+console.log('🧪 Enhanced test server initialized with unified ACK system');

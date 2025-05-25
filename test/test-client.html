@@ -502,7 +502,33 @@
 					}
 				});
 
-				// 3. Обработчики для Stress ACK тестов
+				// ===== ACK ОБРАБОТЧИКИ (ИСПРАВЛЕНИЕ) =====
+				socket.on('ack_test', (data, callback) => {
+					messagesReceived++;
+					updateMetrics();
+					log(`🔄 ACK test received: ${data}`, 'info');
+
+					if (typeof callback === 'function') {
+						callback(`ack_response_${data}`);
+					}
+				});
+
+				// Добавьте также другие обработчики которые используются в тестах:
+				socket.on('super_fast_ack_test', (data, callback) => {
+					messagesReceived++;
+					updateMetrics();
+
+					if (typeof callback === 'function') {
+						callback(`super_fast_ack_${data}`);
+					}
+				});
+
+				socket.on('benchmark_ping', (callback) => {
+					if (typeof callback === 'function') {
+						callback('benchmark_pong');
+					}
+				});
+
 				socket.on('stress_ack_test', (data, callback) => {
 					messagesReceived++;
 					updateMetrics();
@@ -510,6 +536,16 @@
 					if (typeof callback === 'function') {
 						callback(`stress_ack_${data}`);
 					}
+				});
+
+				socket.on('performance_ack_request', (data) => {
+					// Немедленно отвечаем серверу
+					socket.emit('performance_ack_response', {
+						id: data.id,
+						priority: data.priority,
+						serverTimestamp: Date.now(),
+						clientTimestamp: data.timestamp,
+					});
 				});
 			}
 

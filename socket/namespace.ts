@@ -30,6 +30,7 @@ type MiddlewareFn<
 
 /**
  * Namespace represents a pool of sockets connected under a given scope
+ * Обновлен под новый унифицированный Socket API
  */
 export class Namespace<
 	ListenEvents extends EventsMap = ClientToServerEvents,
@@ -59,7 +60,6 @@ export class Namespace<
 		return this;
 	}
 
-	// ИСПРАВЛЕНИЕ: Упрощаем override методы для лучшей совместимости
 	override on(event: string | symbol, listener: (...args: any[]) => void): this {
 		return super.on(event, listener);
 	}
@@ -132,7 +132,7 @@ export class Namespace<
 	}
 
 	/**
-	 * НОВЫЙ: binary broadcast operator
+	 * Binary broadcast operator
 	 */
 	get binary(): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).binary;
@@ -150,7 +150,7 @@ export class Namespace<
 		dataOrArg?: Parameters<EmitEvents[Ev]>[0],
 		ack?: AckCallback
 	): boolean {
-		// ИСПРАВЛЕНИЕ: Проверяем специальные события namespace
+		// Специальные события namespace
 		if (event === 'connection' || event === 'connect' || event === 'disconnect') {
 			return super.emit(event as string, dataOrArg);
 		}
@@ -163,7 +163,7 @@ export class Namespace<
 	}
 
 	/**
-	 * emit с принудительным использованием бинарного формата
+	 * Emit с принудительным использованием бинарного формата
 	 */
 	emitBinary<Ev extends keyof EmitEvents>(
 		event: Ev,
@@ -176,9 +176,19 @@ export class Namespace<
 	}
 
 	/**
-	 * Bulk operations для массовых операций
+	 * Быстрый emit для namespace
 	 */
-	emitBulk<Ev extends keyof EmitEvents>(
+	emitFast<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data?: Parameters<EmitEvents[Ev]>[0]
+	): boolean {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emitFast(event, data);
+	}
+
+	/**
+	 * Batch operations для массовых операций
+	 */
+	emitBatch<Ev extends keyof EmitEvents>(
 		operations: Array<{
 			event: Ev;
 			data?: Parameters<EmitEvents[Ev]>[0];
@@ -186,17 +196,85 @@ export class Namespace<
 			binary?: boolean;
 		}>
 	): number {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emitBulk(operations);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emitBatch(operations);
 	}
 
 	/**
-	 * НОВЫЙ: Fast emit для namespace
+	 * Emit с ACK для namespace
 	 */
-	emitFast<Ev extends keyof EmitEvents>(
+	emitWithAck<Ev extends keyof EmitEvents>(
 		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0]
+		data: Parameters<EmitEvents[Ev]>[0],
+		callback: AckCallback,
+		options?: {
+			timeout?: number;
+			priority?: 'low' | 'normal' | 'high';
+			binary?: boolean;
+		}
 	): boolean {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emitFast(event, data);
+		// Для namespace ACK мы отправляем всем сокетам и собираем ответы
+		const targetSockets = this.adapter.getSockets();
+		if (targetSockets.size === 0) {
+			setTimeout(() => callback(null, []), 0);
+			return true;
+		}
+
+		const responses: any[] = [];
+		let responseCount = 0;
+		let timedOut = false;
+		const expectedResponses = targetSockets.size;
+		const timeout = options?.timeout || 5000;
+
+		const timer = setTimeout(() => {
+			if (!timedOut) {
+				timedOut = true;
+				callback(new Error('Namespace broadcast acknowledgement timeout'), responses);
+			}
+		}, timeout);
+
+		// Отправляем каждому сокету индивидуально
+		for (const socketId of targetSockets) {
+			const socket = this.sockets.get(socketId);
+			if (socket) {
+				socket.emitWithAck(
+					event as string,
+					data,
+					(err: any, response: any) => {
+						if (timedOut) return;
+
+						if (err) {
+							responses.push({ socketId, error: err.message || err });
+						} else {
+							responses.push({ socketId, data: response });
+						}
+						responseCount++;
+
+						if (responseCount >= expectedResponses) {
+							timedOut = true;
+							clearTimeout(timer);
+							callback(null, responses);
+						}
+					},
+					{
+						timeout: Math.floor(timeout * 0.8), // Немного меньше для individual sockets
+						priority: options?.priority,
+						binary: options?.binary,
+					}
+				);
+			} else {
+				// Socket не найден
+				responses.push({ socketId, error: 'Socket not found' });
+				responseCount++;
+
+				if (responseCount >= expectedResponses) {
+					timedOut = true;
+					clearTimeout(timer);
+					callback(null, responses);
+				}
+			}
+		}
+
+		return true;
 	}
 
 	send(...args: Parameters<EmitEvents[any]>): this {
@@ -242,6 +320,29 @@ export class Namespace<
 
 	get socketsCount(): number {
 		return this.sockets.size;
+	}
+
+	/**
+	 * Получение статистики ACK для всех сокетов в namespace
+	 */
+	getAckStats() {
+		const stats = {
+			totalSockets: this.sockets.size,
+			totalPendingAcks: 0,
+			oldestAckAge: 0,
+			socketsWithPendingAcks: 0,
+		};
+
+		for (const socket of this.sockets.values()) {
+			const socketStats = socket.getAckStats();
+			stats.totalPendingAcks += socketStats.total;
+			if (socketStats.total > 0) {
+				stats.socketsWithPendingAcks++;
+				stats.oldestAckAge = Math.max(stats.oldestAckAge, socketStats.oldestAge);
+			}
+		}
+
+		return stats;
 	}
 
 	private async runMiddlewares(
