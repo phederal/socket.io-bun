@@ -68,23 +68,58 @@ import { warmupPerformanceOptimizations } from './socket/socket';
 warmupPerformanceOptimizations();
 
 /**
- * Perfomance test
+ * Single Performance Test Run
  */
-// В index.ts добавьте:
-import { runQuickPerformanceTest, saveResultsToFile } from './test/performance_test';
+import {
+	runQuickPerformanceTest,
+	saveResultsToFile,
+	performanceTest,
+} from './test/performance_test';
+// Флаг для одноразового запуска
+let performanceTestCompleted = false;
 io.on('connection', (socket) => {
 	console.log(`🎉 Socket ${socket.id} connected`);
-	// Запускаем тест и сохраняем результаты
-	setTimeout(async () => {
-		try {
-			await runQuickPerformanceTest(io, socket.id);
-			// Сохраняем результаты в JSON файл
-			saveResultsToFile(`performance-${socket.id}-${Date.now()}.json`);
-		} catch (error) {
-			console.error('❌ Performance test failed:', error);
-		}
-	}, 3000);
+	// Запускаем тест только один раз
+	if (!performanceTestCompleted) {
+		performanceTestCompleted = true;
+		setTimeout(async () => {
+			try {
+				console.log('\n🚀 Starting ONE-TIME performance test...');
+				// Устанавливаем IO instance
+				performanceTest.setIOInstance(io);
+				// Запускаем полный набор тестов
+				await performanceTest.runOptimizedQuickTests(socket.id);
+				// Сохраняем результаты
+				const filename = `final-performance-${socket.id.slice(-8)}-${Date.now()}.json`;
+				saveResultsToFile(filename);
+				console.log(`\n✅ Performance test completed! Results saved to ${filename}`);
+				console.log('📊 No more tests will run for new connections.');
+			} catch (error) {
+				console.error('❌ Performance test failed:', error);
+				// Сбрасываем флаг при ошибке, чтобы можно было попробовать снова
+				performanceTestCompleted = false;
+			}
+		}, 3000);
+	} else {
+		console.log('📊 Performance test already completed. Skipping for this connection.');
+	}
 });
+
+// // В index.ts добавьте:
+// import { runQuickPerformanceTest, saveResultsToFile } from './test/performance_test';
+// io.on('connection', (socket) => {
+// 	console.log(`🎉 Socket ${socket.id} connected`);
+// 	// Запускаем тест и сохраняем результаты
+// 	setTimeout(async () => {
+// 		try {
+// 			await runQuickPerformanceTest(io, socket.id);
+// 			// Сохраняем результаты в JSON файл
+// 			saveResultsToFile(`performance-${socket.id}-${Date.now()}.json`);
+// 		} catch (error) {
+// 			console.error('❌ Performance test failed:', error);
+// 		}
+// 	}, 3000);
+// });
 
 // /**
 //  * Perfomance test 2

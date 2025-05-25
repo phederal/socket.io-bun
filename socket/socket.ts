@@ -215,13 +215,34 @@ export class Socket<
 	}
 
 	/**
+	 * Оптимизированный Binary Emit
+	 */
+	emitBinaryOptimized<Ev extends keyof EmitEvents>(
+		event: Ev,
+		data?: Parameters<EmitEvents[Ev]>[0]
+	): boolean {
+		if (this.ws.readyState !== 1) return false;
+
+		const eventStr = event as string;
+		if ((eventStr === 'ping' || eventStr === 'message') && typeof data === 'string') {
+			const dataBytes = new TextEncoder().encode(data);
+			const binaryPacket = new Uint8Array(4 + dataBytes.length);
+			binaryPacket[0] = 0xff; // magic
+			binaryPacket[1] = 0x01; // version
+			binaryPacket[2] = eventStr === 'ping' ? 0x01 : 0x03;
+			binaryPacket[3] = dataBytes.length;
+			binaryPacket.set(dataBytes, 4);
+			return this.ws.send(binaryPacket) > 0;
+		}
+
+		return this.emitUltraFastOptimized(eventStr, data);
+	}
+
+	/**
 	 * Мгновенный emit без проверок (максимальная скорость)
 	 */
 	emitInstant(event: string): boolean {
-		// Inline проверка состояния WebSocket
 		if (this.ws.readyState !== 1) return false;
-
-		// Прямое создание пакета без кеширования
 		const packet = `42["${event}"]`;
 		return this.ws.send(packet) > 0;
 	}
@@ -266,22 +287,17 @@ export class Socket<
 	}
 
 	/**
-	 * Ультра-быстрый emit с минимальными проверками
+	 * Ультра-быстрый emit оптимизированный
 	 */
 	emitUltraFastOptimized(event: string, data?: string | number): boolean {
-		// Inline проверка без переменных
 		if (this.ws.readyState !== 1) return false;
 
 		let packet: string;
-
 		if (!data) {
-			// Простое событие без данных
 			packet = `42["${event}"]`;
 		} else if (typeof data === 'string') {
-			// Строковые данные с экранированием
 			packet = `42["${event}","${data.replace(/"/g, '\\"')}"]`;
 		} else {
-			// Числовые данные
 			packet = `42["${event}",${data}]`;
 		}
 
@@ -482,13 +498,9 @@ export class Socket<
 	emitWithSuperFastAck(event: string, data: any, callback: AckCallback): boolean {
 		if (this.ws.readyState !== 1) return false;
 
-		// Генерируем ACK ID inline
 		const ackId = (++SocketParser['ackCounter']).toString();
-
-		// Простое хранение callback
 		this.fastAckCallbacks[ackId] = callback;
 
-		// Timeout без лишних проверок
 		setTimeout(() => {
 			if (this.fastAckCallbacks[ackId]) {
 				delete this.fastAckCallbacks[ackId];
@@ -496,13 +508,10 @@ export class Socket<
 			}
 		}, 3000);
 
-		// Прямое создание пакета с ACK
-		let packet: string;
-		if (typeof data === 'string') {
-			packet = `42${ackId}["${event}","${data.replace(/"/g, '\\"')}"]`;
-		} else {
-			packet = `42${ackId}["${event}",${JSON.stringify(data)}]`;
-		}
+		const packet =
+			typeof data === 'string'
+				? `42${ackId}["${event}","${data.replace(/"/g, '\\"')}"]`
+				: `42${ackId}["${event}",${JSON.stringify(data)}]`;
 
 		return this.ws.send(packet) > 0;
 	}

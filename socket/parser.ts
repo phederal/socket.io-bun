@@ -93,12 +93,9 @@ export class SocketParser {
 	 * Instant encode для максимальной скорости
 	 */
 	static encodeInstant(event: string): string {
-		// Проверяем прекомпилированные пакеты
 		if (event in this.PRECOMPILED_PACKETS) {
 			return this.PRECOMPILED_PACKETS[event as keyof typeof this.PRECOMPILED_PACKETS];
 		}
-
-		// Прямое создание без кеширования
 		return `42["${event}"]`;
 	}
 
@@ -106,7 +103,6 @@ export class SocketParser {
 	 * Быстрое кодирование строковых событий
 	 */
 	static encodeStringInstant(event: string, data: string): string {
-		// Минимальное экранирование
 		const escaped = data.includes('"') ? data.replace(/"/g, '\\"') : data;
 		return `42["${event}","${escaped}"]`;
 	}
@@ -116,7 +112,6 @@ export class SocketParser {
 	 */
 	static precompilePackets(events: Array<{ event: string; data?: any }>): string[] {
 		const packets: string[] = [];
-
 		for (const { event, data } of events) {
 			if (!data) {
 				packets.push(this.encodeInstant(event));
@@ -128,7 +123,6 @@ export class SocketParser {
 				packets.push(this.encode(event as any, data));
 			}
 		}
-
 		return packets;
 	}
 
@@ -282,19 +276,14 @@ export class SocketParser {
 		if (data === undefined || data === null) {
 			return `43${ackId}[]`;
 		}
-
 		if (typeof data === 'string') {
 			return `43${ackId}["${data.replace(/"/g, '\\"')}"]`;
 		}
-
 		if (typeof data === 'number' || typeof data === 'boolean') {
 			return `43${ackId}[${data}]`;
 		}
-
-		// Fallback на JSON
 		return `43${ackId}${JSON.stringify([data])}`;
 	}
-
 	/**
 	 * Encode namespace connect packet
 	 */

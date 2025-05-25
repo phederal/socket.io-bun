@@ -465,9 +465,9 @@
 				});
 
 				// ===== ACK ОБРАБОТЧИКИ (ИСПРАВЛЕНИЕ) =====
-				socket.on('fast_ack_test', (data, callback) => {
+				socket.on('super_fast_ack_test', (data, callback) => {
 					if (typeof callback === 'function') {
-						callback(`ack_response_${data}`);
+						callback(`super_fast_ack_${data}`);
 					}
 				});
 

@@ -29,8 +29,42 @@ export class PerformanceTest {
 		if (!this.ioInstance) {
 			throw new Error('IO instance not set. Call setIOInstance() first.');
 		}
+
 		const namespace = this.ioInstance.of('/');
-		return namespace.sockets.get(socketId);
+		const socket = namespace.sockets.get(socketId);
+
+		if (!socket) {
+			// Логируем доступные сокеты для отладки
+			const availableSockets = Array.from(namespace.sockets.keys());
+			console.log(`❌ Socket ${socketId} not found`);
+			console.log(`📊 Available sockets (${availableSockets.length}):`, availableSockets);
+
+			// Возвращаем первый доступный сокет если целевой не найден
+			if (availableSockets.length > 0) {
+				const fallbackSocket = namespace.sockets.get(availableSockets[0]);
+				console.log(`🔄 Using fallback socket: ${availableSockets[0]}`);
+				return fallbackSocket;
+			}
+
+			return null;
+		}
+
+		// Проверяем что сокет подключен
+		if (!socket.connected) {
+			console.log(`⚠️ Socket ${socketId} is not connected`);
+
+			// Ищем подключенный сокет
+			for (const [id, sock] of namespace.sockets) {
+				if (sock.connected) {
+					console.log(`🔄 Using connected socket: ${id}`);
+					return sock;
+				}
+			}
+
+			return null;
+		}
+
+		return socket;
 	}
 
 	/**
@@ -258,6 +292,50 @@ export class PerformanceTest {
 
 		const result: PerformanceTestResults = {
 			testName: 'Ultra Fast Emit',
+			totalOperations: count,
+			timeMs,
+			operationsPerSecond: opsPerSecond,
+			successful,
+			failed: count - successful,
+		};
+
+		this.results.push(result);
+		this.logResult(result);
+		return result;
+	}
+
+	/**
+	 * Тест оптимизированного ultra fast emit
+	 */
+	async testUltraFastOptimized(
+		socketId: string,
+		count: number = 20000
+	): Promise<PerformanceTestResults> {
+		const socket = this.getSocket(socketId);
+		if (!socket) {
+			throw new Error(`Socket ${socketId} not found`);
+		}
+
+		console.log(`⚡ Starting ultra fast optimized test: ${count} operations`);
+
+		const startTime = Date.now();
+		let successful = 0;
+
+		for (let i = 0; i < count; i++) {
+			// Используем оптимизированный метод если доступен, иначе fallback на обычный
+			const method = (socket as any).emitUltraFastOptimized || (socket as any).emitUltraFast;
+
+			if (method.call(socket, 'notification', `ultra_${i % 20}`)) {
+				successful++;
+			}
+		}
+
+		const endTime = Date.now();
+		const timeMs = endTime - startTime;
+		const opsPerSecond = Math.round((count / timeMs) * 1000);
+
+		const result: PerformanceTestResults = {
+			testName: 'Ultra Fast Optimized',
 			totalOperations: count,
 			timeMs,
 			operationsPerSecond: opsPerSecond,
@@ -516,7 +594,7 @@ export class PerformanceTest {
 
 			for (let i = 0; i < count; i++) {
 				(socket as any).emitWithSuperFastAck(
-					'fast_ack_test',
+					'super_fast_ack_test',
 					`data_${i}`,
 					(err: any, response: any) => {
 						completed++;
@@ -670,26 +748,90 @@ export class PerformanceTest {
 		const namespace = this.ioInstance.of('/');
 		const availableSockets = Array.from(namespace.sockets.keys());
 
-		const testSocketId = socketId || availableSockets[0];
-
-		if (!testSocketId) {
+		if (availableSockets.length === 0) {
 			throw new Error('No sockets connected for testing');
 		}
 
-		console.log(`\n⚡ Running optimized performance tests with socket: ${testSocketId}`);
-		console.log('='.repeat(60));
+		// Используем первый доступный сокет если указанный не найден
+		let testSocketId = socketId;
+		if (!testSocketId || !namespace.sockets.has(testSocketId)) {
+			testSocketId = availableSockets[0];
+			console.log(
+				`🔄 Using available socket: ${testSocketId} (${availableSockets.length} total)`
+			);
+		}
 
-		// Новые оптимизированные тесты
-		await this.testInstantEmit(testSocketId, 15000);
-		await this.testOptimizedBinaryEmit(testSocketId, 15000);
-		await this.testPrecompiledBatch(testSocketId, 10000);
-		await this.testSuperFastAck(testSocketId, 2000);
+		// Дополнительная проверка что сокет подключен
+		const testSocket = namespace.sockets.get(testSocketId);
+		if (!testSocket || !testSocket.connected) {
+			// Ищем любой подключенный сокет
+			for (const [id, socket] of namespace.sockets) {
+				if (socket.connected) {
+					testSocketId = id;
+					console.log(`🔄 Using connected socket: ${testSocketId}`);
+					break;
+				}
+			}
+		}
 
-		// Сравнение со старыми методами
-		await this.testSimpleEmit(testSocketId, 10000);
-		await this.testBinaryEmit(testSocketId, 10000);
+		console.log(`\n🚀 Running OPTIMIZED performance tests with socket: ${testSocketId}`);
+		console.log('='.repeat(70));
 
-		this.printOptimizedSummary();
+		this.clearResults(); // Очищаем предыдущие результаты
+
+		try {
+			// Новые оптимизированные тесты с проверкой доступности методов
+			if ((testSocket as any)?.emitInstant) {
+				await this.testInstantEmit(testSocketId, 15000);
+			} else {
+				console.log('⚠️ emitInstant method not available, skipping test');
+			}
+
+			if ((testSocket as any)?.emitBinaryOptimized) {
+				await this.testOptimizedBinaryEmit(testSocketId, 15000);
+			} else {
+				console.log('⚠️ emitBinaryOptimized method not available, skipping test');
+			}
+
+			if ((testSocket as any)?.emitUltraFastOptimized) {
+				await this.testUltraFastOptimized(testSocketId, 20000);
+			} else {
+				console.log('⚠️ emitUltraFastOptimized method not available, skipping test');
+			}
+
+			if ((testSocket as any)?.emitBatchPrecompiled) {
+				await this.testPrecompiledBatch(testSocketId, 20000);
+			} else {
+				console.log('⚠️ emitBatchPrecompiled method not available, skipping test');
+			}
+
+			if ((testSocket as any)?.emitWithSuperFastAck) {
+				await this.testSuperFastAck(testSocketId, 2000);
+			} else {
+				console.log('⚠️ emitWithSuperFastAck method not available, skipping test');
+			}
+
+			// Сравнительные тесты со старыми методами
+			console.log('\n📊 Running comparison tests...');
+			await this.testSimpleEmit(testSocketId, 10000);
+			await this.testBinaryEmit(testSocketId, 10000);
+			await this.testUltraFastEmit(testSocketId, 10000);
+			await this.testFastAck(testSocketId, 1000);
+
+			this.printOptimizedComparison();
+		} catch (error) {
+			console.error('❌ Error during optimized tests:', error);
+			console.log('📊 Falling back to basic performance test...');
+
+			// Fallback на базовые тесты
+			await this.testSimpleEmit(testSocketId, 10000);
+			await this.testBinaryEmit(testSocketId, 10000);
+			await this.testUltraFastEmit(testSocketId, 10000);
+			await this.testFastAck(testSocketId, 1000);
+
+			this.printSummary();
+		}
+
 		return this.results;
 	}
 
@@ -810,6 +952,129 @@ export class PerformanceTest {
 	}
 
 	/**
+	 * Печать сравнения оптимизированных методов
+	 */
+	private printOptimizedComparison(): void {
+		console.log('\n🏆 OPTIMIZED vs STANDARD COMPARISON');
+		console.log('='.repeat(80));
+
+		// Разделяем результаты на оптимизированные и стандартные
+		const optimized = this.results.filter(
+			(r) =>
+				r.testName.includes('Instant') ||
+				r.testName.includes('Optimized') ||
+				r.testName.includes('Super') ||
+				r.testName.includes('Precompiled')
+		);
+
+		const standard = this.results.filter(
+			(r) => !optimized.some((opt) => opt.testName === r.testName)
+		);
+
+		// Выводим оптимизированные методы
+		if (optimized.length > 0) {
+			console.log('🚀 OPTIMIZED METHODS:');
+			optimized.forEach((result) => {
+				const opsFormatted = result.operationsPerSecond.toLocaleString().padStart(12);
+				const successRate = ((result.successful / result.totalOperations) * 100).toFixed(1);
+				console.log(
+					`${result.testName.padEnd(
+						22
+					)} | ${opsFormatted} ops/sec | ${successRate.padStart(5)}% success`
+				);
+			});
+		}
+
+		// Выводим стандартные методы
+		if (standard.length > 0) {
+			console.log('\n📊 STANDARD METHODS:');
+			standard.forEach((result) => {
+				const opsFormatted = result.operationsPerSecond.toLocaleString().padStart(12);
+				const successRate = ((result.successful / result.totalOperations) * 100).toFixed(1);
+				console.log(
+					`${result.testName.padEnd(
+						22
+					)} | ${opsFormatted} ops/sec | ${successRate.padStart(5)}% success`
+				);
+			});
+		}
+
+		// Сравнение производительности
+		const comparisons = [
+			{ opt: 'Instant Emit', std: 'Simple Emit' },
+			{ opt: 'Optimized Binary Emit', std: 'Binary Emit' },
+			{ opt: 'Ultra Fast Optimized', std: 'Ultra Fast Emit' },
+			{ opt: 'Super Fast ACK', std: 'Fast ACK' },
+		];
+
+		console.log('\n📈 PERFORMANCE IMPROVEMENTS:');
+		let hasComparisons = false;
+
+		comparisons.forEach(({ opt, std }) => {
+			const optResult = optimized.find((r) => r.testName === opt);
+			const stdResult = standard.find((r) => r.testName === std);
+
+			if (optResult && stdResult) {
+				const improvement = (
+					(optResult.operationsPerSecond / stdResult.operationsPerSecond - 1) *
+					100
+				).toFixed(1);
+				const improvementColor = parseFloat(improvement) > 0 ? '📈' : '📉';
+				console.log(
+					`${opt.padEnd(25)} vs ${std.padEnd(
+						20
+					)}: ${improvementColor} ${improvement}% improvement`
+				);
+				hasComparisons = true;
+			}
+		});
+
+		if (!hasComparisons) {
+			console.log(
+				'⚠️  No direct comparisons available (missing optimized or standard methods)'
+			);
+		}
+
+		// Общая статистика
+		console.log('\n📊 OVERALL STATISTICS:');
+		console.log(`Total tests run: ${this.results.length}`);
+		console.log(`Optimized methods: ${optimized.length}`);
+		console.log(`Standard methods: ${standard.length}`);
+
+		// Найти лучший результат
+		if (this.results.length > 0) {
+			const bestResult = this.results.reduce((best, current) =>
+				current.operationsPerSecond > best.operationsPerSecond ? current : best
+			);
+
+			const worstResult = this.results.reduce((worst, current) =>
+				current.operationsPerSecond < worst.operationsPerSecond ? current : worst
+			);
+
+			console.log(
+				`\n🥇 BEST PERFORMANCE: ${
+					bestResult.testName
+				} - ${bestResult.operationsPerSecond.toLocaleString()} ops/sec`
+			);
+
+			console.log(
+				`🥉 LOWEST PERFORMANCE: ${
+					worstResult.testName
+				} - ${worstResult.operationsPerSecond.toLocaleString()} ops/sec`
+			);
+
+			// Средняя производительность
+			const avgPerformance = Math.round(
+				this.results.reduce((sum, r) => sum + r.operationsPerSecond, 0) /
+					this.results.length
+			);
+			console.log(`📊 AVERAGE PERFORMANCE: ${avgPerformance.toLocaleString()} ops/sec`);
+		}
+
+		console.log('='.repeat(80));
+	}
+
+	/**
 	 * Получить результаты
 	 */
 	getResults(): PerformanceTestResults[] {
@@ -858,6 +1123,15 @@ export async function runQuickPerformanceTest(io: any, socketId?: string): Promi
 		await performanceTest.runQuickTests(socketId);
 	} catch (error) {
 		console.error('❌ Performance test failed:', error);
+	}
+}
+
+export async function runOptimizedPerformanceTest(io: any, socketId?: string): Promise<void> {
+	try {
+		performanceTest.setIOInstance(io);
+		await performanceTest.runOptimizedQuickTests(socketId);
+	} catch (error) {
+		console.error('❌ Optimized performance test failed:', error);
 	}
 }
 
