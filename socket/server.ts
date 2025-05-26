@@ -86,7 +86,7 @@ export class SocketServer<
 
 			// ИСПРАВЛЕНИЕ: Правильное пробрасывание событий для дефолтного namespace
 			if (name === '/') {
-				namespace.on('connection', (socket) => {
+				namespace.on('connection', (socket: Socket) => {
 					if (!isProduction) {
 						console.log(
 							`[SocketServer] Forwarding connection event for socket ${socket.id} to server`
@@ -99,7 +99,7 @@ export class SocketServer<
 					});
 				});
 
-				namespace.on('disconnect', (socket, reason) => {
+				namespace.on('disconnect', (socket: Socket, reason) => {
 					if (!isProduction) {
 						console.log(
 							`[SocketServer] Forwarding disconnect event for socket ${socket.id} to server`

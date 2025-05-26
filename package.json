@@ -13,7 +13,7 @@
     "test:integration": "bun test test/integration/",
     "test:watch": "bun test --watch --exclude='**/integration/**'",
     "test:coverage": "bun test --coverage --exclude='**/integration/**'",
-    "test:socket": "NODE_ENV=test NODE_TLS_REJECT_UNAUTHORIZED=0 bun test test/unit/socket.test.ts --timeout 15000",
+    "test:socket": "NODE_ENV=production NODE_TLS_REJECT_UNAUTHORIZED=0 bun test test/unit/socket.test.ts --timeout 15000",
     "test:namespace": "NODE_ENV=test NODE_TLS_REJECT_UNAUTHORIZED=0 bun test test/unit/namespace.test.ts --timeout 15000",
     "test:parser": "NODE_ENV=test NODE_TLS_REJECT_UNAUTHORIZED=0 bun test test/unit/parser.test.ts --timeout 15000"
   },

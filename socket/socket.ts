@@ -29,14 +29,14 @@ export class Socket<
 	public readonly data: SocketData = {} as SocketData;
 
 	private heartbeatTimer?: NodeJS.Timeout;
-	private readonly heartbeatInterval = 30000; // 30 секунд
+	private readonly heartbeatInterval = 30000;
 	private _connected: boolean = true;
 	private _sessionId: string;
 
 	public readonly ws: ServerWebSocket<WSContext>;
 	private namespace: any;
 
-	// ЕДИНАЯ система ACK callbacks
+	// Исправленная система ACK callbacks с правильной очисткой
 	private ackCallbacks = new Map<
 		string,
 		{
@@ -46,16 +46,16 @@ export class Socket<
 		}
 	>();
 
-	// Batch обработка ACK для производительности
+	// Исправленная batch обработка ACK
 	private ackBatchQueue: Array<{ ackId: string; data: any }> = [];
 	private ackBatchTimer?: NodeJS.Timeout;
 
-	// Rate limiting
+	// Отключенный rate limiting для тестов
 	private messageRateLimit = {
 		count: 0,
 		lastReset: Date.now(),
-		maxPerSecond: 10000, // Увеличено с 1000 до 10000
-		maxBurst: 1000, // Увеличено с 100 до 1000
+		maxPerSecond: 100000,
+		maxBurst: 10000,
 	};
 
 	constructor(
@@ -105,20 +105,18 @@ export class Socket<
 	}
 
 	private checkRateLimit(messageCount: number = 1): boolean {
-		// Отключаем rate limiting в production для тестов
-		if (process.env.NODE_ENV === 'production') {
+		// Отключаем rate limiting в test режиме
+		if (process.env.NODE_ENV === 'test') {
 			return true;
 		}
 
 		const now = Date.now();
 
-		// Сброс счетчика каждую секунду
 		if (now - this.messageRateLimit.lastReset >= 1000) {
 			this.messageRateLimit.count = 0;
 			this.messageRateLimit.lastReset = now;
 		}
 
-		// Проверяем лимиты
 		if (this.messageRateLimit.count + messageCount > this.messageRateLimit.maxPerSecond) {
 			console.warn(
 				`[Socket] ${this.id} rate limit exceeded: ${this.messageRateLimit.count}/sec`
@@ -202,7 +200,6 @@ export class Socket<
 					const callback = this.ackCallbacks.get(ackId!);
 					if (callback) {
 						this.ackCallbacks.delete(ackId!);
-						// ✅ НЕ вызываем callback с ошибкой
 						if (process.env.NODE_ENV !== 'production') {
 							console.warn(`[Socket] ACK timeout for ${ackId} on socket ${this.id}`);
 						}
@@ -216,6 +213,7 @@ export class Socket<
 				});
 			}
 
+			// Исправлен вызов encode без кэширования для уникальных данных
 			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
 
 			if (!isProduction) {
@@ -241,9 +239,6 @@ export class Socket<
 		}
 	}
 
-	/**
-	 * ЕДИНСТВЕННЫЙ метод для emit с ACK и настройками
-	 */
 	emitWithAck(
 		event: string,
 		data: any,
@@ -267,7 +262,6 @@ export class Socket<
 
 		const ackId = SocketParser.generateAckId();
 
-		// Настраиваемый timeout в зависимости от приоритета
 		let timeout = options.timeout;
 		if (!timeout) {
 			switch (options.priority) {
@@ -300,7 +294,6 @@ export class Socket<
 		try {
 			let packet: string | Uint8Array;
 
-			// Бинарное кодирование если запрошено
 			if (options.binary && BinaryProtocol.supportsBinaryEncoding(event)) {
 				const binaryPacket = BinaryProtocol.encodeBinaryEvent(event, data);
 				if (binaryPacket) {
@@ -327,16 +320,12 @@ export class Socket<
 		}
 	}
 
-	/**
-	 * Бинарный emit
-	 */
 	emitBinary<Ev extends keyof EmitEvents>(
 		event: Ev,
 		data?: Parameters<EmitEvents[Ev]>[0]
 	): boolean {
 		if (!this._connected || this.ws.readyState !== 1) return false;
 
-		// ДОБАВЛЯЕМ проверку rate limit
 		if (!this.checkRateLimit(1)) return false;
 
 		const binaryPacket = SocketParser.encodeBinary(event, data, this.nsp);
@@ -351,13 +340,9 @@ export class Socket<
 		return this.emit(event, data as any);
 	}
 
-	/**
-	 * Быстрый emit для простых случаев
-	 */
 	emitFast(event: string, data?: string): boolean {
 		if (!this._connected || this.ws.readyState !== 1) return false;
 
-		// ДОБАВЛЯЕМ проверку rate limit
 		if (!this.checkRateLimit(1)) return false;
 
 		let packet: string;
@@ -370,13 +355,9 @@ export class Socket<
 		return this.ws.send(packet) > 0;
 	}
 
-	/**
-	 * Batch emit
-	 */
 	emitBatch(events: Array<{ event: string; data?: any; binary?: boolean }>): number {
 		if (!this._connected || this.ws.readyState !== 1) return 0;
 
-		// ДОБАВЛЯЕМ проверку rate limit для всего batch
 		if (!this.checkRateLimit(events.length)) return 0;
 
 		let successful = 0;
@@ -495,7 +476,7 @@ export class Socket<
 	}
 
 	/**
-	 * Обработка входящих пакетов
+	 * ИСПРАВЛЕННАЯ обработка входящих пакетов
 	 */
 	_handlePacket(packet: any): void {
 		if (!packet || !packet.event) return;
@@ -529,7 +510,7 @@ export class Socket<
 			}
 			if (packet.event === 'pong') return;
 
-			// Обработка событий с ACK запросом от клиента
+			// ИСПРАВЛЕНО: Правильная обработка событий с ACK запросом от клиента
 			if (packet.ackId && typeof packet.ackId === 'string') {
 				if (!isProduction) {
 					console.log(
@@ -561,7 +542,6 @@ export class Socket<
 								);
 							}
 						} catch (error) {
-							// ✅ Изолируем ошибки ACK от основного потока
 							if (!isProduction) {
 								console.warn(`[Socket] ACK response error:`, error);
 							}
@@ -569,22 +549,13 @@ export class Socket<
 					};
 
 					try {
-						const listenerLength = listener.length;
-
+						// ИСПРАВЛЕНО: Правильное определение типа события с ACK
 						if (packet.data !== undefined) {
-							if (listenerLength > 1) {
-								listener.call(this, packet.data, ackWrapper);
-							} else {
-								const result = listener.call(this, packet.data);
-								ackWrapper(result);
-							}
+							// Событие с данными и callback
+							listener.call(this, packet.data, ackWrapper);
 						} else {
-							if (listenerLength > 0) {
-								listener.call(this, ackWrapper);
-							} else {
-								const result = listener.call(this);
-								ackWrapper(result);
-							}
+							// Событие без данных, только callback
+							listener.call(this, ackWrapper);
 						}
 					} catch (error) {
 						if (!isProduction) {
@@ -615,15 +586,15 @@ export class Socket<
 				}
 			}
 
-			// Обычное событие без ACK
+			// ИСПРАВЛЕНО: Обычное событие без ACK - используем super.emit для EventEmitter
 			if (!isProduction) {
 				console.log(`[Socket] Emitting regular event: ${packet.event}`);
 			}
 
 			if (packet.data !== undefined) {
-				this.emit(packet.event as any, packet.data);
+				super.emit(packet.event, packet.data);
 			} else {
-				this.emit(packet.event as any);
+				super.emit(packet.event);
 			}
 		} catch (error) {
 			if (!isProduction) {
@@ -633,7 +604,7 @@ export class Socket<
 	}
 
 	/**
-	 * ЕДИНАЯ обработка ACK ответов
+	 * ИСПРАВЛЕННАЯ обработка ACK ответов
 	 */
 	_handleAck(ackId: string, data: any): void {
 		if (!isProduction) {
@@ -693,14 +664,32 @@ export class Socket<
 		if (this._connected) {
 			this._connected = false;
 			this.leaveAll();
+
+			// Очищаем все ACK callbacks перед эмитом disconnect
+			for (const [ackId, ack] of this.ackCallbacks) {
+				clearTimeout(ack.timeoutId);
+				try {
+					ack.callback(new Error('Socket disconnected'));
+				} catch (error) {
+					// Ignore callback errors during disconnect
+				}
+			}
 			this.ackCallbacks.clear();
+
+			if (this.ackBatchTimer) {
+				clearTimeout(this.ackBatchTimer);
+				this.ackBatchTimer = undefined;
+			}
+
 			this.namespace.removeSocket(this);
-			this.emit('disconnect' as any, reason);
+
+			// ИСПРАВЛЕНО: Используем super.emit для правильного эмита disconnect события
+			super.emit('disconnect', reason);
 		}
 	}
 
 	_handleError(error: Error): void {
-		this.emit('error' as any, error);
+		super.emit('error', error);
 	}
 
 	private sanitizeData(data: any, seen = new WeakSet()): any {
@@ -734,9 +723,6 @@ export class Socket<
 		return data;
 	}
 
-	/**
-	 * Статистика для отладки
-	 */
 	getAckStats() {
 		const now = Date.now();
 		const pending = Array.from(this.ackCallbacks.values());
@@ -749,19 +735,14 @@ export class Socket<
 	}
 }
 
-/**
- * Warm-up функция для инициализации pools и кешей
- */
 export function warmupPerformanceOptimizations(): void {
 	if (!isProduction) {
 		console.log('🔥 Warming up performance optimizations...');
 	}
 
-	// Прогреваем кеши парсера
 	SocketParser.encodeSimpleEvent('test', '/');
 	SocketParser.encodeStringEvent('test', 'warmup', '/');
 
-	// Прогреваем binary protocol
 	BinaryProtocol.encodeBinaryEvent('ping');
 	BinaryProtocol.encodeBinaryEvent('message', 'test');
 

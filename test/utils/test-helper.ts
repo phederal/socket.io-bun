@@ -4,21 +4,31 @@
 
 import { Hono } from 'hono';
 import { websocket, wsUpgrade, io } from '../../ws';
-import { io as clientIO } from 'socket.io-client';
+import { io as clientIO, type Socket } from 'socket.io-client';
 
 let portCounter = 8900;
 
-export function createSocketIOClient(url: string) {
-	return clientIO(url, {
+export function createSocketIOClient(url: string, nsp: string = '/'): Socket {
+	// Delete "/ws" only if it comes right after domain and port
+	url = url.replace(/(:\/\/[^\/]+)\/ws(\/.*)?$/, '$1$2');
+	// Create client from socket.io-client
+	return clientIO(url + nsp, {
 		path: '/ws',
 		transports: ['websocket'],
 		timeout: 10000,
 		forceNew: true,
 		rejectUnauthorized: false,
+		autoConnect: true,
 	});
 }
-
-export async function createTestServer() {
+export type createTestServerType = {
+	server: Bun.Server;
+	io: typeof io;
+	port: number;
+	url: string;
+	cleanup: () => void;
+};
+export async function createTestServer(): Promise<createTestServerType> {
 	const port = ++portCounter;
 
 	const app = new Hono();
