@@ -13,8 +13,7 @@ import type {
 	EventsMap,
 	DefaultEventsMap,
 } from '../shared/types/socket.types';
-import { SocketParser } from './parser';
-import { BinaryProtocol } from './object-pool';
+import { BinaryProtocol, SocketParser } from './parser';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -203,9 +202,12 @@ export class Socket<
 					const callback = this.ackCallbacks.get(ackId!);
 					if (callback) {
 						this.ackCallbacks.delete(ackId!);
-						ack!(new Error('Acknowledgement timeout'));
+						// ✅ НЕ вызываем callback с ошибкой
+						if (process.env.NODE_ENV !== 'production') {
+							console.warn(`[Socket] ACK timeout for ${ackId} on socket ${this.id}`);
+						}
 					}
-				}, 10000);
+				}, 5000);
 
 				this.ackCallbacks.set(ackId, {
 					callback: ack,
@@ -221,7 +223,13 @@ export class Socket<
 			}
 
 			if (!packet || typeof packet !== 'string') {
+				if (ackId) this.cleanupAck(ackId);
 				console.error(`[Socket] Invalid packet generated for ${this.id}:`, packet);
+				return false;
+			}
+
+			if (this.ws.readyState !== 1) {
+				if (ackId) this.cleanupAck(ackId);
 				return false;
 			}
 
@@ -514,7 +522,9 @@ export class Socket<
 			}
 
 			if (packet.event === 'ping') {
-				this.ws.send('3');
+				if (this.ws.readyState === 1) {
+					this.ws.send('3');
+				}
 				return;
 			}
 			if (packet.event === 'pong') return;
@@ -534,8 +544,8 @@ export class Socket<
 
 					const ackWrapper = (...args: any[]) => {
 						try {
-							if (!isProduction) {
-								console.log(`[Socket] Sending ACK response: ${packet.ackId}`, args);
+							if (!this._connected || this.ws.readyState !== 1) {
+								return;
 							}
 
 							const ackResponse = SocketParser.encodeAckResponseFast(
@@ -545,16 +555,15 @@ export class Socket<
 
 							const success = this.ws.send(ackResponse);
 
-							if (!isProduction) {
-								console.log(
-									`[Socket] ACK sent successfully: ${success > 0}, ID: ${
-										packet.ackId
-									}`
+							if (!isProduction && !success) {
+								console.warn(
+									`[Socket] Failed to send ACK response for ${packet.ackId}`
 								);
 							}
 						} catch (error) {
+							// ✅ Изолируем ошибки ACK от основного потока
 							if (!isProduction) {
-								console.error(`[Socket] Failed to send ACK response:`, error);
+								console.warn(`[Socket] ACK response error:`, error);
 							}
 						}
 					};
@@ -669,7 +678,9 @@ export class Socket<
 		}
 	}
 
-	private cleanupAck(ackId: string): void {
+	private cleanupAck(ackId?: string): void {
+		if (!ackId) return;
+
 		const ack = this.ackCallbacks.get(ackId);
 		if (ack) {
 			clearTimeout(ack.timeoutId);
