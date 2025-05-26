@@ -151,7 +151,7 @@ export class BroadcastOperator<
 				const targetSockets = this.getTargetSockets();
 
 				if (targetSockets.size === 0) {
-					setTimeout(() => ack(null, []), 0);
+					setTimeout(() => ack!(null, []), 0);
 					return true;
 				}
 
@@ -171,7 +171,7 @@ export class BroadcastOperator<
 								socket.ackCallbacks.delete(ackId!);
 							}
 						});
-						ack(new Error('Broadcast acknowledgement timeout'), responses);
+						ack!(new Error('Broadcast acknowledgement timeout'), responses);
 					}
 				}, timeout);
 
@@ -188,7 +188,7 @@ export class BroadcastOperator<
 					if (responseCount >= expectedResponses) {
 						timedOut = true;
 						clearTimeout(timer);
-						ack(null, responses);
+						ack!(null, responses);
 					}
 				};
 
@@ -317,11 +317,11 @@ export class BroadcastOperator<
 				let operator = this;
 
 				if (op.rooms) {
-					operator = this.to(op.rooms);
+					operator = this.to(op.rooms) as this;
 				}
 
 				if (op.binary) {
-					operator = operator.binary;
+					operator = operator.binary as this;
 				}
 
 				if (operator.emitFast(op.event, op.data)) {
@@ -338,14 +338,14 @@ export class BroadcastOperator<
 	/**
 	 * Send a message (alias for emit with 'message' event)
 	 */
-	send(...args: any[]): boolean {
+	send(...args: Parameters<EmitEvents[any]>): boolean {
 		return this.emit('message' as any, ...args);
 	}
 
 	/**
 	 * Write a message (alias for send)
 	 */
-	write(...args: any[]): boolean {
+	write(...args: Parameters<EmitEvents[any]>): boolean {
 		return this.send(...args);
 	}
 

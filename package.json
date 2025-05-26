@@ -5,7 +5,12 @@
   "scripts": {
     "dev": "NODE_ENV=development bun run --watch index.ts",
     "start": "NODE_ENV=production bun run index.ts",
-    "test": "NODE_ENV=production bun run test.ts"
+    "test": "NODE_ENV=production bun test",
+    "test:live": "bun run test/server/test-server.ts",
+    "test:unit": "bun test test/unit/",
+    "test:integration": "bun test test/integration/",
+    "test:watch": "bun test --watch --exclude='**/integration/**'",
+    "test:coverage": "bun test --coverage --exclude='**/integration/**'"
   },
   "devDependencies": {
     "@types/bun": "latest"
