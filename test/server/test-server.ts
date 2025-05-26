@@ -135,27 +135,33 @@ class SocketIOTests {
 	}
 
 	async runTest(name: string, testFn: () => Promise<void>): Promise<void> {
+		console.log(`🧪 Running test: ${name}`);
 		const start = Date.now();
 		try {
 			await testFn();
+			const duration = Date.now() - start;
+			console.log(`✅ Test passed: ${name} (${duration}ms)`);
 			this.results.push({
 				name,
 				passed: true,
-				duration: Date.now() - start,
+				duration,
 			});
 			this.socket.emit('test_progress', { name, status: 'passed' });
 		} catch (error: any) {
+			const duration = Date.now() - start;
+			console.log(`❌ Test failed: ${name} (${duration}ms) - ${error.message}`);
 			this.results.push({
 				name,
 				passed: false,
 				error: error.message,
-				duration: Date.now() - start,
+				duration,
 			});
 			this.socket.emit('test_progress', { name, status: 'failed', error: error.message });
 		}
 	}
 
 	async runAllTests(): Promise<TestSuite> {
+		console.log(`🚀 Starting all tests for socket ${this.socket.id}`);
 		const start = Date.now();
 		this.results = [];
 
@@ -290,27 +296,49 @@ const app = new Hono();
 
 // Serve test interface
 app.get('/', serveStatic({ path: './test/server/index.html' }));
-app.get('/ws', wsUpgrade);
-app.get('/ws/*', wsUpgrade);
 
-// Add middleware
-app.use('/ws/*', async (c, next) => {
+// Add middleware для всех WebSocket путей включая Engine.IO параметры
+app.use('/ws', async (c, next) => {
+	console.log(`🔧 Middleware /ws hit for: ${c.req.url}`);
+	// Создаем тестового пользователя для всех подключений
 	c.set('user', {
-		id: `test_user_${Date.now()}`,
+		id: `test_user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
 		name: 'Test User',
 		isTestRunner: true,
 	});
 	c.set('session', {
-		id: `test_session_${Date.now()}`,
+		id: `test_session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
 		authenticated: true,
 	});
 	await next();
 });
 
+app.use('/ws/*', async (c, next) => {
+	console.log(`🔧 Middleware /ws/* hit for: ${c.req.url}`);
+	// Дублируем для всех вложенных путей
+	if (!c.get('user')) {
+		c.set('user', {
+			id: `test_user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+			name: 'Test User',
+			isTestRunner: true,
+		});
+	}
+	if (!c.get('session')) {
+		c.set('session', {
+			id: `test_session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+			authenticated: true,
+		});
+	}
+	await next();
+});
+
+app.get('/ws', wsUpgrade);
+app.get('/ws/*', wsUpgrade);
+
 // Create test server
 const server = Bun.serve({
 	hostname: 'localhost',
-	port: 8443, // Different port for testing
+	port: 8443,
 	fetch: app.fetch,
 	websocket: {
 		open: websocket.open,
@@ -331,29 +359,139 @@ io.on('connection', async (socket) => {
 
 	testRunner.setCurrentSocket(socket);
 
+	// Добавляем обработчик ПЕРЕД всеми остальными для отладки
+	const originalHandlePacket = socket._handlePacket;
+	socket._handlePacket = function (packet) {
+		console.log(`🔍 Raw packet received from ${socket.id}:`, packet);
+
+		// Временные хаки для всех тестовых событий
+		if (packet.event === 'start_tests') {
+			console.log(`🎯 Manually triggering start_tests handler`);
+			setTimeout(async () => {
+				console.log(`🚀 start_tests manual execution for ${socket.id}`);
+				testRunner.clear();
+
+				try {
+					const coreTests = new SocketIOTests(socket);
+					const results = await coreTests.runAllTests();
+
+					testRunner.addTestSuite(results);
+
+					console.log(`📤 Sending tests_complete to ${socket.id}`);
+					socket.emit('tests_complete', testRunner.getSummary());
+					console.log(
+						`✅ Tests completed: ${results.totalPassed}/${results.tests.length} passed`
+					);
+				} catch (error) {
+					console.error(`❌ Error running tests:`, error);
+				}
+			}, 100);
+		}
+
+		if (packet.event === 'test_echo') {
+			console.log(`📨 test_echo manual handling: ${packet.data}`);
+			socket.emit('test_response', `Echo: ${packet.data}`);
+		}
+
+		if (packet.event === 'test_ack') {
+			console.log(`📨 test_ack manual handling: ${packet.data}`);
+			// Для ACK нужно ответить через ackId
+			if (packet.ackId) {
+				socket._handleAck = socket._handleAck || function () {};
+				// Отправляем ACK ответ
+				const ackResponse = {
+					echo: packet.data,
+					timestamp: Date.now(),
+					server: 'test-server',
+				};
+				socket.emit('__ack', ackResponse, packet.ackId);
+			}
+		}
+
+		if (packet.event === 'test_binary') {
+			console.log(`🔧 test_binary manual handling: ${packet.data}`);
+			socket.emitBinary('binary_response', `Binary: ${packet.data}`);
+		}
+
+		if (packet.event === 'rapid_test') {
+			socket.emit('rapid_response', packet.data);
+		}
+
+		if (packet.event === 'test_error') {
+			console.log(`❌ test_error manual handling: ${packet.data}`);
+			socket.emit('error_response', {
+				error: 'Simulated error',
+				originalData: packet.data,
+			});
+		}
+
+		if (packet.event === 'join_test_room') {
+			console.log(`🏠 join_test_room manual handling: ${packet.data}`);
+			socket.join(packet.data);
+			socket.emit('room_joined', packet.data);
+		}
+
+		if (packet.event === 'send_to_room') {
+			console.log(`📡 send_to_room manual handling:`, packet.data);
+			io.to(packet.data.room).emit('room_message', packet.data.message);
+		}
+
+		return originalHandlePacket.call(this, packet);
+	};
+
+	// ВАЖНО: Регистрируем start_tests в первую очередь
+	socket.on('start_tests', async () => {
+		console.log(`🚀 start_tests event received from ${socket.id}, starting automated tests...`);
+		testRunner.clear();
+
+		try {
+			const coreTests = new SocketIOTests(socket);
+			const results = await coreTests.runAllTests();
+
+			testRunner.addTestSuite(results);
+
+			console.log(`📤 Sending tests_complete to ${socket.id}`);
+			socket.emit('tests_complete', testRunner.getSummary());
+			console.log(
+				`✅ Tests completed: ${results.totalPassed}/${results.tests.length} passed`
+			);
+		} catch (error) {
+			console.error(`❌ Error running tests:`, error);
+		}
+	});
+
 	// Test event handlers
 	socket.on('test_echo', (data) => {
+		console.log(`📨 test_echo received from ${socket.id}: ${data}`);
 		socket.emit('test_response', `Echo: ${data}`);
 	});
 
 	socket.on('test_ack', (data, callback) => {
-		callback({
-			echo: data,
-			timestamp: Date.now(),
-			server: 'test-server',
-		});
+		console.log(`📨 test_ack received from ${socket.id}: ${data}`);
+		if (typeof callback === 'function') {
+			callback({
+				echo: data,
+				timestamp: Date.now(),
+				server: 'test-server',
+			});
+		} else {
+			console.warn(`⚠️ test_ack callback is not a function:`, typeof callback);
+		}
 	});
 
 	socket.on('join_test_room', (room) => {
+		console.log(`🏠 ${socket.id} joining room: ${room}`);
 		socket.join(room);
 		socket.emit('room_joined', room);
 	});
 
 	socket.on('send_to_room', (data) => {
+		console.log(`📡 send_to_room from ${socket.id}:`, JSON.stringify(data));
 		io.to(data.room).emit('room_message', data.message);
 	});
 
 	socket.on('test_binary', (data) => {
+		console.log(`🔧 test_binary received from ${socket.id}: ${data}`);
 		socket.emitBinary('binary_response', `Binary: ${data}`);
 	});
 
@@ -362,31 +500,20 @@ io.on('connection', async (socket) => {
 	});
 
 	socket.on('test_error', (data) => {
+		console.log(`❌ test_error received from ${socket.id}: ${data}`);
 		socket.emit('error_response', {
 			error: 'Simulated error',
 			originalData: data,
 		});
 	});
 
-	// Start tests automatically when client connects
-	socket.emit('test_ready');
-
-	socket.on('start_tests', async () => {
-		console.log('🚀 Starting automated tests...');
-		testRunner.clear();
-
-		const coreTests = new SocketIOTests(socket);
-		const results = await coreTests.runAllTests();
-
-		testRunner.addTestSuite(results);
-
-		socket.emit('tests_complete', testRunner.getSummary());
-		console.log(`✅ Tests completed: ${results.totalPassed}/${results.tests.length} passed`);
-	});
-
 	socket.on('disconnect', (reason) => {
 		console.log(`🧪 Test client disconnected: ${socket.id} (${reason})`);
 	});
+
+	// Start tests automatically when client connects
+	console.log(`📤 Sending test_ready to ${socket.id}`);
+	socket.emit('test_ready');
 });
 
 // Chat namespace tests

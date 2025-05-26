@@ -500,6 +500,9 @@
 				socket = io('wss://localhost:8443', {
 					path: '/ws',
 					transports: ['websocket'],
+					timeout: 10000,
+					forceNew: true,
+					autoConnect: true,
 				});
 
 				socket.on('connect', () => {
@@ -509,6 +512,7 @@
 
 				socket.on('connect_error', (error) => {
 					log(`Connection error: ${error.message}`, 'error');
+					console.error('Full connection error:', error);
 					updateConnectionStatus(false);
 				});
 
@@ -519,11 +523,19 @@
 
 				socket.on('test_ready', () => {
 					log('Test server ready. Starting tests automatically...', 'info');
-					socket.emit('start_tests');
+					console.log('📨 Received test_ready event from server');
+					totalTests = 8; // Update total test count
+
+					// Добавим небольшую задержку и логирование
+					setTimeout(() => {
+						console.log('📤 Sending start_tests to server');
+						socket.emit('start_tests');
+					}, 500);
 				});
 
 				socket.on('test_suite_start', (data) => {
 					log(`Starting test suite: ${data.name}`, 'info');
+					console.log('📨 Test suite start:', data);
 					elements.connectionStatus.textContent = 'Running Tests';
 					elements.connectionStatus.className = 'status testing';
 				});
@@ -533,12 +545,14 @@
 						`Test: ${data.name} - ${data.status}`,
 						data.status === 'passed' ? 'success' : 'error'
 					);
+					console.log('📨 Test progress:', data);
 					currentProgress++;
 					updateProgress();
 				});
 
 				socket.on('test_results', (data) => {
 					log('Received test results', 'info');
+					console.log('📨 Full test results:', data);
 					testResults = data.suites;
 					updateSummary(data.summary);
 
@@ -553,6 +567,7 @@
 						`Tests completed: ${summary.totalPassed}/${summary.totalTests} passed`,
 						summary.success ? 'success' : 'error'
 					);
+					console.log('📨 Tests complete summary:', summary);
 					updateConnectionStatus(true);
 				});
 			}
@@ -562,6 +577,7 @@
 					log('Running tests again...', 'info');
 					elements.testSuites.innerHTML = '';
 					currentProgress = 0;
+					console.log('📤 Manually sending start_tests to server');
 					socket.emit('start_tests');
 				}
 			}

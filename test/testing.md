@@ -26,7 +26,7 @@ bun test --coverage
 bun run test:live
 
 # Open browser to:
-# http://localhost:8444
+# http://localhost:8443
 ```
 
 ## 🌟 Live Testing Features
@@ -68,7 +68,7 @@ bun run test:live
 2. **Open your browser:**
 
     ```
-    http://localhost:8444
+    http://localhost:8443
     ```
 
 3. **Watch tests run automatically:**
@@ -184,7 +184,7 @@ bun test test/unit/server-simple.test.ts
 bun run test:live
 
 # Terminal 2: Keep browser open
-# http://localhost:8444
+# http://localhost:8443
 
 # Code changes trigger automatic retesting
 ```
