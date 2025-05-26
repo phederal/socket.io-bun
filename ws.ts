@@ -173,9 +173,6 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 							case 1011:
 								reason = 'internal error';
 								break;
-							case 1011:
-								reason = 'internal error';
-								break;
 							default:
 								reason = `transport close (${event.code})`;
 						}
