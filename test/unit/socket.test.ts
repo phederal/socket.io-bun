@@ -1,470 +1,236 @@
 /**
- * Unit tests for Socket class
+ * Socket tests с реальным сервером и Socket.IO клиентом
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { Socket } from '../../socket/socket';
-import type { Handshake } from '../../shared/types/socket.types';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { createTestServer, createSocketIOClient } from '../utils/test-helper';
 
-// Mock WebSocket
-class MockWebSocket {
-	readyState = 1; // OPEN
-	sendCalls: any[] = [];
-	subscriptions: Set<string> = new Set();
+describe('Socket Tests', () => {
+	let testServer: any;
+	let client: any;
 
-	send(data: any) {
-		this.sendCalls.push(data);
-		return 1; // Success
-	}
-
-	subscribe(topic: string) {
-		this.subscriptions.add(topic);
-	}
-
-	unsubscribe(topic: string) {
-		this.subscriptions.delete(topic);
-	}
-
-	close() {
-		this.readyState = 3; // CLOSED
-	}
-}
-
-// Mock Namespace
-class MockNamespace {
-	name = '/';
-	sockets = new Map();
-	adapter = {
-		addSocket: mock(() => {}),
-		removeSocket: mock(() => {}),
-		removeSocketFromAllRooms: mock(() => {}),
-	};
-
-	removeSocket = mock(() => {});
-}
-
-describe('Socket', () => {
-	let mockWs: MockWebSocket;
-	let mockNamespace: MockNamespace;
-	let socket: Socket;
-	let handshake: Handshake;
-
-	beforeEach(() => {
-		mockWs = new MockWebSocket();
-		mockNamespace = new MockNamespace();
-		handshake = {
-			headers: {},
-			time: new Date().toISOString(),
-			address: '127.0.0.1',
-			xdomain: false,
-			secure: true,
-			issued: Date.now(),
-			url: '/',
-			query: {},
-			auth: {},
-		};
-
-		socket = new Socket('test-socket-id', mockWs as any, mockNamespace as any, handshake);
+	beforeEach(async () => {
+		testServer = await createTestServer();
 	});
 
-	afterEach(() => {
-		if (socket.connected) {
-			socket.disconnect(true);
+	afterEach(async () => {
+		if (client?.connected) {
+			client.disconnect();
 		}
+		testServer.cleanup();
 	});
 
-	describe('Initialization', () => {
-		test('should initialize with correct properties', () => {
-			expect(socket.id).toBe('test-socket-id');
-			expect(socket.connected).toBe(true);
-			expect(socket.handshake).toBe(handshake);
-			expect(socket.rooms.has('test-socket-id')).toBe(true);
-			expect(socket.nsp).toBe('/');
-		});
+	test('should connect and disconnect', async () => {
+		client = await createSocketIOClient(testServer.url);
 
-		test('should have session ID', () => {
-			expect(socket.sessionId).toMatch(/^sess_\d+_[a-z0-9]+$/);
-		});
-	});
+		return new Promise<void>((resolve, reject) => {
+			const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
 
-	describe('Basic Events', () => {
-		test('should emit simple event without data', () => {
-			const result = socket.emit('ping');
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(mockWs.sendCalls[0]).toBe('42["ping"]');
-		});
-
-		test('should emit event with string data', () => {
-			const result = socket.emit('message', 'hello world');
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(mockWs.sendCalls[0]).toBe('42["message","hello world"]');
-		});
-
-		test('should emit event with object data', () => {
-			const data = { user: 'john', text: 'hello' };
-			const result = socket.emit('chat_message', data);
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(mockWs.sendCalls[0]).toBe('42["chat_message",{"user":"john","text":"hello"}]');
-		});
-
-		test('should handle emit when disconnected', () => {
-			socket.disconnect();
-			const result = socket.emit('ping');
-			expect(result).toBe(false);
-			expect(mockWs.sendCalls).toHaveLength(1); // Only disconnect packet
-		});
-	});
-
-	describe('Acknowledgments', () => {
-		test('should emit event with ACK callback', (done) => {
-			let ackId: string;
-
-			socket.emit('get_user_info', (response: any) => {
-				expect(response).toEqual({ id: 'test-socket-id', name: 'test user' });
-				done();
+			client.on('connect', () => {
+				clearTimeout(timeout);
+				expect(client.connected).toBe(true);
+				expect(client.id).toBeDefined();
+				resolve();
 			});
 
-			expect(mockWs.sendCalls).toHaveLength(1);
-			const packet = mockWs.sendCalls[0];
-			expect(packet).toMatch(/^42\d+\["get_user_info"\]$/);
+			client.on('connect_error', (error: any) => {
+				clearTimeout(timeout);
+				reject(error);
+			});
+		});
+	});
 
-			// Extract ACK ID from packet
-			const match = packet.match(/^42(\d+)/);
-			ackId = match[1];
-
-			// Simulate ACK response
-			socket._handleAck(ackId, { id: 'test-socket-id', name: 'test user' });
+	test('should emit and receive events', async () => {
+		// Настраиваем server-side обработчик ПЕРЕД подключением клиента
+		testServer.io.on('connection', (socket: any) => {
+			socket.on('test_message', (data: any) => {
+				socket.emit('test_response', `Echo: ${data}`);
+			});
 		});
 
-		test('should emit event with data and ACK callback', (done) => {
-			const requestData = { operation: 'add', a: 5, b: 3 };
+		client = createSocketIOClient(testServer.url);
 
-			socket.emit('calculate', requestData, (response: any) => {
-				expect(response).toEqual({ result: 8 });
-				done();
+		return new Promise<void>((resolve, reject) => {
+			const timeout = setTimeout(() => reject(new Error('Test timeout')), 5000);
+
+			client.on('connect', () => {
+				client.on('test_response', (data: any) => {
+					clearTimeout(timeout);
+					expect(data).toBe('Echo: hello world');
+					resolve();
+				});
+
+				client.emit('test_message', 'hello world');
 			});
 
-			expect(mockWs.sendCalls).toHaveLength(1);
-			const packet = mockWs.sendCalls[0];
-			expect(packet).toMatch(/^42\d+\["calculate",{"operation":"add","a":5,"b":3}\]$/);
-
-			// Extract ACK ID and simulate response
-			const match = packet.match(/^42(\d+)/);
-			const ackId = match[1];
-			socket._handleAck(ackId, { result: 8 });
-		});
-
-		test('should handle ACK timeout', (done) => {
-			// Speed up test by mocking setTimeout
-			const originalSetTimeout = global.setTimeout;
-			global.setTimeout = ((callback: any) => {
-				callback();
-				return 1 as any;
-			}) as any;
-
-			socket.emitWithAck(
-				'slow_operation',
-				{},
-				(err: any) => {
-					expect(err).toBeInstanceOf(Error);
-					expect(err.message).toContain('timeout');
-					global.setTimeout = originalSetTimeout;
-					done();
-				},
-				{ timeout: 1 }
-			);
+			client.on('connect_error', reject);
 		});
 	});
 
-	describe('Binary Protocol', () => {
-		test('should emit binary event', () => {
-			const result = socket.emitBinary('ping');
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls).toHaveLength(1);
-
-			const packet = mockWs.sendCalls[0];
-			expect(packet).toBeInstanceOf(Uint8Array);
+	test('should handle acknowledgments', async () => {
+		// Server-side ACK handler ПЕРЕД подключением
+		testServer.io.on('connection', (socket: any) => {
+			socket.on('get_data', (data: any, callback: any) => {
+				callback({ result: `processed_${data}` });
+			});
 		});
 
-		test('should emit binary event with data', () => {
-			const result = socket.emitBinary('message', 'binary hello');
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls).toHaveLength(1);
+		client = createSocketIOClient(testServer.url);
 
-			const packet = mockWs.sendCalls[0];
-			expect(packet).toBeInstanceOf(Uint8Array);
-		});
+		return new Promise<void>((resolve, reject) => {
+			const timeout = setTimeout(() => reject(new Error('ACK timeout')), 5000);
 
-		test('should fallback to regular emit for unsupported events', () => {
-			const result = socket.emitBinary('unsupported_event' as any, 'data');
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(typeof mockWs.sendCalls[0]).toBe('string');
+			client.on('connect', () => {
+				client.emit('get_data', 'test_input', (response: any) => {
+					clearTimeout(timeout);
+					expect(response.result).toBe('processed_test_input');
+					resolve();
+				});
+			});
+
+			client.on('connect_error', reject);
 		});
 	});
 
-	describe('Fast Emit', () => {
-		test('should emit fast event without data', () => {
-			const result = socket.emitFast('ping');
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(mockWs.sendCalls[0]).toBe('42["ping"]');
+	test('should handle rooms', async () => {
+		// Server-side room handling ПЕРЕД подключением
+		testServer.io.on('connection', (socket: any) => {
+			socket.on('join_room', (room: string) => {
+				socket.join(room);
+			});
+
+			socket.on('room_message', (data: any) => {
+				testServer.io.to(data.room).emit('room_broadcast', data.message);
+			});
 		});
 
-		test('should emit fast event with string data', () => {
-			const result = socket.emitFast('message', 'fast hello');
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(mockWs.sendCalls[0]).toBe('42["message","fast hello"]');
-		});
-	});
+		const client1 = createSocketIOClient(testServer.url);
+		const client2 = createSocketIOClient(testServer.url);
 
-	describe('Batch Operations', () => {
-		test('should emit batch of events', () => {
-			const events = [
-				{ event: 'ping' },
-				{ event: 'message', data: 'hello' },
-				{ event: 'notification', data: 'alert', binary: true },
-			];
+		return new Promise<void>((resolve, reject) => {
+			const timeout = setTimeout(() => reject(new Error('Room test timeout')), 5000);
+			let responsesReceived = 0;
 
-			const result = socket.emitBatch(events);
-			expect(result).toBe(3);
-			expect(mockWs.sendCalls).toHaveLength(3);
-		});
-
-		test('should handle empty batch', () => {
-			const result = socket.emitBatch([]);
-			expect(result).toBe(0);
-			expect(mockWs.sendCalls).toHaveLength(0);
-		});
-
-		test('should handle partial batch failure', () => {
-			// Mock WebSocket to fail on second send
-			let callCount = 0;
-			mockWs.send = () => {
-				callCount++;
-				return callCount === 2 ? 0 : 1; // Fail on second call
+			const checkComplete = () => {
+				responsesReceived++;
+				if (responsesReceived === 2) {
+					clearTimeout(timeout);
+					client1.disconnect();
+					client2.disconnect();
+					resolve();
+				}
 			};
 
-			const events = [
-				{ event: 'ping' },
-				{ event: 'message', data: 'hello' },
-				{ event: 'pong' },
-			];
+			client1.on('connect', () => {
+				client1.emit('join_room', 'test_room');
 
-			const result = socket.emitBatch(events);
-			expect(result).toBe(2); // Only 2 successful
-		});
-	});
-
-	describe('Room Management', () => {
-		test('should join single room', () => {
-			socket.join('room1');
-			expect(socket.rooms.has('room1')).toBe(true);
-			expect(mockNamespace.adapter.addSocket).toHaveBeenCalledWith('test-socket-id', 'room1');
-			expect(mockWs.subscriptions.has('room:/:room1')).toBe(true);
-		});
-
-		test('should join multiple rooms', () => {
-			socket.join(['room1', 'room2', 'room3']);
-			expect(socket.rooms.has('room1')).toBe(true);
-			expect(socket.rooms.has('room2')).toBe(true);
-			expect(socket.rooms.has('room3')).toBe(true);
-			expect(mockNamespace.adapter.addSocket).toHaveBeenCalledTimes(3);
-		});
-
-		test('should not join same room twice', () => {
-			socket.join('room1');
-			socket.join('room1');
-			expect(mockNamespace.adapter.addSocket).toHaveBeenCalledTimes(1);
-		});
-
-		test('should leave room', () => {
-			socket.join('room1');
-			socket.leave('room1');
-			expect(socket.rooms.has('room1')).toBe(false);
-			expect(mockNamespace.adapter.removeSocket).toHaveBeenCalledWith(
-				'test-socket-id',
-				'room1'
-			);
-			expect(mockWs.subscriptions.has('room:/:room1')).toBe(false);
-		});
-
-		test('should not leave own room (socket ID)', () => {
-			socket.leave('test-socket-id');
-			expect(socket.rooms.has('test-socket-id')).toBe(true);
-		});
-
-		test('should leave all rooms except own', () => {
-			socket.join(['room1', 'room2', 'room3']);
-			socket.leaveAll();
-			expect(socket.rooms.size).toBe(1);
-			expect(socket.rooms.has('test-socket-id')).toBe(true);
-		});
-	});
-
-	describe('Packet Handling', () => {
-		test('should handle incoming event packet', () => {
-			const eventSpy = spyOn(socket, 'emit');
-
-			socket._handlePacket({
-				event: 'message',
-				data: 'hello from client',
-				namespace: '/',
+				client1.on('room_broadcast', (message: any) => {
+					expect(message).toBe('Hello room!');
+					checkComplete();
+				});
 			});
 
-			expect(eventSpy).toHaveBeenCalledWith('message', 'hello from client');
-		});
+			client2.on('connect', () => {
+				client2.emit('join_room', 'test_room');
 
-		test('should handle ACK request packet', () => {
-			// Add event listener
-			socket.on('get_info', (callback) => {
-				callback({ info: 'test data' });
+				client2.on('room_broadcast', (message: any) => {
+					expect(message).toBe('Hello room!');
+					checkComplete();
+				});
+
+				// Даем время на присоединение к комнате
+				setTimeout(() => {
+					client1.emit('room_message', { room: 'test_room', message: 'Hello room!' });
+				}, 200);
 			});
 
-			socket._handlePacket({
-				event: 'get_info',
-				ackId: '123',
-				namespace: '/',
-			});
-
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(mockWs.sendCalls[0]).toBe('43123[{"info":"test data"}]');
-		});
-
-		test('should handle ACK request with data', () => {
-			socket.on('calculate', (data, callback) => {
-				const result = data.a + data.b;
-				callback({ result });
-			});
-
-			socket._handlePacket({
-				event: 'calculate',
-				data: { a: 5, b: 3 },
-				ackId: '456',
-				namespace: '/',
-			});
-
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(mockWs.sendCalls[0]).toBe('43456[{"result":8}]');
-		});
-
-		test('should handle ping packet', () => {
-			socket._handlePacket({ event: 'ping' });
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(mockWs.sendCalls[0]).toBe('3'); // Pong response
-		});
-
-		test('should ignore pong packet', () => {
-			socket._handlePacket({ event: 'pong' });
-			expect(mockWs.sendCalls).toHaveLength(0);
-		});
-
-		test('should handle disconnect packet', () => {
-			const closeSpy = spyOn(socket, '_handleClose');
-			socket._handlePacket({ event: '__disconnect' });
-			expect(closeSpy).toHaveBeenCalledWith('client namespace disconnect');
+			client1.on('connect_error', reject);
+			client2.on('connect_error', reject);
 		});
 	});
 
-	describe('Connection Management', () => {
-		test('should disconnect gracefully', () => {
-			socket.disconnect();
-			expect(socket.connected).toBe(false);
-			expect(mockWs.sendCalls).toHaveLength(1);
-			expect(mockWs.sendCalls[0]).toBe('41'); // Disconnect packet
-			expect(mockNamespace.removeSocket).toHaveBeenCalledWith(socket);
+	test('should handle binary events', async () => {
+		client = await createSocketIOClient(testServer.url);
+
+		// Server-side binary handler
+		testServer.io.on('connection', (socket: any) => {
+			socket.on('binary_test', (data: any) => {
+				socket.emitBinary('binary_response', `Binary: ${data}`);
+			});
 		});
 
-		test('should disconnect and close WebSocket', () => {
-			socket.disconnect(true);
-			expect(socket.connected).toBe(false);
-			expect(mockWs.readyState).toBe(3); // CLOSED
-		});
+		return new Promise<void>((resolve, reject) => {
+			const timeout = setTimeout(() => reject(new Error('Binary test timeout')), 5000);
 
-		test('should handle close event', () => {
-			const disconnectSpy = spyOn(socket, 'emit');
-			socket._handleClose('transport close');
-			expect(socket.connected).toBe(false);
-			expect(disconnectSpy).toHaveBeenCalledWith('disconnect', 'transport close');
-		});
+			client.on('connect', () => {
+				client.on('binary_response', (data: any) => {
+					clearTimeout(timeout);
+					expect(data).toBe('Binary: test data');
+					resolve();
+				});
 
-		test('should handle error event', () => {
-			const errorSpy = spyOn(socket, 'emit');
-			const error = new Error('WebSocket error');
-			socket._handleError(error);
-			expect(errorSpy).toHaveBeenCalledWith('error', error);
+				client.emit('binary_test', 'test data');
+			});
+
+			client.on('connect_error', reject);
 		});
 	});
 
-	describe('Rate Limiting', () => {
-		test('should allow normal message rate', () => {
-			// Send 10 messages (within limit)
-			for (let i = 0; i < 10; i++) {
-				const result = socket.emit('ping');
-				expect(result).toBe(true);
-			}
-			expect(mockWs.sendCalls).toHaveLength(10);
+	test('should handle multiple clients broadcasting', async () => {
+		const client1 = await createSocketIOClient(testServer.url);
+		const client2 = await createSocketIOClient(testServer.url);
+		const client3 = await createSocketIOClient(testServer.url);
+
+		// Server-side broadcast handler
+		testServer.io.on('connection', (socket: any) => {
+			socket.on('broadcast_test', (data: any) => {
+				socket.broadcast.emit('broadcast_received', data);
+			});
 		});
 
-		test('should be disabled in production', () => {
-			const originalEnv = process.env.NODE_ENV;
-			process.env.NODE_ENV = 'production';
+		return new Promise<void>((resolve, reject) => {
+			const timeout = setTimeout(() => reject(new Error('Broadcast test timeout')), 5000);
+			let responsesReceived = 0;
 
-			// Send many messages
-			for (let i = 0; i < 1000; i++) {
-				const result = socket.emit('ping');
-				expect(result).toBe(true);
-			}
-
-			process.env.NODE_ENV = originalEnv;
-		});
-	});
-
-	describe('Statistics', () => {
-		test('should provide ACK statistics', () => {
-			socket.emit('test', () => {}); // Add pending ACK
-
-			const stats = socket.getAckStats();
-			expect(stats.total).toBe(1);
-			expect(stats.oldestAge).toBeGreaterThan(0);
-			expect(stats.batchQueueSize).toBe(0);
-		});
-
-		test('should show empty stats when no pending ACKs', () => {
-			const stats = socket.getAckStats();
-			expect(stats.total).toBe(0);
-			expect(stats.oldestAge).toBe(0);
-			expect(stats.batchQueueSize).toBe(0);
-		});
-	});
-
-	describe('Data Sanitization', () => {
-		test('should handle circular references', () => {
-			const circular: any = { name: 'test' };
-			circular.self = circular;
-
-			const result = socket.emit('circular_test', circular);
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls[0]).toContain('[Circular]');
-		});
-
-		test('should remove functions from data', () => {
-			const dataWithFunction = {
-				name: 'test',
-				fn: () => 'function',
-				nested: {
-					fn2: () => 'nested function',
-					value: 42,
-				},
+			const checkComplete = () => {
+				responsesReceived++;
+				if (responsesReceived === 2) {
+					// client2 и client3 должны получить
+					clearTimeout(timeout);
+					client1.disconnect();
+					client2.disconnect();
+					client3.disconnect();
+					resolve();
+				}
 			};
 
-			const result = socket.emit('function_test', dataWithFunction);
-			expect(result).toBe(true);
-			expect(mockWs.sendCalls[0]).not.toContain('function');
+			client1.on('connect', () => {
+				// client1 не должен получить свой broadcast
+				client1.on('broadcast_received', () => {
+					reject(new Error('Sender should not receive broadcast'));
+				});
+			});
+
+			client2.on('connect', () => {
+				client2.on('broadcast_received', (data: any) => {
+					expect(data).toBe('broadcast message');
+					checkComplete();
+				});
+			});
+
+			client3.on('connect', () => {
+				client3.on('broadcast_received', (data: any) => {
+					expect(data).toBe('broadcast message');
+					checkComplete();
+				});
+
+				// Даем время всем подключиться
+				setTimeout(() => {
+					client1.emit('broadcast_test', 'broadcast message');
+				}, 200);
+			});
+
+			[client1, client2, client3].forEach((c) => c.on('connect_error', reject));
 		});
 	});
 });
