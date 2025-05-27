@@ -1,0 +1,13 @@
+telemetry = false
+
+[alias]
+"@" = "./src"
+
+# [install]
+# production = true
+
+[run]
+# default on Windows
+bun = true
+# shell = "bun"
+silent = false

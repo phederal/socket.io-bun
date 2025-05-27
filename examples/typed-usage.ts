@@ -2,7 +2,7 @@
  * Example of fully typed Socket.IO usage
  */
 
-import { io } from '../socket/server';
+import { io } from '../src/server';
 import type {
 	ClientToServerEvents,
 	ServerToClientEvents,

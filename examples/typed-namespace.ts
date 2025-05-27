@@ -2,7 +2,7 @@
  * Пример правильной типизации namespace с полными типами
  */
 
-import { io } from '../socket/server';
+import { io } from '../src/server';
 import type { EventsMap, SocketData } from '../types/socket.types';
 
 // ==== 1. Определяем события для Chat namespace ====

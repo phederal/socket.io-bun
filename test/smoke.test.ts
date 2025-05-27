@@ -3,10 +3,10 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { io } from '../socket/server';
-import { SocketParser, BinaryProtocol } from '../socket/parser';
-import { Adapter } from '../socket/adapter';
-import { BroadcastOperator } from '../socket/broadcast';
+import { io } from '../src/server';
+import { SocketParser, BinaryProtocol } from '../src/parser';
+import { Adapter } from '../src/adapter';
+import { BroadcastOperator } from '../src/broadcast';
 
 describe('Smoke Tests', () => {
 	test('should import SocketServer', () => {

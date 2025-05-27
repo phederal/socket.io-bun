@@ -2,7 +2,7 @@
  * Тестирование acknowledgments во всех вариантах использования
  */
 
-import { io } from '../socket/server';
+import { io } from '../src/server';
 import type { ClientToServerEvents, ServerToClientEvents } from '../types/socket.types';
 
 // Расширяем типы для тестирования acknowledgments

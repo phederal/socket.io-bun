@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { SocketParser, BinaryProtocol } from '../../socket/parser';
+import { SocketParser, BinaryProtocol } from '../../src/parser';
 
 describe('SocketParser', () => {
 	beforeEach(() => {

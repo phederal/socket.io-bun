@@ -3,7 +3,7 @@
  * Демонстрирует новые методы для контроля бинарного кодирования
  */
 
-import { io } from '../socket/server';
+import { io } from '../src/server';
 import type { ClientToServerEvents, ServerToClientEvents } from '../types/socket.types';
 
 // Создаем типизированный namespace

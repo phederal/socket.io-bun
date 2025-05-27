@@ -8,7 +8,7 @@ import { createTestServer, createSocketIOClient } from '../utils/test-helper';
 import type { createTestServerType } from '../utils/test-helper';
 
 import { type Socket as SocketIo } from 'socket.io-client';
-import { type Socket } from '../../src';
+import { type Socket } from '../../socket';
 
 describe('Socket Tests', () => {
 	let server: createTestServerType;

@@ -2,8 +2,8 @@ import { createBunWebSocket } from 'hono/bun';
 import type { ServerWebSocket } from 'bun';
 import type { WSContext } from 'hono/ws';
 import type { Context } from 'hono';
-import { io } from './socket/server';
-import { SocketParser } from './socket/parser';
+import { io } from './src/server';
+import { SocketParser } from './src/parser';
 
 const isProduction = process.env.NODE_ENV === 'production';
 

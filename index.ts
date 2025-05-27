@@ -61,7 +61,7 @@ io.setBunServer(server);
 
 // ИСПРАВЛЕНИЕ: Включаем тестовый сервер обратно
 import './test/test-server';
-import { warmupPerformanceOptimizations } from './socket/socket';
+import { warmupPerformanceOptimizations } from './src/socket';
 warmupPerformanceOptimizations();
 
 // Дополнительная отладка

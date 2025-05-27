@@ -3,8 +3,8 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { Namespace } from '../../socket/namespace';
-import { Socket } from '../../socket/socket';
+import { Namespace } from '../../src/namespace';
+import { Socket } from '../../src/socket';
 import type { Handshake } from '../../types/socket.types';
 
 // Mock dependencies

@@ -3,8 +3,8 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { SocketServer } from '../../socket/server';
-import { Namespace } from '../../socket/namespace';
+import { SocketServer } from '../../src/server';
+import { Namespace } from '../../src/namespace';
 
 // Mock Bun Server
 class MockBunServer {

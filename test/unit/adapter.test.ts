@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect, beforeEach, mock, spyOn } from 'bun:test';
-import { Adapter } from '../../socket/adapter';
+import { Adapter } from '../../src/adapter';
 
 // Mock namespace
 class MockNamespace {
