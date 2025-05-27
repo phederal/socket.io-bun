@@ -4,7 +4,7 @@ import type {
 	SocketPacketToClient,
 	ClientToServerEvents,
 	ServerToClientEvents,
-} from '../shared/types/socket.types';
+} from '../types/socket.types';
 
 /**
  * Высоко-оптимизированный Socket.IO парсер с микро-оптимизациями

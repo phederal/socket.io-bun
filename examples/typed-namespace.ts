@@ -3,7 +3,7 @@
  */
 
 import { io } from '../socket/server';
-import type { EventsMap, SocketData } from '../shared/types/socket.types';
+import type { EventsMap, SocketData } from '../types/socket.types';
 
 // ==== 1. Определяем события для Chat namespace ====
 

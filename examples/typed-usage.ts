@@ -9,7 +9,7 @@ import type {
 	InterServerEvents,
 	SocketData,
 	EventsMap,
-} from '../shared/types/socket.types';
+} from '../types/socket.types';
 
 // ==== 1. Базовое использование с типизацией ====
 

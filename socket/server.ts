@@ -11,7 +11,7 @@ import type {
 	DefaultEventsMap,
 	Room,
 	AckCallback,
-} from '../shared/types/socket.types';
+} from '../types/socket.types';
 import type { Socket } from './socket';
 
 const isProduction = process.env.NODE_ENV === 'production';

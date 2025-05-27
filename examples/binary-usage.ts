@@ -4,7 +4,7 @@
  */
 
 import { io } from '../socket/server';
-import type { ClientToServerEvents, ServerToClientEvents } from '../shared/types/socket.types';
+import type { ClientToServerEvents, ServerToClientEvents } from '../types/socket.types';
 
 // Создаем типизированный namespace
 const binaryTestNamespace = io.of<ClientToServerEvents, ServerToClientEvents>('/binary-test');

@@ -3,7 +3,7 @@
  */
 
 import { io } from '../socket/server';
-import type { ClientToServerEvents, ServerToClientEvents } from '../shared/types/socket.types';
+import type { ClientToServerEvents, ServerToClientEvents } from '../types/socket.types';
 
 // Расширяем типы для тестирования acknowledgments
 interface TestClientEvents extends ClientToServerEvents {

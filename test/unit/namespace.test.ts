@@ -5,7 +5,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { Namespace } from '../../socket/namespace';
 import { Socket } from '../../socket/socket';
-import type { Handshake } from '../../shared/types/socket.types';
+import type { Handshake } from '../../types/socket.types';
 
 // Mock dependencies
 class MockAdapter {

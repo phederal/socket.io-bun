@@ -6,7 +6,7 @@ import type {
 	EventsMap,
 	DefaultEventsMap,
 	SocketData as DefaultSocketData,
-} from '../shared/types/socket.types';
+} from '../types/socket.types';
 import { BinaryProtocol, SocketParser } from './parser';
 
 const isProduction = process.env.NODE_ENV === 'production';

@@ -5,11 +5,7 @@
 
 import { Hono } from 'hono';
 import { websocket, wsUpgrade, io } from './ws';
-import type {
-	ClientToServerEvents,
-	ServerToClientEvents,
-	SocketData,
-} from './shared/types/socket.types';
+import type { ClientToServerEvents, ServerToClientEvents, SocketData } from './types/socket.types';
 import { serveStatic } from 'hono/bun';
 
 const isProduction = process.env.NODE_ENV === 'production';

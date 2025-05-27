@@ -5,7 +5,7 @@ import type {
 	EventsMap,
 	DefaultEventsMap,
 	SocketData as DefaultSocketData,
-} from '../shared/types/socket.types';
+} from '../types/socket.types';
 
 const isProduction = process.env.NODE_ENV === 'production';
 

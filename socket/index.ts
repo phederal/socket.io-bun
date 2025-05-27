@@ -25,7 +25,7 @@ export type {
 	SocketData,
 	EventsMap,
 	DefaultEventsMap,
-} from '../shared/types/socket.types';
+} from '../types/socket.types';
 
 // Convenience function to create namespace
 export function createNamespace(name: string) {
