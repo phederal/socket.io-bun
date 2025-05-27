@@ -251,21 +251,6 @@ export class SocketParser {
 	}
 
 	/**
-	 * Оптимизированное кодирование ACK ответа
-	 */
-	static encodeAckResponseFast(ackId: string, data: any): string {
-		if (data === undefined || data === null) {
-			return `43${ackId}[]`;
-		}
-		if (typeof data === 'string') {
-			return `43${ackId}["${data.replace(/"/g, '\\"')}"]`;
-		}
-		if (typeof data === 'number' || typeof data === 'boolean') {
-			return `43${ackId}[${data}]`;
-		}
-		return `43${ackId}${JSON.stringify([data])}`;
-	}
-	/**
 	 * Encode namespace connect packet
 	 */
 	static encodeConnect(namespace: string = '/', data?: any): string {
