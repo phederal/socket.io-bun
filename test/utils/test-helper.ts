@@ -8,9 +8,9 @@ import { io as clientIO, type Socket } from 'socket.io-client';
 
 let portCounter = 8900;
 
-export function createSocketIOClient(url: string, nsp: string = '/'): Socket {
+export function createSocketIOClient(server: createTestServerType, nsp: string = '/'): Socket {
 	// Delete "/ws" only if it comes right after domain and port
-	url = url.replace(/(:\/\/[^\/]+)\/ws(\/.*)?$/, '$1$2');
+	const url = server.url.replace(/(:\/\/[^\/]+)\/ws(\/.*)?$/, '$1$2');
 	// Create client from socket.io-client
 	return clientIO(url + nsp, {
 		path: '/ws',
@@ -21,6 +21,7 @@ export function createSocketIOClient(url: string, nsp: string = '/'): Socket {
 		autoConnect: true,
 	});
 }
+
 export type createTestServerType = {
 	server: Bun.Server;
 	io: typeof io;
@@ -28,6 +29,7 @@ export type createTestServerType = {
 	url: string;
 	cleanup: () => void;
 };
+
 export async function createTestServer(): Promise<createTestServerType> {
 	const port = ++portCounter;
 
