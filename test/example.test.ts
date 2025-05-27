@@ -3,14 +3,15 @@
  * Изолированный проблемный тест для диагностики
  */
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { createTestServer, createSocketIOClient } from '../utils/test-helper';
-import type { createTestServerType } from '../utils/test-helper';
+import { createTestServer, createSocketIOClient } from '#test/utils/test-helper';
+import type { Socket as SocketIo } from 'socket.io-client';
+import type { createTestServerType } from '#test/utils/test-helper';
+import type { Socket } from '@/socket';
 
-import { type Socket as SocketIo } from 'socket.io-client';
-import { type Socket } from '../../socket';
-
-describe('Socket Tests', () => {
+describe('Example test', () => {
 	let server: createTestServerType;
 	let client: SocketIo;
 
@@ -29,7 +30,8 @@ describe('Socket Tests', () => {
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
 
-			client = createSocketIOClient(server.url);
+			/** client events */
+			client = createSocketIOClient(server);
 
 			client.on('connect', () => {
 				clearTimeout(timeout);
@@ -61,7 +63,7 @@ describe('Socket Tests', () => {
 			});
 
 			/** client events */
-			client = createSocketIOClient(server.url);
+			client = createSocketIOClient(server);
 
 			client.on('test_response', (response: any) => {
 				clearTimeout(timeout);
@@ -78,8 +80,6 @@ describe('Socket Tests', () => {
 				clearTimeout(timeout);
 				reject(error);
 			});
-
-			// console.log(client);
 		});
 	});
 });
