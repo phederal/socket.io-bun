@@ -6,11 +6,18 @@ import type {
 	DefaultEventsMap,
 	SocketData as DefaultSocketData,
 } from '../types/socket.types';
+import type { Socket } from './socket';
+import type { Namespace } from './namespace';
+import debugModule from 'debug';
+
+const debug = debugModule('socket.io:adapter');
+
+const SEPARATOR = '\x1f'; // see https://en.wikipedia.org/wiki/Delimiter#ASCII_delimited_text
 
 const isProduction = process.env.NODE_ENV === 'production';
 
 export interface BroadcastOptions {
-	rooms?: Set<Room>;
+	rooms: Set<Room>;
 	except?: Set<SocketId>;
 	flags?: {
 		volatile?: boolean;
@@ -27,123 +34,143 @@ export class Adapter<
 	ListenEvents extends EventsMap = DefaultEventsMap,
 	EmitEvents extends EventsMap = DefaultEventsMap,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData = DefaultSocketData
+	SocketData extends DefaultSocketData = DefaultSocketData
 > extends EventEmitter {
 	private rooms: Map<Room, Set<SocketId>> = new Map();
 	private sids: Map<SocketId, Set<Room>> = new Map();
 
-	constructor(public readonly nsp: any) {
+	constructor(
+		public readonly nsp: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
+	) {
 		super();
 	}
 
 	/**
-	 * Add socket to a room
+	 * To be overridden
 	 */
-	addSocket(socketId: SocketId, room: Room): void {
-		// Add to sids map
-		if (!this.sids.has(socketId)) {
-			this.sids.set(socketId, new Set());
-		}
-		this.sids.get(socketId)!.add(room);
+	private init(): Promise<void> | void {}
+	private close(): Promise<void> | void {}
+	private serverCount(): Promise<void> | void {}
 
-		// Add to rooms map
-		if (!this.rooms.has(room)) {
-			this.rooms.set(room, new Set());
-			this.emit('create-room', room);
+	/**
+	 * Adds a socket to a list of room.
+	 *
+	 * @param {SocketId} id     the socket id
+	 * @param {Set<Room>} rooms   a set of rooms
+	 * @public
+	 */
+	addAll(id: SocketId, rooms: Set<Room>): Promise<void> | void {
+		const isNew = !this.sids.has(id);
+
+		if (!this.sids.has(id)) {
+			this.sids.set(id, new Set());
+		}
+		for (const room of rooms) {
+			this.sids.get(id)!.add(room);
+
+			if (!this.rooms.has(room)) {
+				this.rooms.set(room, new Set());
+				this.emit('create-room', room);
+			}
+			if (!this.rooms.get(room)!.has(id)) {
+				this.rooms.get(room)!.add(id);
+				this.emit('join-room', room, id);
+			}
 		}
 
-		if (!this.rooms.get(room)!.has(socketId)) {
-			this.rooms.get(room)!.add(socketId);
-			this.emit('join-room', room, socketId);
+		/** compatible with bun */
+		const socket = this.nsp.sockets.get(id);
+		if (!socket) return;
+		const sessionId = socket.sessionId;
+		if (isNew) {
+			debug('subscribe connection %s to topic %s', sessionId, this.nsp.name);
+			socket.ws.subscribe(this.nsp.name);
 		}
+		rooms.forEach((room) => {
+			const topic = `${this.nsp.name}${SEPARATOR}${room}`; // '#' can be used as wildcard
+			if (!socket.ws.isSubscribed(topic)) {
+				debug('subscribe connection %s to topic %s', sessionId, topic);
+				socket.ws.subscribe(topic);
+			}
+		});
 	}
 
 	/**
-	 * Remove socket from a room
+	 * Removes a socket from a room.
+	 *
+	 * @param {SocketId} id     the socket id
+	 * @param {Room}     room   the room name
 	 */
-	removeSocket(socketId: SocketId, room: Room): void {
-		// Remove from sids
-		if (this.sids.has(socketId)) {
-			this.sids.get(socketId)!.delete(room);
-			if (this.sids.get(socketId)!.size === 0) {
-				this.sids.delete(socketId);
+	del(id: SocketId, room: Room): void {
+		if (this.sids.has(id)) {
+			this.sids.get(id)!.delete(room);
+			if (this.sids.get(id)!.size === 0) {
+				this.sids.delete(id);
 			}
 		}
 
-		// Remove from rooms
-		if (this.rooms.has(room)) {
-			const roomSockets = this.rooms.get(room)!;
-			const removed = roomSockets.delete(socketId);
-
-			if (removed) {
-				this.emit('leave-room', room, socketId);
-			}
-
-			if (roomSockets.size === 0) {
-				this.rooms.delete(room);
-				this.emit('delete-room', room);
-			}
-		}
+		this._del(room, id);
 	}
 
 	/**
-	 * Remove socket from all rooms
+	 * Removes a socket from all rooms it's joined.
+	 *
+	 * @param {SocketId} id   the socket id
 	 */
-	removeSocketFromAllRooms(socketId: SocketId): void {
-		if (this.sids.has(socketId)) {
-			const rooms = Array.from(this.sids.get(socketId)!);
-			rooms.forEach((room) => this.removeSocket(socketId, room));
-		}
-	}
-
-	/**
-	 * Get all sockets in room(s)
-	 */
-	getSockets(rooms?: Set<Room>): Set<SocketId> {
-		const result = new Set<SocketId>();
-
-		if (!rooms || rooms.size === 0) {
-			// Return all sockets
-			for (const socketId of this.sids.keys()) {
-				result.add(socketId);
-			}
-		} else {
-			// Return sockets in specified rooms
-			for (const room of rooms) {
-				if (this.rooms.has(room)) {
-					for (const socketId of this.rooms.get(room)!) {
-						result.add(socketId);
-					}
-				}
-			}
+	delAll(id: SocketId): void {
+		if (!this.sids.has(id)) {
+			return;
 		}
 
-		return result;
+		for (const room of this.sids.get(id)!) {
+			this._del(room, id);
+		}
+
+		this.sids.delete(id);
 	}
 
-	/**
-	 * Get rooms for a socket
-	 */
-	getSocketRooms(socketId: SocketId): Set<Room> {
-		return this.sids.get(socketId) || new Set();
+	private _del(room: Room, id: SocketId) {
+		const roomSockets = this.rooms.get(room);
+		if (roomSockets == null) return;
+
+		const deleted = roomSockets.delete(id);
+		if (deleted) {
+			this.emit('leave-room', room, id);
+		}
+		if (roomSockets.size === 0 && this.rooms.delete(room)) {
+			this.emit('delete-room', room);
+		}
+
+		/** compatible with bun */
+		const socket = this.nsp.sockets.get(id);
+		if (!socket) return;
+		const sessionId = socket.sessionId;
+		const topic = `${this.nsp.name}${SEPARATOR}${room}`;
+		if (socket.ws.isSubscribed(topic)) {
+			debug('unsubscribe connection %s from topic %s', sessionId, topic);
+			socket.ws.unsubscribe(topic);
+		}
 	}
 
 	/**
 	 * Broadcast packet using direct socket sending and Bun's publish
 	 */
-	broadcast(packet: Uint8Array, opts: BroadcastOptions = {}): void {
+	broadcast(packet: Uint8Array, opts: BroadcastOptions): void {
 		const { rooms, except, flags } = opts;
-
 		try {
 			// Get target sockets
-			let targetSockets: Set<SocketId>;
+			let targetSockets: Set<SocketId> = new Set();
 
 			if (!rooms || rooms.size === 0) {
 				// Broadcast to all sockets in namespace
-				targetSockets = this.getSockets();
+				this.fetchSockets(opts).then((ids) =>
+					ids.forEach((socket) => targetSockets.add(socket.id))
+				);
 			} else {
 				// Broadcast to specific rooms
-				targetSockets = this.getSockets(rooms);
+				this.sockets(rooms).then((ids) =>
+					ids.forEach((socketId) => targetSockets.add(socketId))
+				);
 			}
 
 			// Remove excepted sockets
@@ -165,27 +192,24 @@ export class Adapter<
 							console.warn(`[Adapter] Failed to send to socket ${socketId}:`, error);
 						}
 						// Remove disconnected socket
-						this.removeSocketFromAllRooms(socketId);
+						this.delAll(socketId);
 						this.nsp.sockets.delete(socketId);
 					}
 				} else if (socket && !socket.connected) {
 					// Clean up disconnected socket
-					this.removeSocketFromAllRooms(socketId);
+					this.delAll(socketId);
 					this.nsp.sockets.delete(socketId);
 				}
 			}
 
 			// Also use Bun's publish for redundancy (if server is set)
 			if (this.nsp.server && this.nsp.server.publish) {
-				if (!rooms || rooms.size === 0) {
-					const topic = `namespace:${this.nsp.name}`;
-					this.nsp.server.publish(topic, packet);
-				} else {
-					for (const room of rooms) {
-						const topic = `room:${this.nsp.name}:${room}`;
-						this.nsp.server.publish(topic, packet);
-					}
-				}
+				const topic =
+					opts.rooms.size === 0
+						? this.nsp.name
+						: `${this.nsp.name}${SEPARATOR}${rooms.keys().next().value}`;
+
+				this.nsp.server.publish(topic, packet);
 			}
 		} catch (error) {
 			if (!isProduction) {
@@ -194,59 +218,161 @@ export class Adapter<
 		}
 	}
 
+	// TODO: in next version
+	// broadcastWithAck(
+	// 	packet: any,
+	// 	opts: BroadcastOptions,
+	// 	clientCountCallback: (clientCount: number) => void,
+	// 	ack: (...args: any[]) => void
+	// ) {
+	// 	const flags = opts.flags || {};
+	// 	const packetOpts = {
+	// 		preEncoded: true,
+	// 		volatile: flags.volatile,
+	// 		compress: flags.compress,
+	// 	};
+
+	// 	packet.nsp = this.nsp.name;
+	// 	// we can use the same id for each packet, since the _ids counter is common (no duplicate)
+	// 	packet.id = this.nsp._ids++;
+
+	// 	const encodedPackets = this._encode(packet, packetOpts);
+
+	// 	let clientCount = 0;
+
+	// 	this.apply(opts, (socket) => {
+	// 		// track the total number of acknowledgements that are expected
+	// 		clientCount++;
+	// 		// call the ack callback for each client response
+	// 		socket.acks.set(packet.id, ack);
+
+	// 		if (typeof socket.notifyOutgoingListeners === 'function') {
+	// 			socket.notifyOutgoingListeners(packet);
+	// 		}
+
+	// 		socket.client.writeToEngine(encodedPackets, packetOpts);
+	// 	});
+
+	// 	clientCountCallback(clientCount);
+	// }
+
 	/**
-	 * Get number of sockets in room
+	 * Gets a list of sockets by sid.
+	 *
+	 * @param {Set<Room>} rooms   the explicit set of rooms to check.
 	 */
-	getRoomSize(room: Room): number {
-		return this.rooms.get(room)?.size || 0;
+	public sockets(rooms: Set<Room>): Promise<Set<SocketId>> {
+		const sids = new Set<SocketId>();
+
+		this.apply({ rooms }, (socket) => {
+			sids.add(socket.id);
+		});
+
+		return Promise.resolve(sids);
 	}
 
 	/**
-	 * Get all rooms
+	 * Gets the list of rooms a given socket has joined.
+	 *
+	 * @param {SocketId} id   the socket id
 	 */
-	getRooms(): Set<Room> {
-		return new Set(this.rooms.keys());
+	public socketRooms(id: SocketId): Set<Room> | undefined {
+		return this.sids.get(id);
 	}
 
 	/**
-	 * Check if room exists
+	 * Returns the matching socket instances
+	 *
+	 * @param opts - the filters to apply
 	 */
-	hasRoom(room: Room): boolean {
-		return this.rooms.has(room);
+	public fetchSockets(opts: BroadcastOptions): Promise<Socket[]> {
+		const sockets: Socket[] = [];
+
+		this.apply(opts, (socket) => {
+			sockets.push(socket);
+		});
+
+		return Promise.resolve(sockets);
 	}
 
 	/**
-	 * Get all sockets in namespace
+	 * Makes the matching socket instances join the specified rooms
+	 *
+	 * @param opts - the filters to apply
+	 * @param rooms - the rooms to join
 	 */
-	getAllSockets(): Set<SocketId> {
-		return new Set(this.sids.keys());
+	addSockets(opts: BroadcastOptions, rooms: Room[]): void {
+		this.apply(opts, (socket) => {
+			socket.join(rooms);
+		});
 	}
 
 	/**
-	 * Get room members
+	 * Makes the matching socket instances leave the specified rooms
+	 *
+	 * @param opts - the filters to apply
+	 * @param rooms - the rooms to leave
 	 */
-	getRoomMembers(room: Room): Set<SocketId> {
-		return this.rooms.get(room) || new Set();
+	delSockets(opts: BroadcastOptions, rooms: Room[]): void {
+		this.apply(opts, (socket) => {
+			rooms.forEach((room) => socket.leave(room));
+		});
 	}
 
 	/**
-	 * Clean up adapter
+	 * Makes the matching socket instances disconnect
+	 *
+	 * @param opts - the filters to apply
+	 * @param close - whether to close the underlying connection
 	 */
-	close(): void {
-		this.rooms.clear();
-		this.sids.clear();
-		this.removeAllListeners();
+	disconnectSockets(opts: BroadcastOptions, close: boolean): void {
+		this.apply(opts, (socket) => {
+			socket.disconnect(close);
+		});
 	}
 
 	/**
-	 * Debug information
+	 * Applies a broadcast operation to all matching sockets
+	 * @param opts Options for the broadcast operation
+	 * @param callback Callback to apply to each matching socket
+	 * @private
 	 */
-	getDebugInfo() {
-		return {
-			roomsCount: this.rooms.size,
-			socketsCount: this.sids.size,
-			rooms: Array.from(this.rooms.keys()),
-			sockets: Array.from(this.sids.keys()),
-		};
+	private apply(opts: BroadcastOptions, callback: (socket: Socket) => void): void {
+		const rooms = opts.rooms;
+		const except = this.computeExceptSids(opts.except);
+
+		if (rooms.size) {
+			const ids = new Set();
+			for (const room of rooms) {
+				if (!this.rooms.has(room)) continue;
+
+				for (const id of this.rooms.get(room)!) {
+					if (ids.has(id) || except.has(id)) continue;
+					const socket = this.nsp.sockets.get(id);
+					if (socket) {
+						callback(socket);
+						ids.add(id);
+					}
+				}
+			}
+		} else {
+			for (const [id] of this.sids) {
+				if (except.has(id)) continue;
+				const socket = this.nsp.sockets.get(id);
+				if (socket) callback(socket);
+			}
+		}
+	}
+
+	private computeExceptSids(exceptRooms?: Set<Room>) {
+		const exceptSids = new Set();
+		if (exceptRooms && exceptRooms.size > 0) {
+			for (const room of exceptRooms) {
+				if (this.rooms.has(room)) {
+					this.rooms.get(room)!.forEach((sid) => exceptSids.add(sid));
+				}
+			}
+		}
+		return exceptSids;
 	}
 }
