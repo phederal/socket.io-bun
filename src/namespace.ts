@@ -15,6 +15,7 @@ import type {
 	DefaultEventsMap,
 	SocketData as DefaultSocketData,
 } from '../types/socket.types';
+import type { Server } from './server';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -49,7 +50,10 @@ export class Namespace<
 		[];
 	private _ids: number = 0;
 
-	constructor(public readonly server: any, name: string) {
+	constructor(
+		public readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+		name: string
+	) {
 		super();
 		this.name = name;
 		this.adapter = new Adapter<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(this);
@@ -68,57 +72,6 @@ export class Namespace<
 		return super.once(event, listener);
 	}
 
-	async handleConnection(
-		ws: ServerWebSocket<WSContext>,
-		user: any,
-		session: any
-	): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> {
-		const socketId = user?.id || this.generateSocketId();
-
-		const handshake: Handshake = {
-			headers: {},
-			time: new Date().toISOString(),
-			address: ws.remoteAddress || 'unknown',
-			xdomain: false,
-			secure: true,
-			issued: Date.now(),
-			url: '/',
-			query: {},
-			auth: { user, session },
-		};
-
-		const socket = new Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(
-			socketId,
-			ws,
-			this,
-			handshake
-		);
-
-		// Run middlewares
-		await this.runMiddlewares(socket);
-
-		// Add to namespace
-		this.sockets.set(socketId, socket);
-		this.adapter.addSocket(socketId, socketId);
-
-		// Subscribe to namespace topic
-		ws.subscribe(`namespace:${this.name}`);
-
-		if (!isProduction) {
-			console.log(`[Namespace] Socket ${socketId} added to namespace ${this.name}`);
-		}
-
-		return socket;
-	}
-
-	removeSocket(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
-		if (this.sockets.has(socket.id)) {
-			this.sockets.delete(socket.id);
-			this.adapter.removeSocketFromAllRooms(socket.id);
-			this.emit('disconnect', socket, 'transport close');
-		}
-	}
-
 	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).to(room);
 	}
@@ -131,72 +84,15 @@ export class Namespace<
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).except(room);
 	}
 
-	/**
-	 * Binary broadcast operator
-	 */
 	get binary(): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).binary;
 	}
 
-	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
-	emit<Ev extends keyof EmitEvents>(
-		event: Ev,
-		dataOrArg: Parameters<EmitEvents[Ev]>[0],
-		ack: AckCallback
-	): boolean;
-	emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
-	emit<Ev extends keyof EmitEvents>(
-		event: Ev,
-		dataOrArg?: Parameters<EmitEvents[Ev]>[0],
-		ack?: AckCallback
-	): boolean {
-		// Специальные события namespace
+	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean {
 		if (event === 'connection' || event === 'connect' || event === 'disconnect') {
-			return super.emit(event as string, dataOrArg);
+			return super.emit(event, ...args);
 		}
-
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(
-			event as any,
-			dataOrArg,
-			ack
-		);
-	}
-
-	/**
-	 * Emit с принудительным использованием бинарного формата
-	 */
-	emitBinary<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0]
-	): boolean {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).binary.emit(
-			event,
-			data as any
-		);
-	}
-
-	/**
-	 * Быстрый emit для namespace
-	 */
-	emitFast<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0]
-	): boolean {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emitFast(event, data);
-	}
-
-	/**
-	 * Batch operations для массовых операций
-	 */
-	emitBatch<Ev extends keyof EmitEvents>(
-		operations: Array<{
-			event: Ev;
-			data?: Parameters<EmitEvents[Ev]>[0];
-			rooms?: Room | Room[];
-			binary?: boolean;
-		}>
-	): number {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emitBatch(operations);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(event, ...args);
 	}
 
 	/**
@@ -277,13 +173,12 @@ export class Namespace<
 		return true;
 	}
 
-	send(...args: Parameters<EmitEvents[any]>): this {
-		this.emit('message' as any, ...args);
-		return this;
+	send(...args: Parameters<EmitEvents[any]>): boolean {
+		return this.emit('message' as any, ...args);
 	}
 
-	write(...args: Parameters<EmitEvents[any]>): this {
-		return this.send(...args);
+	write(...args: Parameters<EmitEvents[any]>): boolean {
+		return this.emit('message' as any, ...args);
 	}
 
 	compress(compress: boolean): BroadcastOperator<EmitEvents, SocketData> {
@@ -303,46 +198,80 @@ export class Namespace<
 	}
 
 	fetchSockets(): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>[]> {
-		return Promise.resolve(Array.from(this.sockets.values()));
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).fetchSockets();
 	}
 
 	socketsJoin(room: Room | Room[]): void {
-		new BroadcastOperator<EmitEvents, SocketData>(this.adapter).socketsJoin(room);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).socketsJoin(room);
 	}
 
 	socketsLeave(room: Room | Room[]): void {
-		new BroadcastOperator<EmitEvents, SocketData>(this.adapter).socketsLeave(room);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).socketsLeave(room);
 	}
 
 	disconnectSockets(close: boolean = false): void {
-		new BroadcastOperator<EmitEvents, SocketData>(this.adapter).disconnectSockets(close);
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).disconnectSockets(close);
 	}
 
 	get socketsCount(): number {
 		return this.sockets.size;
 	}
 
-	/**
-	 * Получение статистики ACK для всех сокетов в namespace
-	 */
-	getAckStats() {
-		const stats = {
-			totalSockets: this.sockets.size,
-			totalPendingAcks: 0,
-			oldestAckAge: 0,
-			socketsWithPendingAcks: 0,
+	private async handleConnection(
+		ws: ServerWebSocket<WSContext>,
+		data: Record<string, any>
+	): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> {
+		const socketId = data.user?.id || this.generateSocketId();
+
+		const handshake: Handshake = {
+			headers: {},
+			time: new Date().toISOString(),
+			address: ws.remoteAddress || 'unknown',
+			xdomain: false,
+			secure: true,
+			issued: Date.now(),
+			url: '/',
+			query: {},
+			data: data,
 		};
 
-		for (const socket of this.sockets.values()) {
-			const socketStats = socket.getAckStats();
-			stats.totalPendingAcks += socketStats.total;
-			if (socketStats.total > 0) {
-				stats.socketsWithPendingAcks++;
-				stats.oldestAckAge = Math.max(stats.oldestAckAge, socketStats.oldestAge);
-			}
+		const socket = new Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(
+			socketId,
+			ws,
+			this,
+			handshake
+		);
+
+		// Run middlewares
+		await this.runMiddlewares(socket);
+
+		// Add to namespace
+		this.sockets.set(socketId, socket);
+		this.adapter.addAll(socketId, socketId);
+
+		// Subscribe to namespace topic
+		ws.subscribe(`namespace:${this.name}`);
+
+		if (!isProduction) {
+			console.log(`[Namespace] Socket ${socketId} added to namespace ${this.name}`);
 		}
 
-		return stats;
+		return socket;
+	}
+
+	removeSocket(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
+		if (this.sockets.has(socket.id)) {
+			this.sockets.delete(socket.id);
+			this.adapter.delAll(socket.id);
+			this.emit('disconnect', socket, 'transport close');
+		}
+	}
+
+	private _remove(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
+		if (this.sockets.has(socket.id)) {
+			this.sockets.delete(socket.id);
+			this.adapter.delAll(socket.id);
+		}
 	}
 
 	private async runMiddlewares(

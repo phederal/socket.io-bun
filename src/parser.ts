@@ -25,90 +25,10 @@ export class SocketParser {
 	private static readonly SOCKET_DISCONNECT = '41';
 
 	/**
-	 * Прекомпилированные пакеты для частых событий
-	 */
-	private static readonly PRECOMPILED_PACKETS = {
-		ping: '42["ping"]',
-		pong: '42["pong"]',
-		connect: '42["connect"]',
-		disconnect: '42["disconnect"]',
-	} as const;
-
-	/**
 	 * Generate unique acknowledgement ID (оптимизированный)
 	 */
 	static generateAckId(): string {
 		return (++this.ackCounter).toString();
-	}
-
-	/**
-	 * Сверх-быстрое кодирование для простых событий без данных
-	 */
-	static encodeSimpleEvent(event: string, namespace: string = '/'): string {
-		const cacheKey = `${namespace}:${event}`;
-
-		if (this.simplePacketCache.has(cacheKey)) {
-			return this.simplePacketCache.get(cacheKey)!;
-		}
-
-		let packet = this.SOCKET_EVENT;
-		if (namespace !== '/') {
-			packet += namespace + ',';
-		}
-		packet += `["${event}"]`;
-
-		this.simplePacketCache.set(cacheKey, packet);
-		return packet;
-	}
-
-	/**
-	 * Сверх-быстрое кодирование для строковых данных
-	 */
-	static encodeStringEvent(event: string, data: string, namespace: string = '/'): string {
-		let packet = this.SOCKET_EVENT;
-		if (namespace !== '/') {
-			packet += namespace + ',';
-		}
-		// Прямое создание строки без JSON.stringify для производительности
-		packet += `["${event}","${data.replace(/"/g, '\\"')}"]`;
-		return packet;
-	}
-
-	/**
-	 * Instant encode для максимальной скорости
-	 */
-	static encodeInstant(event: string): string {
-		if (event in this.PRECOMPILED_PACKETS) {
-			return this.PRECOMPILED_PACKETS[event as keyof typeof this.PRECOMPILED_PACKETS];
-		}
-		return `42["${event}"]`;
-	}
-
-	/**
-	 * Быстрое кодирование строковых событий
-	 */
-	static encodeStringInstant(event: string, data: string): string {
-		const escaped = data.includes('"') ? data.replace(/"/g, '\\"') : data;
-		return `42["${event}","${escaped}"]`;
-	}
-
-	/**
-	 * Batch создание пакетов для предварительной компиляции
-	 */
-	static precompilePackets(events: Array<{ event: string; data?: any }>): string[] {
-		const packets: string[] = [];
-		for (const { event, data } of events) {
-			if (!data) {
-				packets.push(this.encodeInstant(event));
-			} else if (typeof data === 'string') {
-				packets.push(this.encodeStringInstant(event, data));
-			} else if (typeof data === 'number') {
-				packets.push(`42["${event}",${data}]`);
-			} else {
-				packets.push(this.encode(event as any, data));
-			}
-		}
-		return packets;
 	}
 
 	/**
@@ -124,22 +44,35 @@ export class SocketParser {
 		if (event === ('ping' as any)) return this.PING_PACKET;
 		if (event === ('pong' as any)) return this.PONG_PACKET;
 
-		// Быстрый путь для простых событий без данных и ACK
+		// encode simple event + use packet cache
 		if (!data && !ackId) {
-			return this.encodeSimpleEvent(event as string, namespace);
+			const cacheKey = `${namespace}:${event}`;
+			if (this.simplePacketCache.has(cacheKey)) {
+				return this.simplePacketCache.get(cacheKey)!;
+			}
+			let packet = this.SOCKET_EVENT;
+			if (namespace !== '/') {
+				packet += namespace + ',';
+			}
+			packet += `["${event}"]`;
+			this.simplePacketCache.set(cacheKey, packet);
+			return packet;
 		}
 
-		// Быстрый путь для строковых данных без ACK
+		// encode string event
 		if (typeof data === 'string' && !ackId) {
-			return this.encodeStringEvent(event as string, data, namespace);
+			let packet = this.SOCKET_EVENT;
+			if (namespace !== '/') {
+				packet += namespace + ',';
+			}
+			packet += `["${event}","${data.replace(/"/g, '\\"')}"]`;
+			return packet;
 		}
 
 		// Создаем ключ для кеша (только для событий без ACK)
 		const cacheKey = !ackId ? `${namespace}:${event}:${typeof data}` : null;
-
 		if (cacheKey && this.packetCache.has(cacheKey)) {
 			const cached = this.packetCache.get(cacheKey)!;
-			// Для кешированных пакетов с данными, заменяем данные
 			if (typeof data === 'string') {
 				return cached.replace('__DATA__', data.replace(/"/g, '\\"'));
 			}
@@ -209,7 +142,7 @@ export class SocketParser {
 	): Uint8Array | null {
 		if (namespace !== '/') return null;
 		if (!BinaryProtocol.supportsBinaryEncoding(event as string)) return null;
-		return BinaryProtocol.encodeBinaryEvent(event as string, data as string | number);
+		return BinaryProtocol.encode(event as string, data as string | number);
 	}
 
 	/**
@@ -372,7 +305,7 @@ export class SocketParser {
 
 			// Проверяем, является ли это бинарным протоколом
 			if (BinaryProtocol.isBinaryProtocol(data)) {
-				const decoded = BinaryProtocol.decodeBinaryEvent(data);
+				const decoded = BinaryProtocol.decode(data);
 				if (decoded) {
 					return {
 						event: decoded.event as any,
@@ -492,24 +425,6 @@ export class SocketParser {
 	}
 
 	/**
-	 * Create Engine.IO handshake response (v4.x compatible)
-	 */
-	static createHandshakeResponse(sid: string): string {
-		const handshake = {
-			sid,
-			upgrades: [],
-			pingInterval: 25000,
-			pingTimeout: 20000,
-			maxPayload: 1000000,
-		};
-		const response = '0' + JSON.stringify(handshake);
-		if (!this.isProduction) {
-			console.log(`[SocketParser] Created handshake response: ${response}`);
-		}
-		return response;
-	}
-
-	/**
 	 * Generate unique session ID
 	 */
 	static generateSessionId(): string {
@@ -611,7 +526,7 @@ export class BinaryProtocol {
 	 * Кодирование простого события в бинарный формат
 	 * Формат: [0xFF][VERSION][EVENT_CODE][DATA_LENGTH][DATA]
 	 */
-	static encodeBinaryEvent(event: string, data?: string | number): Uint8Array | null {
+	static encode(event: string, data?: string | number): Uint8Array | null {
 		const eventCode = EVENT_TO_BINARY[event];
 		if (eventCode === undefined) {
 			return null; // Событие не поддерживается в бинарном формате
@@ -650,7 +565,7 @@ export class BinaryProtocol {
 	/**
 	 * Декодирование бинарного события
 	 */
-	static decodeBinaryEvent(data: Uint8Array): { event: string; data?: any } | null {
+	static decode(data: Uint8Array): { event: string; data?: any } | null {
 		if (data.length < 3) return null;
 		if (data[0] !== this.MAGIC_BYTE) return null;
 		if (data[1] !== this.VERSION) return null;
