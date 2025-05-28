@@ -1,4 +1,7 @@
 import { EventEmitter } from 'events';
+import base64id from 'base64id';
+import debugModule from 'debug';
+import { BinaryProtocol, SocketParser } from './parser';
 import type { ServerWebSocket } from 'bun';
 import type { WSContext } from 'hono/ws';
 import type {
@@ -13,11 +16,15 @@ import type {
 	EventsMap,
 	DefaultEventsMap,
 } from '../types/socket.types';
-import { BinaryProtocol, SocketParser } from './parser';
+import type { Adapter } from './adapter';
+import type { Namespace } from './namespace';
+import type { Server } from './server';
+
+const debug = debugModule('socket.io:socket');
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-interface AckCallbackData {
+interface AcksData {
 	callback: AckCallback;
 	timeoutId: NodeJS.Timeout;
 	createdAt: number;
@@ -31,7 +38,6 @@ export class Socket<
 > extends EventEmitter {
 	public readonly id: SocketId;
 	public readonly handshake: Handshake;
-	public readonly rooms: Set<Room> = new Set();
 	public readonly data: SocketData = {} as SocketData;
 
 	private heartbeatTimer?: NodeJS.Timeout;
@@ -40,10 +46,11 @@ export class Socket<
 	private _sessionId: string;
 
 	public readonly ws: ServerWebSocket<WSContext>;
-	private namespace: any;
+	private readonly adapter: Adapter<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
+	private readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 
 	// Исправленная система ACK callbacks с правильной очисткой
-	private ackCallbacks = new Map<string, AckCallbackData>();
+	private acks = new Map<string, AcksData>();
 
 	// Отключенный rate limiting для тестов
 	private messageRateLimit = {
@@ -55,18 +62,19 @@ export class Socket<
 	constructor(
 		id: SocketId,
 		ws: ServerWebSocket<WSContext>,
-		namespace: any,
+		readonly nsp: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
 		handshake: Handshake
 	) {
 		super();
-		this.id = id;
+		this.server = nsp.server;
+		this.id = base64id.generateId();
 		this.ws = ws;
-		this.namespace = namespace;
+		this.adapter = this.nsp.adapter;
 		this.handshake = handshake;
 		this._sessionId = SocketParser.generateSessionId();
 
 		// Join default room (socket's own ID)
-		this.rooms.add(this.id);
+		// this.rooms.add(this.id); // TODO for bug uws subscribe us
 		this.startHeartbeat();
 	}
 
@@ -119,10 +127,6 @@ export class Socket<
 
 		this.messageRateLimit.count += messageCount;
 		return true;
-	}
-
-	get nsp(): string {
-		return this.namespace.name;
 	}
 
 	get connected(): boolean {
@@ -184,22 +188,22 @@ export class Socket<
 
 				// Простой timeout без сложных проверок состояния
 				const timeoutId = setTimeout(() => {
-					const ackData = this.ackCallbacks.get(ackId!);
+					const ackData = this.acks.get(ackId!);
 					if (ackData) {
-						this.ackCallbacks.delete(ackId!);
+						this.acks.delete(ackId!);
 						ack!(new Error('Acknowledgement timeout'));
 					}
 				}, 5000);
 
 				// Сохраняем в Map с метаданными
-				this.ackCallbacks.set(ackId, {
+				this.acks.set(ackId, {
 					callback: ack,
 					timeoutId,
 					createdAt: Date.now(),
 				});
 			}
 
-			const packet = SocketParser.encode(event as any, data, ackId, this.nsp);
+			const packet = SocketParser.encode(event as any, data, ackId, this.nsp.name);
 
 			if (!packet || typeof packet !== 'string') {
 				return false;
@@ -255,14 +259,14 @@ export class Socket<
 		}
 
 		const timeoutId = setTimeout(() => {
-			const ack = this.ackCallbacks.get(ackId);
+			const ack = this.acks.get(ackId);
 			if (ack) {
-				this.ackCallbacks.delete(ackId);
+				this.acks.delete(ackId);
 				callback(new Error(`Acknowledgement timeout after ${timeout}ms`));
 			}
 		}, timeout);
 
-		this.ackCallbacks.set(ackId, {
+		this.acks.set(ackId, {
 			callback,
 			timeoutId,
 			createdAt: Date.now(),
@@ -272,14 +276,14 @@ export class Socket<
 			let packet: string | Uint8Array;
 
 			if (options.binary && BinaryProtocol.supportsBinaryEncoding(event)) {
-				const binaryPacket = BinaryProtocol.encodeBinaryEvent(event, data);
+				const binaryPacket = BinaryProtocol.encode(event, data);
 				if (binaryPacket) {
 					packet = binaryPacket;
 				} else {
-					packet = SocketParser.encode(event as any, data, ackId, this.nsp);
+					packet = SocketParser.encode(event, data, ackId, this.nsp.name);
 				}
 			} else {
-				packet = SocketParser.encode(event as any, data, ackId, this.nsp);
+				packet = SocketParser.encode(event, data, ackId, this.nsp.name);
 			}
 
 			const success = this.ws.send(packet) > 0;
@@ -324,50 +328,34 @@ export class Socket<
 
 		let packet: string;
 		if (data) {
-			packet = SocketParser.encodeStringEvent(event, data, this.nsp);
+			packet = SocketParser.encode(event, data, undefined, this.nsp.name);
 		} else {
-			packet = SocketParser.encodeSimpleEvent(event, this.nsp);
+			packet = SocketParser.encode(event, undefined, undefined, this.nsp.name);
 		}
 
 		return this.ws.send(packet) > 0;
 	}
 
-	join(room: Room | Room[]): this {
-		const rooms = Array.isArray(room) ? room : [room];
-
-		for (const r of rooms) {
-			if (!this.rooms.has(r)) {
-				this.rooms.add(r);
-				this.namespace.adapter.addSocket(this.id, r);
-				this.ws.subscribe(`room:${this.nsp}:${r}`);
-			}
-		}
-
-		return this;
+	join(rooms: Room | Array<Room>): Promise<void> | void {
+		debug('join room %s', rooms);
+		return this.adapter.addAll(this.id, new Set(Array.isArray(rooms) ? rooms : [rooms]));
 	}
 
-	leave(room: Room): this {
-		if (this.rooms.has(room) && room !== this.id) {
-			this.rooms.delete(room);
-			this.namespace.adapter.removeSocket(this.id, room);
-			this.ws.unsubscribe(`room:${this.nsp}:${room}`);
-		}
-
-		return this;
+	leave(room: Room): Promise<void> | void {
+		debug('leave room %s', room);
+		return this.adapter.del(this.id, room);
 	}
 
-	leaveAll(): this {
-		const roomsToLeave = Array.from(this.rooms).filter((room) => room !== this.id);
-		roomsToLeave.forEach((room) => this.leave(room));
-		return this;
+	leaveAll(): Promise<void> | void {
+		return this.adapter.delAll(this.id);
 	}
 
 	get broadcast(): any {
-		return this.namespace.except(this.id);
+		return this.nsp.except(this.id);
 	}
 
 	to(room: Room | Room[]): any {
-		return this.namespace.to(room);
+		return this.nsp.to(room);
 	}
 
 	in(room: Room | Room[]): any {
@@ -375,7 +363,7 @@ export class Socket<
 	}
 
 	timeout(timeout: number): any {
-		return this.namespace.timeout(timeout);
+		return this.nsp.timeout(timeout);
 	}
 
 	disconnect(close: boolean = false): this {
@@ -386,7 +374,7 @@ export class Socket<
 		this.emit('disconnecting' as any, 'server namespace disconnect');
 
 		// Очищаем все ACK callbacks
-		for (const [ackId, ackData] of this.ackCallbacks) {
+		for (const [ackId, ackData] of this.acks) {
 			clearTimeout(ackData.timeoutId);
 			try {
 				ackData.callback(new Error('Socket disconnected'));
@@ -394,17 +382,17 @@ export class Socket<
 				// Ignore callback errors during disconnect
 			}
 		}
-		this.ackCallbacks.clear();
+		this.acks.clear();
 
 		try {
-			const disconnectPacket = SocketParser.encodeDisconnect(this.nsp);
+			const disconnectPacket = SocketParser.encodeDisconnect(this.nsp.name);
 			this.ws.send(disconnectPacket);
 		} catch (error) {
 			console.warn('[Socket] Failed to send disconnect packet:', error);
 		}
 
 		this.leaveAll();
-		this.namespace.removeSocket(this);
+		this.nsp.removeSocket(this);
 		this.emit('disconnect' as any, 'server namespace disconnect');
 
 		if (close && this.ws.readyState === 1) {
@@ -471,7 +459,7 @@ export class Socket<
 							const ackResponse = SocketParser.encodeAckResponse(
 								packet.ackId!,
 								args,
-								this.nsp
+								this.nsp.name
 							);
 
 							const success = this.ws.send(ackResponse);
@@ -552,12 +540,12 @@ export class Socket<
 			console.log(`[Socket] Handling ACK ${ackId} with data:`, data);
 		}
 
-		const ackData = this.ackCallbacks.get(ackId);
+		const ackData = this.acks.get(ackId);
 		if (ackData) {
 			// Очищаем timeout
 			clearTimeout(ackData.timeoutId);
 			// Удаляем из Map
-			this.ackCallbacks.delete(ackId);
+			this.acks.delete(ackId);
 
 			// Извлекаем данные из Socket.IO массива
 			const responseData = Array.isArray(data) && data.length > 0 ? data[0] : data;
@@ -576,10 +564,10 @@ export class Socket<
 	private cleanupAck(ackId?: string): void {
 		if (!ackId) return;
 
-		const ackData = this.ackCallbacks.get(ackId);
+		const ackData = this.acks.get(ackId);
 		if (ackData) {
 			clearTimeout(ackData.timeoutId);
-			this.ackCallbacks.delete(ackId);
+			this.acks.delete(ackId);
 		}
 	}
 
@@ -590,7 +578,7 @@ export class Socket<
 			this.leaveAll();
 
 			// Очищаем все ACK callbacks перед эмитом disconnect
-			for (const [ackId, ackData] of this.ackCallbacks) {
+			for (const [ackId, ackData] of this.acks) {
 				clearTimeout(ackData.timeoutId);
 				try {
 					ackData.callback(new Error('Socket disconnected'));
@@ -598,9 +586,9 @@ export class Socket<
 					// Ignore callback errors during disconnect
 				}
 			}
-			this.ackCallbacks.clear();
+			this.acks.clear();
 
-			this.namespace.removeSocket(this);
+			this.nsp.removeSocket(this);
 			super.emit('disconnect', reason);
 		}
 	}
@@ -642,28 +630,19 @@ export class Socket<
 
 	getAckStats() {
 		return {
-			total: this.ackCallbacks.size,
+			total: this.acks.size,
 			oldestAge:
-				this.ackCallbacks.size > 0
+				this.acks.size > 0
 					? Date.now() -
-					  Math.min(...Array.from(this.ackCallbacks.values()).map((a) => a.createdAt))
+					  Math.min(...Array.from(this.acks.values()).map((a) => a.createdAt))
 					: 0,
 		};
 	}
 }
 
 export function warmupPerformanceOptimizations(): void {
-	if (!isProduction) {
-		console.log('🔥 Warming up performance optimizations...');
-	}
-
-	SocketParser.encodeSimpleEvent('test', '/');
-	SocketParser.encodeStringEvent('test', 'warmup', '/');
-
-	BinaryProtocol.encodeBinaryEvent('ping');
-	BinaryProtocol.encodeBinaryEvent('message', 'test');
-
-	if (!isProduction) {
-		console.log('✅ Performance optimizations warmed up!');
-	}
+	SocketParser.encode('test', undefined, undefined, '/');
+	SocketParser.encode('test', 'warmup', undefined, '/');
+	BinaryProtocol.encode('ping');
+	BinaryProtocol.encode('message', 'test');
 }
