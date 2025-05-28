@@ -4,9 +4,8 @@
  */
 
 import { Hono } from 'hono';
-import { websocket, wsUpgrade, io } from './ws';
-import type { ClientToServerEvents, ServerToClientEvents, SocketData } from './types/socket.types';
 import { serveStatic } from 'hono/bun';
+import { websocket, wsUpgrade, io } from './ws';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -56,26 +55,23 @@ export const server = Bun.serve({
 	},
 });
 
-// Set Bun server instance for Socket.IO publishing BEFORE setting up events
-io.setBunServer(server);
+// Attach io to server
+io.attach(server);
 
-// ИСПРАВЛЕНИЕ: Включаем тестовый сервер обратно
+// Write io logic after attaching
+
 import './test/test-server';
+
 import { warmupPerformanceOptimizations } from './src/socket';
 warmupPerformanceOptimizations();
 
 // Дополнительная отладка
-if (!isProduction) {
-	io.on('connect', (socket) => {
-		console.log(`🔗 [INDEX] Connect event received for ${socket.id}`);
-	});
-	console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
-	console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
-	console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);
-	console.log();
-}
-
-// ✅ Export typed instances
-export type App = typeof app;
-export { io };
-export type TypedSocket = Parameters<Parameters<typeof io.on>[1]>[0];
+// if (!isProduction) {
+// 	io.on('connect', (socket) => {
+// 		console.log(`🔗 [INDEX] Connect event received for ${socket.id}`);
+// 	});
+// 	console.log(`🚀 Server listening on https://${server.hostname}:${server.port}`);
+// 	console.log(`📡 WebSocket endpoint: wss://${server.hostname}:${server.port}/ws`);
+// 	console.log(`💬 Chat namespace: wss://${server.hostname}:${server.port}/ws/chat`);
+// 	console.log();
+// }
