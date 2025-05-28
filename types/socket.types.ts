@@ -148,5 +148,5 @@ export interface Handshake {
 	issued: number;
 	url: string;
 	query: Record<string, string>;
-	auth: Record<string, any>;
+	data: Record<string, any>;
 }
