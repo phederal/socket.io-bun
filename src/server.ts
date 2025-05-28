@@ -13,85 +13,82 @@ import type {
 	AckCallback,
 } from '../types/socket.types';
 import type { Socket } from './socket';
+import type { Context } from 'hono';
+import { Connection } from './connection';
+import type { Client } from './client';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
 type MiddlewareFn<SocketData> = (socket: any, next: (err?: Error) => void) => void;
 
+interface ServerOptions {
+	pingInterval?: number;
+	pingTimeout?: number;
+	maxPayload?: number;
+}
+
 /**
  * Main Socket.IO Server class with full TypeScript support
  */
-export class SocketServer<
+export class Server<
 	ListenEvents extends EventsMap = ClientToServerEvents,
 	EmitEvents extends EventsMap = ServerToClientEvents,
-	ServerSideEvents extends EventsMap = InterServerEvents,
+	ServerSideEvents extends EventsMap = DefaultEventsMap,
 	SocketData extends DefaultSocketData = DefaultSocketData
 > extends EventEmitter {
-	private namespaces: Map<
-		string,
-		Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
-	> = new Map();
-	private bunServer?: BunServer;
+	private engine?: BunServer;
+	private clients: Map<string, Client> = new Map();
+	public readonly sockets: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
+	private _nsps: Map<string, Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> =
+		new Map();
 
-	constructor() {
+	private readonly opts: Partial<ServerOptions>;
+	public pingInterval: number = 25000;
+	public pingTimeout: number = 20000;
+	public maxPayload: number = 1000000;
+
+	constructor(
+		opts: Partial<ServerOptions> = {
+			pingInterval: 25000,
+			pingTimeout: 20000,
+			maxPayload: 1000000,
+		}
+	) {
 		super();
+		this.opts = opts;
+		this.sockets = this.of('/');
 	}
 
-	get sockets(): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
-		return this.of('/');
+	get _opts() {
+		return this.opts;
 	}
 
-	setBunServer(server: BunServer): void {
-		this.bunServer = server;
+	attach(server: BunServer): void {
+		this.engine = server;
 	}
 
 	publish(topic: string, message: string | Uint8Array): boolean {
-		if (!this.bunServer) {
-			if (!isProduction) {
-				console.warn('[SocketServer] Bun server not set, cannot publish');
-			}
+		if (!this.engine) {
+			console.warn('[SocketServer] Bun server not set, cannot publish');
 			return false;
 		}
-		return <ServerWebSocketSendStatus>this.bunServer.publish(topic, message) > 0;
+		return <ServerWebSocketSendStatus>this.engine.publish(topic, message) > 0;
 	}
 
-	of<
-		NSListenEvents extends EventsMap = ListenEvents,
-		NSEmitEvents extends EventsMap = EmitEvents,
-		NSServerSideEvents extends EventsMap = ServerSideEvents,
-		NSSocketData extends SocketData = SocketData
-	>(name: string): Namespace<NSListenEvents, NSEmitEvents, NSServerSideEvents, NSSocketData> {
-		if (name === '' || name === undefined) {
-			name = '/';
-		}
-		if (name[0] !== '/') {
-			name = '/' + name;
-		}
+	of(
+		name: string,
+		fn?: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void
+	): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
+		if (String(name)[0] !== '/') name = '/' + name;
 
-		let namespace = this.namespaces.get(name) as Namespace<
-			NSListenEvents,
-			NSEmitEvents,
-			NSServerSideEvents,
-			NSSocketData
-		>;
+		let nsp = this._nsps.get(name);
 
-		if (!namespace) {
-			namespace = new Namespace<
-				NSListenEvents,
-				NSEmitEvents,
-				NSServerSideEvents,
-				NSSocketData
-			>(this, name);
-			this.namespaces.set(name, namespace as any);
+		if (!nsp) {
+			nsp = new Namespace(this, name);
+			this._nsps.set(name, nsp as any);
 
-			// ИСПРАВЛЕНИЕ: Правильное пробрасывание событий для дефолтного namespace
 			if (name === '/') {
-				namespace.on('connection', (socket: Socket) => {
-					if (!isProduction) {
-						console.log(
-							`[SocketServer] Forwarding connection event for socket ${socket.id} to server`
-						);
-					}
+				nsp.on('connection', (socket: Socket) => {
 					// Используем setImmediate чтобы убедиться что все listeners зарегистрированы
 					setImmediate(() => {
 						super.emit('connection', socket);
@@ -99,12 +96,7 @@ export class SocketServer<
 					});
 				});
 
-				namespace.on('disconnect', (socket: Socket, reason) => {
-					if (!isProduction) {
-						console.log(
-							`[SocketServer] Forwarding disconnect event for socket ${socket.id} to server`
-						);
-					}
+				nsp.on('disconnect', (socket: Socket, reason) => {
 					setImmediate(() => {
 						super.emit('disconnect', socket, reason);
 					});
@@ -112,11 +104,11 @@ export class SocketServer<
 			}
 
 			if (name !== '/') {
-				this.emit('new_namespace', namespace);
+				this.emit('new_namespace', nsp);
 			}
 		}
-
-		return namespace;
+		if (fn) nsp.on('connect', fn);
+		return nsp;
 	}
 
 	use(fn: MiddlewareFn<SocketData>): this {
@@ -124,7 +116,6 @@ export class SocketServer<
 		return this;
 	}
 
-	// ИСПРАВЛЕНИЕ: Упрощаем типизацию для совместимости
 	override on(event: string | symbol, listener: (...args: any[]) => void): this {
 		return super.on(event, listener);
 	}
@@ -145,13 +136,6 @@ export class SocketServer<
 		return this.sockets.except(room);
 	}
 
-	/**
-	 * НОВЫЙ: binary broadcast operator
-	 */
-	get binary(): BroadcastOperator<EmitEvents, SocketData> {
-		return this.sockets.binary;
-	}
-
 	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
 	emit<Ev extends keyof EmitEvents>(
 		event: Ev,
@@ -167,47 +151,12 @@ export class SocketServer<
 		return this.sockets.emit(event, dataOrArg, ack);
 	}
 
-	/**
-	 * emit с принудительным использованием бинарного формата
-	 */
-	emitBinary<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0]
-	): boolean {
-		return this.sockets.emitBinary(event, data);
+	send(...args: Parameters<EmitEvents[any]>): boolean {
+		return this.sockets.send(...args);
 	}
 
-	/**
-	 * Bulk operations для массовых операций
-	 */
-	emitBulk<Ev extends keyof EmitEvents>(
-		operations: Array<{
-			event: Ev;
-			data?: Parameters<EmitEvents[Ev]>[0];
-			rooms?: Room | Room[];
-			binary?: boolean;
-		}>
-	): number {
-		return this.sockets.emitBulk(operations);
-	}
-
-	/**
-	 * Fast emit для server
-	 */
-	emitFast<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0]
-	): boolean {
-		return this.sockets.emitFast(event, data);
-	}
-
-	send(...args: any[]): this {
-		this.sockets.send(...args);
-		return this;
-	}
-
-	write(...args: any[]): this {
-		return this.send(...args);
+	write(...args: Parameters<EmitEvents[any]>): boolean {
+		return this.sockets.send(...args);
 	}
 
 	compress(compress: boolean): BroadcastOperator<EmitEvents, SocketData> {
@@ -243,37 +192,39 @@ export class SocketServer<
 	}
 
 	close(): void {
-		for (const namespace of this.namespaces.values()) {
+		for (const namespace of this._nsps.values()) {
 			namespace.disconnectSockets(true);
 			namespace.adapter.close();
 		}
-		this.namespaces.clear();
+		this._nsps.clear();
 		this.removeAllListeners();
 	}
 
 	getNamespace(
 		name: string
 	): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> | undefined {
-		return this.namespaces.get(name);
+		return this._nsps.get(name);
 	}
 
 	getNamespaceNames(): string[] {
-		return Array.from(this.namespaces.keys());
+		return Array.from(this._nsps.keys());
 	}
 
 	get socketsCount(): number {
 		let total = 0;
-		for (const namespace of this.namespaces.values()) {
+		for (const namespace of this._nsps.values()) {
 			total += namespace.socketsCount;
 		}
 		return total;
 	}
-}
 
-// Create typed singleton instance
-export const io = new SocketServer<
-	ClientToServerEvents,
-	ServerToClientEvents,
-	InterServerEvents,
-	DefaultSocketData
->();
+	/** @private */
+	onconnection(c: Context, data?: SocketData): Connection {
+		// @ts-ignore
+		return new Connection<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(
+			this,
+			c,
+			data
+		);
+	}
+}
