@@ -560,22 +560,11 @@ export class Socket<
 			this.ackCallbacks.delete(ackId);
 
 			// Извлекаем данные из Socket.IO массива
-			let responseData: any;
-			if (Array.isArray(data)) {
-				if (data.length === 0) {
-					responseData = undefined;
-				} else if (data.length === 1) {
-					responseData = data[0];
-				} else {
-					responseData = data;
-				}
-			} else {
-				responseData = data;
-			}
+			const responseData = Array.isArray(data) && data.length > 0 ? data[0] : data;
 
 			// Выполняем callback
 			try {
-				ackData.callback(null, responseData);
+				ackData.callback(responseData);
 			} catch (error) {
 				if (!isProduction) {
 					console.warn(`[Socket] Error in ACK callback:`, error);
