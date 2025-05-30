@@ -75,6 +75,11 @@ export class Connection<
 	}
 
 	/** similar to writeToEngine */
+	write(data: string | Uint8Array, opts?: any): void {
+		return this.send(data);
+	}
+
+	/** similar to writeToEngine */
 	writeToEngine(data: string | Uint8Array, opts?: any): void {
 		return this.send(data);
 	}
@@ -100,6 +105,7 @@ export class Connection<
 		this.ws = ws;
 		this.client = new Client(this, this.server);
 
+		debug('Starting ping/pong for %s (interval: %dms, timeout: %dms)', this.id, this.server._opts.pingInterval, this.server._opts.pingTimeout);
 		this.startPingPong();
 
 		// Parse namespace from URL
@@ -155,6 +161,7 @@ export class Connection<
 
 		// Engine.IO pong
 		if (event.data === '3') {
+			debug('Received pong from %s', this.id);
 			this.onPong();
 			return;
 		}

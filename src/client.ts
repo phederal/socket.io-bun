@@ -1,9 +1,6 @@
 import debugModule from 'debug';
 import * as parser from './parser';
 import type { Server } from './server';
-import type { ServerWebSocket } from 'bun';
-import type { Context } from 'hono';
-import type { WSContext, WSMessageReceive } from 'hono/ws';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';
 import type { EventsMap } from '#types/typed-events';
@@ -12,7 +9,6 @@ import { PacketType, type Decoder, type Encoder, type Packet } from './parser';
 import type { Connection } from './connection';
 
 const isProduction = process.env.NODE_ENV === 'production';
-
 const debug = debugModule('socket.io:client');
 
 type CloseReason = 'transport error' | 'transport close' | 'forced close' | 'ping timeout' | 'parse error';
@@ -68,6 +64,9 @@ export class Client<
 		this.conn.on('data', this.ondata);
 		this.conn.on('error', this.onerror);
 		this.conn.on('close', this.onclose);
+		this.conn.on('open', () => {
+			this.connect('/');
+		});
 	}
 
 	/**
@@ -78,9 +77,19 @@ export class Client<
 	 * @private
 	 */
 	private connect(name: string, auth: Record<string, unknown> = {}): void {
+		if (!name.startsWith('/')) {
+			name = '/' + name;
+		}
 		if (this.server._nsps.has(name)) {
 			debug('connecting to namespace %s', name);
 			return this.doConnect(name, auth);
+		} else {
+			debug('namespace %s not found', name);
+			// send error
+			this._packet({
+				type: PacketType.CONNECT_ERROR,
+				nsp: name,
+			});
 		}
 	}
 
@@ -98,6 +107,7 @@ export class Client<
 		nsp._add(this, auth, (socket) => {
 			this.sockets.set(socket.id, socket);
 			this.nsps.set(nsp.name, socket);
+			debug('socket %s connected to namespace %s', socket.id, nsp.name);
 		});
 	}
 
@@ -194,21 +204,65 @@ export class Client<
 	 * @private
 	 */
 	private ondecoded(packet: Packet): void {
-		let namespace: string;
-		let authPayload: Record<string, unknown>;
-		namespace = packet.nsp;
-		authPayload = packet.data;
-		const socket = this.nsps.get(namespace);
+		const namespace = packet.nsp || '/';
+		packet.nsp = namespace;
 
-		if (!socket && packet.type === PacketType.CONNECT) {
-			this.connect(namespace, authPayload);
-		} else if (socket && packet.type !== PacketType.CONNECT && packet.type !== PacketType.CONNECT_ERROR) {
-			process.nextTick(function () {
-				socket._onpacket(packet);
-			});
-		} else {
-			debug('invalid state (packet type: %s)', packet.type);
-			this.close();
+		try {
+			switch (packet.type) {
+				case PacketType.CONNECT:
+					{
+						const authPayload = packet.data || {};
+						debug('handling connect packet for namespace %s', namespace);
+						this.connect(namespace, authPayload);
+					}
+					break;
+				case PacketType.DISCONNECT:
+					{
+						const socket = this.nsps.get(namespace);
+						if (socket) {
+							debug('handling disconnect packet for namespace %s', namespace);
+							socket.disconnect();
+						}
+					}
+					break;
+				case PacketType.EVENT:
+				case PacketType.BINARY_EVENT:
+					{
+						const socket = this.nsps.get(namespace);
+						if (socket) {
+							debug('routing event packet to socket %s in namespace %s', socket.id, namespace);
+							process.nextTick(() => {
+								socket._onpacket(packet);
+							});
+						} else {
+							debug('no socket found for namespace %s, ignoring event', namespace);
+						}
+					}
+					break;
+				case PacketType.ACK:
+				case PacketType.BINARY_ACK:
+					{
+						const socket = this.nsps.get(namespace);
+						if (socket) {
+							debug('routing ack packet to socket %s in namespace %s', socket.id, namespace);
+							process.nextTick(() => {
+								socket._onpacket(packet);
+							});
+						} else {
+							debug('no socket found for namespace %s, ignoring ack', namespace);
+						}
+					}
+					break;
+				case PacketType.CONNECT_ERROR:
+					debug('connect error for namespace %s: %s', namespace, packet.data);
+					break;
+				default:
+					debug('unknown packet type: %s', packet.type);
+					this.onerror(new Error(`Unknown packet type: ${packet.type}`));
+			}
+		} catch (error) {
+			debug('error handling packet: %s', error);
+			this.onerror(error as Error);
 		}
 	}
 
@@ -219,9 +273,18 @@ export class Client<
 	 * @private
 	 */
 	private onerror(err: Error): void {
+		debug('client error: %s', err.message);
+
 		for (const socket of this.sockets.values()) {
 			socket._onerror(err);
 		}
+
+		// Don't auto-close on parser errors, let connection handle it
+		if (err.message.includes('Invalid packet') || err.message.includes('Unknown packet')) {
+			// Just log parser errors
+			return;
+		}
+
 		this.conn.close();
 	}
 
@@ -242,9 +305,9 @@ export class Client<
 		for (const socket of this.sockets.values()) {
 			socket._onclose(reason, description);
 		}
-		this.sockets.clear();
 
-		this.decoder.destroy(); // clean up decoder
+		this.sockets.clear();
+		this.nsps.clear();
 	}
 
 	/**
@@ -256,6 +319,7 @@ export class Client<
 		this.conn.removeListener('error', this.onerror);
 		this.conn.removeListener('close', this.onclose);
 		this.decoder.removeListener('decoded', this.ondecoded);
+		this.decoder.destroy();
 
 		if (this.connectTimeout) {
 			clearTimeout(this.connectTimeout);
