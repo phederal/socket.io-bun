@@ -230,7 +230,7 @@ export class Server<
 	public handshake(sid: string): string {
 		const handshake = {
 			sid,
-			upgrades: [],
+			upgrades: ['websocket'],
 			pingInterval: this._opts.pingInterval,
 			pingTimeout: this._opts.pingTimeout,
 			maxPayload: this._opts.maxPayload,
