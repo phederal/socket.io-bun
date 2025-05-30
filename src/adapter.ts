@@ -1,14 +1,10 @@
 import { EventEmitter } from 'events';
-import type {
-	SocketId,
-	Room,
-	EventsMap,
-	DefaultEventsMap,
-	SocketData as DefaultSocketData,
-} from '../types/socket.types';
+import debugModule from 'debug';
+import { WebSocket } from 'http';
+import type { SocketId, Room, SocketData as DefaultSocketData } from '../types/socket-types';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';
-import debugModule from 'debug';
+import type { DefaultEventsMap, EventsMap } from '#types/typed-events';
 
 const debug = debugModule('socket.io:adapter');
 
@@ -34,23 +30,25 @@ export class Adapter<
 	ListenEvents extends EventsMap = DefaultEventsMap,
 	EmitEvents extends EventsMap = DefaultEventsMap,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData extends DefaultSocketData = DefaultSocketData
+	SocketData extends DefaultSocketData = DefaultSocketData,
 > extends EventEmitter {
 	private rooms: Map<Room, Set<SocketId>> = new Map();
 	private sids: Map<SocketId, Set<Room>> = new Map();
+	private readonly encoder;
 
-	constructor(
-		public readonly nsp: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
-	) {
+	constructor(public readonly nsp: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) {
 		super();
+		this.encoder = nsp.server.encoder;
 	}
 
 	/**
 	 * To be overridden
 	 */
-	private init(): Promise<void> | void {}
-	private close(): Promise<void> | void {}
-	private serverCount(): Promise<void> | void {}
+	public init(): Promise<void> | void {}
+	public close(): Promise<void> | void {}
+	public serverCount(): Promise<number> {
+		return Promise.resolve(-1);
+	}
 
 	/**
 	 * Adds a socket to a list of room.
@@ -81,7 +79,7 @@ export class Adapter<
 		/** compatible with bun */
 		const socket = this.nsp.sockets.get(id);
 		if (!socket) return;
-		const sessionId = socket.sessionId;
+		const sessionId = socket.id;
 		if (isNew) {
 			debug('subscribe connection %s to topic %s', sessionId, this.nsp.name);
 			socket.ws.subscribe(this.nsp.name);
@@ -144,7 +142,7 @@ export class Adapter<
 		/** compatible with bun */
 		const socket = this.nsp.sockets.get(id);
 		if (!socket) return;
-		const sessionId = socket.sessionId;
+		const sessionId = socket.id;
 		const topic = `${this.nsp.name}${SEPARATOR}${room}`;
 		if (socket.ws.isSubscribed(topic)) {
 			debug('unsubscribe connection %s from topic %s', sessionId, topic);
@@ -155,106 +153,72 @@ export class Adapter<
 	/**
 	 * Broadcast packet using direct socket sending and Bun's publish
 	 */
-	broadcast(packet: Uint8Array, opts: BroadcastOptions): void {
-		const { rooms, except, flags } = opts;
-		try {
-			// Get target sockets
-			let targetSockets: Set<SocketId> = new Set();
+	broadcast(packet: any, opts: BroadcastOptions): void {
+		const flags = opts.flags || {};
+		const packetOpts = {
+			preEncoded: true,
+			volatile: flags.volatile,
+			compress: flags.compress,
+		};
 
-			if (!rooms || rooms.size === 0) {
-				// Broadcast to all sockets in namespace
-				this.fetchSockets(opts).then((ids) =>
-					ids.forEach((socket) => targetSockets.add(socket.id))
-				);
-			} else {
-				// Broadcast to specific rooms
-				this.sockets(rooms).then((ids) =>
-					ids.forEach((socketId) => targetSockets.add(socketId))
-				);
-			}
+		packet.nsp = this.nsp.name;
+		const encodedPackets = this._encode(packet, packetOpts);
 
-			// Remove excepted sockets
-			if (except && except.size > 0) {
-				for (const socketId of except) {
-					targetSockets.delete(socketId);
-				}
-			}
-
-			// Send to each target socket directly
-			for (const socketId of targetSockets) {
-				const socket = this.nsp.sockets.get(socketId);
-				if (socket && socket.connected && socket.ws.readyState === 1) {
-					try {
-						// Use direct WebSocket send for reliability
-						socket.ws.send(packet);
-					} catch (error) {
-						if (!isProduction) {
-							console.warn(`[Adapter] Failed to send to socket ${socketId}:`, error);
-						}
-						// Remove disconnected socket
-						this.delAll(socketId);
-						this.nsp.sockets.delete(socketId);
-					}
-				} else if (socket && !socket.connected) {
-					// Clean up disconnected socket
-					this.delAll(socketId);
-					this.nsp.sockets.delete(socketId);
-				}
-			}
-
-			// Also use Bun's publish for redundancy (if server is set)
-			if (this.nsp.server && this.nsp.server.publish) {
-				const topic =
-					opts.rooms.size === 0
-						? this.nsp.name
-						: `${this.nsp.name}${SEPARATOR}${rooms.keys().next().value}`;
-
-				this.nsp.server.publish(topic, packet);
-			}
-		} catch (error) {
-			if (!isProduction) {
-				console.error('[Adapter] Broadcast error:', error);
-			}
+		const useFastPublish = opts.rooms.size <= 1 && opts.except!.size === 0;
+		if (!useFastPublish) {
+			return this.apply(opts, (socket) => {
+				// TODO: add socket.notifyOutgoingListeners
+				//   if (typeof socket.notifyOutgoingListeners === "function") {
+				//     socket.notifyOutgoingListeners(packet);
+				//   }
+				socket.client.writeToEngine(encodedPackets, packetOpts);
+			});
 		}
+
+		const topic = opts.rooms.size === 0 ? this.nsp.name : `${this.nsp.name}${SEPARATOR}${opts.rooms.keys().next().value}`;
+		debug('fast publish to %s', topic);
+
+		// fast publish for clients connected with WebSocket
+		encodedPackets.forEach((encodedPacket) => {
+			const isBinary = typeof encodedPacket !== 'string';
+			// "4" being the message type in the Engine.IO protocol, see https://github.com/socketio/engine.io-protocol
+			this.nsp.server.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
+		});
 	}
 
-	// TODO: in next version
-	// broadcastWithAck(
-	// 	packet: any,
-	// 	opts: BroadcastOptions,
-	// 	clientCountCallback: (clientCount: number) => void,
-	// 	ack: (...args: any[]) => void
-	// ) {
-	// 	const flags = opts.flags || {};
-	// 	const packetOpts = {
-	// 		preEncoded: true,
-	// 		volatile: flags.volatile,
-	// 		compress: flags.compress,
-	// 	};
+	broadcastWithAck(packet: any, opts: BroadcastOptions, clientCountCallback: (clientCount: number) => void, ack: (...args: any[]) => void) {
+		const flags = opts.flags || {};
+		const packetOpts = {
+			preEncoded: true,
+			volatile: flags.volatile,
+			compress: flags.compress,
+		};
 
-	// 	packet.nsp = this.nsp.name;
-	// 	// we can use the same id for each packet, since the _ids counter is common (no duplicate)
-	// 	packet.id = this.nsp._ids++;
+		packet.nsp = this.nsp.name;
+		// we can use the same id for each packet, since the _ids counter is common (no duplicate)
+		packet.id = this.nsp._ids++;
 
-	// 	const encodedPackets = this._encode(packet, packetOpts);
+		const encodedPackets = this._encode(packet, packetOpts);
 
-	// 	let clientCount = 0;
+		let clientCount = 0;
 
-	// 	this.apply(opts, (socket) => {
-	// 		// track the total number of acknowledgements that are expected
-	// 		clientCount++;
-	// 		// call the ack callback for each client response
-	// 		socket.acks.set(packet.id, ack);
+		this.apply(opts, (socket) => {
+			// track the total number of acknowledgements that are expected
+			clientCount++;
+			// call the ack callback for each client response
+			socket.acks.set(packet.id, ack);
+			if (typeof socket.notifyOutgoingListeners === 'function') {
+				socket.notifyOutgoingListeners(packet);
+			}
+			socket.client.writeToEngine(encodedPackets, packetOpts);
+		});
 
-	// 		if (typeof socket.notifyOutgoingListeners === 'function') {
-	// 			socket.notifyOutgoingListeners(packet);
-	// 		}
+		clientCountCallback(clientCount);
+	}
 
-	// 		socket.client.writeToEngine(encodedPackets, packetOpts);
-	// 	});
-
-	// 	clientCountCallback(clientCount);
-	// }
+	private _encode(packet: any, packetOpts: Record<string, unknown>) {
+		return this.encoder.encode(packet);
+	}
 
 	/**
 	 * Gets a list of sockets by sid.
@@ -376,3 +340,46 @@ export class Adapter<
 		return exceptSids;
 	}
 }
+
+// TODO: Add serving files
+// const toArrayBuffer = (buffer: Buffer) => {
+// 	const { buffer: arrayBuffer, byteOffset, byteLength } = buffer;
+// 	return arrayBuffer.slice(byteOffset, byteOffset + byteLength);
+// };
+// // imported from https://github.com/kolodziejczak-sz/uwebsocket-serve
+// export function serveFile(res /* : HttpResponse */, filepath: string) {
+// 	const { size } = statSync(filepath);
+// 	const readStream = createReadStream(filepath);
+// 	const destroyReadStream = () => !readStream.destroyed && readStream.destroy();
+
+// 	const onError = (error: Error) => {
+// 		destroyReadStream();
+// 		throw error;
+// 	};
+
+// 	const onDataChunk = (chunk: Buffer) => {
+// 		const arrayBufferChunk = toArrayBuffer(chunk);
+
+// 		res.cork(() => {
+// 			const lastOffset = res.getWriteOffset();
+// 			const [ok, done] = res.tryEnd(arrayBufferChunk, size);
+
+// 			if (!done && !ok) {
+// 				readStream.pause();
+
+// 				res.onWritable((offset) => {
+// 					const [ok, done] = res.tryEnd(arrayBufferChunk.slice(offset - lastOffset), size);
+
+// 					if (!done && ok) {
+// 						readStream.resume();
+// 					}
+
+// 					return ok;
+// 				});
+// 			}
+// 		});
+// 	};
+
+// 	res.onAborted(destroyReadStream);
+// 	readStream.on('data', onDataChunk).on('error', onError).on('end', destroyReadStream);
+// }

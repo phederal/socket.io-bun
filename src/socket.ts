@@ -1,339 +1,205 @@
-import { EventEmitter } from 'events';
 import base64id from 'base64id';
 import debugModule from 'debug';
-import { BinaryProtocol, SocketParser } from './parser';
-import type { ServerWebSocket } from 'bun';
-import type { WSContext } from 'hono/ws';
-import type {
-	ServerToClientEvents,
-	ClientToServerEvents,
-	SocketId,
-	Room,
-	AckCallback,
-	DisconnectReason,
-	Handshake,
-	SocketData as DefaultSocketData,
-	EventsMap,
-	DefaultEventsMap,
-} from '../types/socket.types';
+import type { ServerToClientEvents, ClientToServerEvents, SocketId, Room, AckCallback, SocketData as DefaultSocketData } from '../types/socket-types';
+import { RESERVED_EVENTS, type DisconnectReason, type Handshake, type SocketReservedEventsMap } from '#types/socket-types';
+import {
+	StrictEventEmitter,
+	type AllButLast,
+	type DecorateAcknowledgements,
+	type DecorateAcknowledgementsWithMultipleResponses,
+	type DefaultEventsMap,
+	type EventNames,
+	type EventNamesWithAck,
+	type EventParams,
+	type EventsMap,
+	type FirstNonErrorArg,
+	type Last,
+} from '#types/typed-events';
 import type { Adapter } from './adapter';
+import type { Client } from './client';
 import type { Namespace } from './namespace';
 import type { Server } from './server';
+import { BroadcastOperator, type BroadcastFlags } from './broadcast';
+import { PacketType, type Packet } from './parser';
 
 const debug = debugModule('socket.io:socket');
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-interface AcksData {
-	callback: AckCallback;
-	timeoutId: NodeJS.Timeout;
-	createdAt: number;
-}
+const RECOVERABLE_DISCONNECT_REASONS: ReadonlySet<DisconnectReason> = new Set([
+	'transport error',
+	'transport close',
+	'forced close',
+	'ping timeout',
+	'server shutting down',
+	'forced server close',
+]);
+
+/**
+ * `[eventName, ...args]`
+ */
+export type Event = [string, ...any[]];
 
 export class Socket<
-	ListenEvents extends EventsMap = ClientToServerEvents,
-	EmitEvents extends EventsMap = ServerToClientEvents,
+	ListenEvents extends EventsMap = DefaultEventsMap,
+	EmitEvents extends EventsMap = ListenEvents,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData extends DefaultSocketData = DefaultSocketData
-> extends EventEmitter {
+	SocketData extends DefaultSocketData = DefaultSocketData,
+> extends StrictEventEmitter<ListenEvents, EmitEvents, SocketReservedEventsMap> {
 	public readonly id: SocketId;
 	public readonly handshake: Handshake;
 	public readonly data: SocketData = {} as SocketData;
+	public connected: boolean = false;
 
-	private heartbeatTimer?: NodeJS.Timeout;
-	private readonly heartbeatInterval = 30000;
-	private _connected: boolean = true;
-	private _sessionId: string;
-
-	public readonly ws: ServerWebSocket<WSContext>;
-	private readonly adapter: Adapter<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	private readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
-
-	// Исправленная система ACK callbacks с правильной очисткой
-	private acks = new Map<string, AcksData>();
-
-	// Отключенный rate limiting для тестов
-	private messageRateLimit = {
-		count: 0,
-		lastReset: Date.now(),
-		maxPerSecond: 100000,
-	};
+	private readonly adapter: Adapter;
+	/** @private */
+	public acks = new Map<number, () => void>();
+	private fns: Array<(event: Event, next: (err?: Error) => void) => void> = [];
+	private flags: BroadcastFlags = {};
+	private _anyListeners?: Array<(...args: any[]) => void>;
+	private _anyOutgoingListeners?: Array<(...args: any[]) => void>;
 
 	constructor(
-		id: SocketId,
-		ws: ServerWebSocket<WSContext>,
 		readonly nsp: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
-		handshake: Handshake
+		readonly client: Client<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+		auth: Record<string, unknown>,
 	) {
 		super();
 		this.server = nsp.server;
+		this.adapter = nsp.adapter;
 		this.id = base64id.generateId();
-		this.ws = ws;
 		this.adapter = this.nsp.adapter;
-		this.handshake = handshake;
-		this._sessionId = SocketParser.generateSessionId();
-
-		// Join default room (socket's own ID)
-		// this.rooms.add(this.id); // TODO for bug uws subscribe us
-		this.startHeartbeat();
+		this.handshake = this.buildHandshake(auth);
+		this.on('error', () => {});
 	}
 
-	private startHeartbeat(): void {
-		this.heartbeatTimer = setInterval(() => {
-			if (this._connected && this.ws.readyState === 1) {
-				if (this.checkRateLimit(1)) {
-					try {
-						this.ws.send('2'); // Engine.IO ping
-					} catch (error) {
-						console.error(`[Socket] ${this.id} heartbeat error:`, error);
-						this._handleClose('transport error');
-					}
-				}
-			}
-		}, this.heartbeatInterval);
-
-		if (!isProduction) {
-			console.log(
-				`[Socket] ${this.id} heartbeat started with ${this.heartbeatInterval}ms interval`
-			);
-		}
+	/**
+	 * Builds the `handshake` BC object
+	 *
+	 * @private
+	 */
+	private buildHandshake(auth: object = {}): Handshake {
+		const ip =
+			this.client.conn.ctx.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ||
+			this.client.conn.ctx.req.header('X-Real-IP') ||
+			this.client.conn.ctx.req.header('CF-Connecting-IP');
+		return {
+			headers: this.client.conn.ctx.req.header() || {},
+			time: new Date() + '',
+			address: ip ?? '0.0.0.0',
+			xdomain: !!this.client.conn.ctx.req.header('Origin'),
+			// @ts-ignore
+			secure: !this.client.conn.ctx.req,
+			issued: +new Date(),
+			url: this.client.conn.ctx.req.url,
+			// @ts-ignore
+			query: this.client.conn.ctx.req.queries || [],
+			auth,
+		};
 	}
 
-	private stopHeartbeat(): void {
-		if (this.heartbeatTimer) {
-			clearInterval(this.heartbeatTimer);
-			this.heartbeatTimer = undefined;
+	override emit<Ev extends EventNames<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
+		if (RESERVED_EVENTS.has(ev)) {
+			throw new Error(`"${String(ev)}" is a reserved event name`);
 		}
-	}
+		const data: any[] = [ev, ...args];
+		const packet: any = {
+			type: PacketType.EVENT,
+			data: data,
+		};
 
-	private checkRateLimit(messageCount: number = 1): boolean {
-		// Отключаем rate limiting в test режиме
-		if (process.env.NODE_ENV === 'test') {
-			return true;
-		}
+		// access last argument to see if it's an ACK callback
+		if (typeof data[data.length - 1] === 'function') {
+			const id = this.nsp._ids++;
+			debug('emitting packet with ack id %d', id);
 
-		const now = Date.now();
-		if (now - this.messageRateLimit.lastReset >= 1000) {
-			this.messageRateLimit.count = 0;
-			this.messageRateLimit.lastReset = now;
-		}
-
-		if (this.messageRateLimit.count + messageCount > this.messageRateLimit.maxPerSecond) {
-			console.warn(
-				`[Socket] ${this.id} rate limit exceeded: ${this.messageRateLimit.count}/sec`
-			);
-			return false;
+			this.registerAckCallback(id, data.pop());
+			packet.id = id;
 		}
 
-		this.messageRateLimit.count += messageCount;
+		const flags = Object.assign({}, this.flags);
+		this.flags = {};
+
+		this.notifyOutgoingListeners(packet);
+		this.packet(packet, flags);
+
 		return true;
 	}
 
-	get connected(): boolean {
-		return this._connected && this.ws.readyState === 1;
-	}
-
-	get sessionId(): string {
-		return this._sessionId;
-	}
-
-	override on(event: string | symbol, listener: (...args: any[]) => void): this {
-		return super.on(event, listener);
-	}
-
-	override once(event: string | symbol, listener: (...args: any[]) => void): this {
-		return super.once(event, listener);
-	}
-
-	override removeListener(event: string | symbol, listener: (...args: any[]) => void): this {
-		return super.removeListener(event, listener);
-	}
-
-	override off(event: string | symbol, listener: (...args: any[]) => void): this {
-		return super.off(event, listener);
-	}
-
-	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean;
-	emit<Ev extends keyof EmitEvents>(
-		event: Ev,
-		dataOrArg: Parameters<EmitEvents[Ev]>[0],
-		ack: AckCallback
-	): boolean;
-	emit<Ev extends keyof EmitEvents>(event: Ev, ack: AckCallback): boolean;
-	emit<Ev extends keyof EmitEvents>(
-		event: Ev,
-		dataOrArg?: Parameters<EmitEvents[Ev]>[0],
-		ack?: AckCallback
-	): boolean {
-		if (!this._connected) return false;
-
-		try {
-			let ackId: string | undefined;
-			let data: any;
-
-			if (typeof dataOrArg === 'function') {
-				ack = dataOrArg;
-				data = undefined;
-			} else if (typeof ack === 'function') {
-				data = dataOrArg;
-			} else {
-				data = dataOrArg;
-				if (data && typeof data === 'object') {
-					data = this.sanitizeData(data);
+	public emitWithAck<Ev extends EventNamesWithAck<EmitEvents>>(
+		ev: Ev,
+		...args: AllButLast<EventParams<EmitEvents, Ev>>
+	): Promise<FirstNonErrorArg<Last<EventParams<EmitEvents, Ev>>>> {
+		// the timeout flag is optional
+		const withErr = this.flags.timeout !== undefined;
+		return new Promise((resolve, reject) => {
+			args.push((arg1: any, arg2: any) => {
+				if (withErr) {
+					return arg1 ? reject(arg1) : resolve(arg2);
+				} else {
+					return resolve(arg1);
 				}
-			}
-
-			if (typeof ack === 'function') {
-				ackId = SocketParser.generateAckId();
-
-				// Простой timeout без сложных проверок состояния
-				const timeoutId = setTimeout(() => {
-					const ackData = this.acks.get(ackId!);
-					if (ackData) {
-						this.acks.delete(ackId!);
-						ack!(new Error('Acknowledgement timeout'));
-					}
-				}, 5000);
-
-				// Сохраняем в Map с метаданными
-				this.acks.set(ackId, {
-					callback: ack,
-					timeoutId,
-					createdAt: Date.now(),
-				});
-			}
-
-			const packet = SocketParser.encode(event as any, data, ackId, this.nsp.name);
-
-			if (!packet || typeof packet !== 'string') {
-				return false;
-			}
-
-			if (this.ws.readyState !== 1) {
-				return false;
-			}
-
-			const result = this.ws.send(packet);
-			return result !== 0 && result !== -1;
-		} catch (error) {
-			console.error('[Socket] Emit error:', error);
-			return false;
-		}
+			});
+			this.emit(ev, ...(args as any[] as EventParams<EmitEvents, Ev>));
+		});
 	}
 
-	emitWithAck(
-		event: string,
-		data: any,
-		callback: AckCallback,
-		options: {
-			timeout?: number;
-			priority?: 'low' | 'normal' | 'high';
-			binary?: boolean;
-		} = {}
-	): boolean {
-		if (!this._connected || this.ws.readyState !== 1) {
-			callback(new Error('Socket not connected'));
-			return false;
+	/**
+	 * @private
+	 */
+	private registerAckCallback(id: number, ack: (...args: any[]) => void): void {
+		const timeout = this.flags.timeout;
+		if (timeout === undefined) {
+			this.acks.set(id, ack);
+			return;
 		}
 
-		if (!this.checkRateLimit(1)) {
-			callback(new Error('Rate limit exceeded'));
-			return false;
-		}
-
-		const ackId = SocketParser.generateAckId();
-
-		let timeout = options.timeout;
-		if (!timeout) {
-			switch (options.priority) {
-				case 'high':
-					timeout = 1000;
-					break;
-				case 'low':
-					timeout = 15000;
-					break;
-				default:
-					timeout = 5000;
-					break;
-			}
-		}
-
-		const timeoutId = setTimeout(() => {
-			const ack = this.acks.get(ackId);
-			if (ack) {
-				this.acks.delete(ackId);
-				callback(new Error(`Acknowledgement timeout after ${timeout}ms`));
-			}
+		const timer = setTimeout(() => {
+			debug('event with ack id %d has timed out after %d ms', id, timeout);
+			this.acks.delete(id);
+			ack.call(this, new Error('operation has timed out'));
 		}, timeout);
 
-		this.acks.set(ackId, {
-			callback,
-			timeoutId,
-			createdAt: Date.now(),
+		this.acks.set(id, (...args) => {
+			clearTimeout(timer);
+			ack.apply(this, [null, ...args]);
 		});
-
-		try {
-			let packet: string | Uint8Array;
-
-			if (options.binary && BinaryProtocol.supportsBinaryEncoding(event)) {
-				const binaryPacket = BinaryProtocol.encode(event, data);
-				if (binaryPacket) {
-					packet = binaryPacket;
-				} else {
-					packet = SocketParser.encode(event, data, ackId, this.nsp.name);
-				}
-			} else {
-				packet = SocketParser.encode(event, data, ackId, this.nsp.name);
-			}
-
-			const success = this.ws.send(packet) > 0;
-
-			if (!success) {
-				this.cleanupAck(ackId);
-				callback(new Error('Failed to send packet'));
-			}
-
-			return success;
-		} catch (error) {
-			this.cleanupAck(ackId);
-			callback(error as Error);
-			return false;
-		}
 	}
 
-	emitBinary<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data?: Parameters<EmitEvents[Ev]>[0]
-	): boolean {
-		if (!this._connected || this.ws.readyState !== 1) return false;
-
-		if (!this.checkRateLimit(1)) return false;
-
-		const binaryPacket = SocketParser.encodeBinary(event, data, this.nsp);
-		if (binaryPacket) {
-			try {
-				return this.ws.send(binaryPacket) > 0;
-			} catch {
-				return false;
-			}
-		}
-
-		return this.emit(event, data as any);
+	to(room: Room | Room[]): any {
+		return this.newBroadcastOperator().to(room);
 	}
 
-	emitFast(event: string, data?: string): boolean {
-		if (!this._connected || this.ws.readyState !== 1) return false;
+	in(room: Room | Room[]): any {
+		this.newBroadcastOperator().in(room);
+	}
 
-		if (!this.checkRateLimit(1)) return false;
+	except(room: Room | Room[]) {
+		return this.newBroadcastOperator().except(room);
+	}
 
-		let packet: string;
-		if (data) {
-			packet = SocketParser.encode(event, data, undefined, this.nsp.name);
-		} else {
-			packet = SocketParser.encode(event, undefined, undefined, this.nsp.name);
-		}
+	send(...args: EventParams<EmitEvents, 'message'>): this {
+		this.emit('message', ...args);
+		return this;
+	}
 
-		return this.ws.send(packet) > 0;
+	write(...args: EventParams<EmitEvents, 'message'>): this {
+		this.emit('message', ...args);
+		return this;
+	}
+
+	/**
+	 * Writes a packet.
+	 *
+	 * @param {Object} packet - packet object
+	 * @param {Object} opts - options
+	 * @private
+	 */
+	packet(packet: Omit<Packet, 'nsp'> & Partial<Pick<Packet, 'nsp'>>, opts: any = {}): void {
+		packet.nsp = this.nsp.name;
+		opts.compress = false !== opts.compress;
+		this.client._packet(packet as Packet, opts);
 	}
 
 	join(rooms: Room | Array<Room>): Promise<void> | void {
@@ -350,68 +216,506 @@ export class Socket<
 		return this.adapter.delAll(this.id);
 	}
 
-	get broadcast(): any {
-		return this.nsp.except(this.id);
+	/**
+	 * Called by `Namespace` upon successful
+	 * middleware execution (ie: authorization).
+	 * Socket is added to namespace array before
+	 * call to join, so adapters can access it.
+	 *
+	 * @private
+	 */
+	_onconnect(): void {
+		debug('socket connected - writing packet');
+		this.connected = true;
+		this.join(this.id);
+		this.packet({
+			type: PacketType.CONNECT,
+			data: { sid: this.id },
+		});
 	}
 
-	to(room: Room | Room[]): any {
-		return this.nsp.to(room);
+	/**
+	 * Called with each packet. Called by `Client`.
+	 *
+	 * @param {Object} packet
+	 * @private
+	 */
+	_onpacket(packet: Packet): void {
+		debug('got packet %j', packet);
+		switch (packet.type) {
+			case PacketType.EVENT:
+				this.onevent(packet);
+				break;
+			case PacketType.BINARY_EVENT:
+				this.onevent(packet);
+				break;
+			case PacketType.ACK:
+				this.onack(packet);
+				break;
+			case PacketType.BINARY_ACK:
+				this.onack(packet);
+				break;
+			case PacketType.DISCONNECT:
+				this.ondisconnect();
+				break;
+		}
 	}
 
-	in(room: Room | Room[]): any {
-		return this.to(room);
-	}
+	/**
+	 * Called upon event packet.
+	 *
+	 * @param {Packet} packet - packet object
+	 * @private
+	 */
+	private onevent(packet: Packet): void {
+		const args = packet.data || [];
+		debug('emitting event %j', args);
 
-	timeout(timeout: number): any {
-		return this.nsp.timeout(timeout);
-	}
+		if (null != packet.id) {
+			debug('attaching ack callback to event');
+			args.push(this.ack(packet.id));
+		}
 
-	disconnect(close: boolean = false): this {
-		this.stopHeartbeat();
-		if (!this._connected) return this;
-
-		this._connected = false;
-		this.emit('disconnecting' as any, 'server namespace disconnect');
-
-		// Очищаем все ACK callbacks
-		for (const [ackId, ackData] of this.acks) {
-			clearTimeout(ackData.timeoutId);
-			try {
-				ackData.callback(new Error('Socket disconnected'));
-			} catch (error) {
-				// Ignore callback errors during disconnect
+		if (this._anyListeners && this._anyListeners.length) {
+			const listeners = this._anyListeners.slice();
+			for (const listener of listeners) {
+				listener.apply(this, args);
 			}
 		}
-		this.acks.clear();
+		this.dispatch(args);
+	}
 
-		try {
-			const disconnectPacket = SocketParser.encodeDisconnect(this.nsp.name);
-			this.ws.send(disconnectPacket);
-		} catch (error) {
-			console.warn('[Socket] Failed to send disconnect packet:', error);
+	/**
+	 * Produces an ack callback to emit with an event.
+	 *
+	 * @param {Number} id - packet id
+	 * @private
+	 */
+	private ack(id: number): () => void {
+		const self = this;
+		let sent = false;
+		return function () {
+			// prevent double callbacks
+			if (sent) return;
+			const args = Array.prototype.slice.call(arguments);
+			debug('sending ack %j', args);
+			self.packet({
+				id: id,
+				type: PacketType.ACK,
+				data: args,
+			});
+			sent = true;
+		};
+	}
+
+	/**
+	 * Called upon ack packet.
+	 *
+	 * @private
+	 */
+	private onack(packet: Packet): void {
+		const ack = this.acks.get(packet.id!);
+		if ('function' == typeof ack) {
+			debug('calling ack %s with %j', packet.id, packet.data);
+			ack.apply(this, packet.data);
+			this.acks.delete(packet.id!);
+		} else {
+			debug('bad ack %s', packet.id);
 		}
+	}
 
+	/**
+	 * Called upon client disconnect packet.
+	 *
+	 * @private
+	 */
+	private ondisconnect(): void {
+		debug('got disconnect packet');
+		this._onclose('client namespace disconnect');
+	}
+
+	/**
+	 * Handles a client error.
+	 *
+	 * @private
+	 */
+	_onerror(err: Error): void {
+		// Be fixed (from socket.io repo) the meaning of the "error" event is overloaded:
+		//  - it can be sent by the client (`socket.emit("error")`)
+		//  - it can be emitted when the connection encounters an error (an invalid packet for example)
+		//  - it can be emitted when a packet is rejected in a middleware (`socket.use()`)
+		this.emitReserved('error', err);
+	}
+
+	/**
+	 * Called upon closing. Called by `Client`.
+	 *
+	 * @param {String} reason
+	 * @param description
+	 * @throw {Error} optional error object
+	 *
+	 * @private
+	 */
+	_onclose(reason: DisconnectReason, description?: any): this | undefined {
+		if (!this.connected) return this;
+		debug('closing socket - reason %s', reason);
+		this.emitReserved('disconnecting', reason, description);
+		this._cleanup();
+		this.client._remove(this);
+		this.connected = false;
+		this.emitReserved('disconnect', reason, description);
+		return;
+	}
+
+	/**
+	 * Makes the socket leave all the rooms it was part of and prevents it from joining any other room
+	 *
+	 * @private
+	 */
+	_cleanup() {
 		this.leaveAll();
-		this.nsp.removeSocket(this);
-		this.emit('disconnect' as any, 'server namespace disconnect');
+		this.nsp._remove(this);
+		this.join = () => {};
+	}
 
-		if (close && this.ws.readyState === 1) {
-			this.ws.close();
+	/**
+	 * Produces an `error` packet.
+	 *
+	 * @param {Object} err - error object
+	 *
+	 * @private
+	 */
+	_error(err: any): void {
+		this.packet({ type: PacketType.CONNECT_ERROR, data: err });
+	}
+
+	/**
+	 * Disconnects this client.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   // disconnect this socket (the connection might be kept alive for other namespaces)
+	 *   socket.disconnect();
+	 *
+	 *   // disconnect this socket and close the underlying connection
+	 *   socket.disconnect(true);
+	 * })
+	 *
+	 * @param {Boolean} close - if `true`, closes the underlying connection
+	 * @return self
+	 */
+	public disconnect(close = false): this {
+		if (!this.connected) return this;
+		if (close) {
+			this.client._disconnect();
+		} else {
+			this.packet({ type: PacketType.DISCONNECT });
+			this._onclose('server namespace disconnect');
 		}
+		return this;
+	}
 
+	public compress(compress: boolean): this {
+		this.flags.compress = compress;
+		return this;
+	}
+
+	public get volatile(): this {
+		this.flags.volatile = true;
+		return this;
+	}
+
+	public get broadcast() {
+		return this.newBroadcastOperator();
+	}
+
+	public get local() {
+		return this.newBroadcastOperator().local;
+	}
+
+	timeout(timeout: number): Socket<ListenEvents, DecorateAcknowledgements<EmitEvents>, ServerSideEvents, SocketData> {
+		this.flags.timeout = timeout;
 		return this;
 	}
 
 	/**
-	 * ИСПРАВЛЕННАЯ обработка входящих пакетов
+	 * Dispatch incoming event to socket listeners.
+	 *
+	 * @param {Array} event - event that will get emitted
+	 * @private
+	 */
+	private dispatch(event: Event): void {
+		debug('dispatching an event %j', event);
+		this.run(event, (err) => {
+			process.nextTick(() => {
+				if (err) {
+					return this._onerror(err);
+				}
+				if (this.connected) {
+					super.emitUntyped.apply(this, event);
+				} else {
+					debug('ignore packet received after disconnection');
+				}
+			});
+		});
+	}
+
+	public use(fn: (event: Event, next: (err?: Error) => void) => void): this {
+		this.fns.push(fn);
+		return this;
+	}
+
+	/**
+	 * Executes the middleware for an incoming event.
+	 *
+	 * @param {Array} event - event that will get emitted
+	 * @param {Function} fn - last fn call in the middleware
+	 * @private
+	 */
+	private run(event: Event, fn: (err?: Error) => void): void {
+		if (!this.fns.length) return fn();
+		const fns = this.fns.slice(0);
+		(function run(i: number) {
+			fns[i]!(event, (err) => {
+				// upon error, short-circuit
+				if (err) return fn(err);
+				// if no middleware left, summon callback
+				if (!fns[i + 1]) return fn();
+				// go on to next
+				run(i + 1);
+			});
+		})(0);
+	}
+
+	/**
+	 * Whether the socket is currently disconnected
+	 */
+	public get disconnected() {
+		return !this.connected;
+	}
+
+	get conn() {
+		return this.client.conn;
+	}
+
+	get ws() {
+		return this.client.conn.ws.raw!;
+	}
+
+	/**
+	 * Returns the rooms the socket is currently in.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   console.log(socket.rooms); // Set { <socket.id> }
+	 *
+	 *   socket.join("room1");
+	 *
+	 *   console.log(socket.rooms); // Set { <socket.id>, "room1" }
+	 * });
+	 */
+	get rooms(): Set<Room> {
+		return this.adapter.socketRooms(this.id) || new Set();
+	}
+
+	/**
+	 * Adds a listener that will be fired when any event is received. The event name is passed as the first argument to
+	 * the callback.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.onAny((event, ...args) => {
+	 *     console.log(`got event ${event}`);
+	 *   });
+	 * });
+	 *
+	 * @param listener
+	 */
+	public onAny(listener: (...args: any[]) => void): this {
+		this._anyListeners = this._anyListeners || [];
+		this._anyListeners.push(listener);
+		return this;
+	}
+
+	/**
+	 * Adds a listener that will be fired when any event is received. The event name is passed as the first argument to
+	 * the callback. The listener is added to the beginning of the listeners array.
+	 *
+	 * @param listener
+	 */
+	public prependAny(listener: (...args: any[]) => void): this {
+		this._anyListeners = this._anyListeners || [];
+		this._anyListeners.unshift(listener);
+		return this;
+	}
+
+	/**
+	 * Removes the listener that will be fired when any event is received.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   const catchAllListener = (event, ...args) => {
+	 *     console.log(`got event ${event}`);
+	 *   }
+	 *
+	 *   socket.onAny(catchAllListener);
+	 *
+	 *   // remove a specific listener
+	 *   socket.offAny(catchAllListener);
+	 *
+	 *   // or remove all listeners
+	 *   socket.offAny();
+	 * });
+	 *
+	 * @param listener
+	 */
+	public offAny(listener?: (...args: any[]) => void): this {
+		if (!this._anyListeners) {
+			return this;
+		}
+		if (listener) {
+			const listeners = this._anyListeners;
+			for (let i = 0; i < listeners.length; i++) {
+				if (listener === listeners[i]) {
+					listeners.splice(i, 1);
+					return this;
+				}
+			}
+		} else {
+			this._anyListeners = [];
+		}
+		return this;
+	}
+
+	/**
+	 * Returns an array of listeners that are listening for any event that is specified. This array can be manipulated,
+	 * e.g. to remove listeners.
+	 */
+	public listenersAny() {
+		return this._anyListeners || [];
+	}
+
+	/**
+	 * Adds a listener that will be fired when any event is sent. The event name is passed as the first argument to
+	 * the callback.
+	 *
+	 * Note: acknowledgements sent to the client are not included.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.onAnyOutgoing((event, ...args) => {
+	 *     console.log(`sent event ${event}`);
+	 *   });
+	 * });
+	 *
+	 * @param listener
+	 */
+	public onAnyOutgoing(listener: (...args: any[]) => void): this {
+		this._anyOutgoingListeners = this._anyOutgoingListeners || [];
+		this._anyOutgoingListeners.push(listener);
+		return this;
+	}
+
+	/**
+	 * Adds a listener that will be fired when any event is emitted. The event name is passed as the first argument to the
+	 * callback. The listener is added to the beginning of the listeners array.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.prependAnyOutgoing((event, ...args) => {
+	 *     console.log(`sent event ${event}`);
+	 *   });
+	 * });
+	 *
+	 * @param listener
+	 */
+	public prependAnyOutgoing(listener: (...args: any[]) => void): this {
+		this._anyOutgoingListeners = this._anyOutgoingListeners || [];
+		this._anyOutgoingListeners.unshift(listener);
+		return this;
+	}
+
+	/**
+	 * Removes the listener that will be fired when any event is sent.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   const catchAllListener = (event, ...args) => {
+	 *     console.log(`sent event ${event}`);
+	 *   }
+	 *
+	 *   socket.onAnyOutgoing(catchAllListener);
+	 *
+	 *   // remove a specific listener
+	 *   socket.offAnyOutgoing(catchAllListener);
+	 *
+	 *   // or remove all listeners
+	 *   socket.offAnyOutgoing();
+	 * });
+	 *
+	 * @param listener - the catch-all listener
+	 */
+	public offAnyOutgoing(listener?: (...args: any[]) => void): this {
+		if (!this._anyOutgoingListeners) {
+			return this;
+		}
+		if (listener) {
+			const listeners = this._anyOutgoingListeners;
+			for (let i = 0; i < listeners.length; i++) {
+				if (listener === listeners[i]) {
+					listeners.splice(i, 1);
+					return this;
+				}
+			}
+		} else {
+			this._anyOutgoingListeners = [];
+		}
+		return this;
+	}
+
+	/**
+	 * Returns an array of listeners that are listening for any event that is specified. This array can be manipulated,
+	 * e.g. to remove listeners.
+	 */
+	public listenersAnyOutgoing() {
+		return this._anyOutgoingListeners || [];
+	}
+
+	/**
+	 * Notify the listeners for each packet sent (emit or broadcast)
+	 *
+	 * @param packet
+	 *
+	 * @private
+	 */
+	notifyOutgoingListeners(packet: Packet) {
+		if (this._anyOutgoingListeners && this._anyOutgoingListeners.length) {
+			const listeners = this._anyOutgoingListeners.slice();
+			for (const listener of listeners) {
+				listener.apply(this, packet.data);
+			}
+		}
+	}
+
+	private newBroadcastOperator() {
+		const flags = Object.assign({}, this.flags);
+		this.flags = {};
+		return new BroadcastOperator<DecorateAcknowledgementsWithMultipleResponses<EmitEvents>, SocketData>(
+			this.adapter,
+			new Set<Room>(),
+			new Set<Room>([this.id]),
+			flags,
+		);
+	}
+
+	/**
+	 * Must be disbanded and deleted
 	 */
 	_handlePacket(packet: any): void {
 		if (!packet || !packet.event) return;
 
 		if (!isProduction) {
-			console.log(
-				`[Socket] Handling packet: ${packet.event} from ${this.id}, ackId: ${packet.ackId}`
-			);
+			console.log(`[Socket] Handling packet: ${packet.event} from ${this.id}, ackId: ${packet.ackId}`);
 		}
 
 		try {
@@ -440,9 +744,7 @@ export class Socket<
 			// ИСПРАВЛЕНО: Правильная обработка событий с ACK запросом от клиента
 			if (packet.ackId && typeof packet.ackId === 'string') {
 				if (!isProduction) {
-					console.log(
-						`[Socket] Event ${packet.event} requires ACK response: ${packet.ackId}`
-					);
+					console.log(`[Socket] Event ${packet.event} requires ACK response: ${packet.ackId}`);
 				}
 
 				const listeners = this.listeners(packet.event);
@@ -456,18 +758,12 @@ export class Socket<
 								return;
 							}
 
-							const ackResponse = SocketParser.encodeAckResponse(
-								packet.ackId!,
-								args,
-								this.nsp.name
-							);
+							const ackResponse = SocketParser.encodeAckResponse(packet.ackId!, args, this.nsp.name);
 
 							const success = this.ws.send(ackResponse);
 
 							if (!isProduction && !success) {
-								console.warn(
-									`[Socket] Failed to send ACK response for ${packet.ackId}`
-								);
+								console.warn(`[Socket] Failed to send ACK response for ${packet.ackId}`);
 							}
 						} catch (error) {
 							if (!isProduction) {
@@ -487,10 +783,7 @@ export class Socket<
 						}
 					} catch (error) {
 						if (!isProduction) {
-							console.error(
-								`[Socket] Error in ACK event handler for ${packet.event}:`,
-								error
-							);
+							console.error(`[Socket] Error in ACK event handler for ${packet.event}:`, error);
 						}
 						ackWrapper({ error: 'Internal server error' });
 					}
@@ -506,7 +799,7 @@ export class Socket<
 							{
 								error: `No handler for event: ${packet.event}`,
 							},
-							this.nsp
+							this.nsp,
 						);
 						this.ws.send(ackResponse);
 					} catch (error) {
@@ -535,6 +828,9 @@ export class Socket<
 		}
 	}
 
+	/**
+	 * Must be disbanded and deleted
+	 */
 	_handleAck(ackId: string, data: any): void {
 		if (!isProduction) {
 			console.log(`[Socket] Handling ACK ${ackId} with data:`, data);
@@ -561,6 +857,9 @@ export class Socket<
 		}
 	}
 
+	/**
+	 * Must be disbanded and deleted
+	 */
 	private cleanupAck(ackId?: string): void {
 		if (!ackId) return;
 
@@ -571,6 +870,9 @@ export class Socket<
 		}
 	}
 
+	/**
+	 * Must be disbanded and deleted
+	 */
 	_handleClose(reason: DisconnectReason): void {
 		this.stopHeartbeat();
 		if (this._connected) {
@@ -593,10 +895,16 @@ export class Socket<
 		}
 	}
 
+	/**
+	 * Must be disbanded and deleted
+	 */
 	_handleError(error: Error): void {
 		super.emit('error', error);
 	}
 
+	/**
+	 * Must be disbanded and deleted
+	 */
 	private sanitizeData(data: any, seen = new WeakSet()): any {
 		if (data === null || data === undefined) return data;
 
@@ -627,22 +935,4 @@ export class Socket<
 
 		return data;
 	}
-
-	getAckStats() {
-		return {
-			total: this.acks.size,
-			oldestAge:
-				this.acks.size > 0
-					? Date.now() -
-					  Math.min(...Array.from(this.acks.values()).map((a) => a.createdAt))
-					: 0,
-		};
-	}
-}
-
-export function warmupPerformanceOptimizations(): void {
-	SocketParser.encode('test', undefined, undefined, '/');
-	SocketParser.encode('test', 'warmup', undefined, '/');
-	BinaryProtocol.encode('ping');
-	BinaryProtocol.encode('message', 'test');
 }

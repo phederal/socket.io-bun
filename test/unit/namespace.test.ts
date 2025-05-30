@@ -5,7 +5,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { Namespace } from '../../src/namespace';
 import { Socket } from '../../src/socket';
-import type { Handshake } from '../../types/socket.types';
+import type { Handshake } from '../../types/socket-types';
 
 // Mock dependencies
 class MockAdapter {
@@ -114,9 +114,7 @@ describe('Namespace', () => {
 			const user = { id: 'user1' };
 			const session = { id: 'session1' };
 
-			await expect(namespace.handleConnection(mockWs as any, user, session)).rejects.toThrow(
-				'Middleware error'
-			);
+			await expect(namespace.handleConnection(mockWs as any, user, session)).rejects.toThrow('Middleware error');
 		});
 	});
 
@@ -136,11 +134,7 @@ describe('Namespace', () => {
 
 		test('should remove socket on disconnect', async () => {
 			const mockWs = new MockWebSocket();
-			const socket = await namespace.handleConnection(
-				mockWs as any,
-				{ id: 'user1' },
-				{ id: 'session1' }
-			);
+			const socket = await namespace.handleConnection(mockWs as any, { id: 'user1' }, { id: 'session1' });
 
 			namespace.removeSocket(socket);
 
@@ -166,16 +160,8 @@ describe('Namespace', () => {
 			const mockWs1 = new MockWebSocket();
 			const mockWs2 = new MockWebSocket();
 
-			socket1 = await namespace.handleConnection(
-				mockWs1 as any,
-				{ id: 'user1' },
-				{ id: 'session1' }
-			);
-			socket2 = await namespace.handleConnection(
-				mockWs2 as any,
-				{ id: 'user2' },
-				{ id: 'session2' }
-			);
+			socket1 = await namespace.handleConnection(mockWs1 as any, { id: 'user1' }, { id: 'session1' });
+			socket2 = await namespace.handleConnection(mockWs2 as any, { id: 'user2' }, { id: 'session2' });
 		});
 
 		test('should emit to all sockets', () => {
@@ -219,11 +205,7 @@ describe('Namespace', () => {
 
 		beforeEach(async () => {
 			const mockWs = new MockWebSocket();
-			socket = await namespace.handleConnection(
-				mockWs as any,
-				{ id: 'user1' },
-				{ id: 'session1' }
-			);
+			socket = await namespace.handleConnection(mockWs as any, { id: 'user1' }, { id: 'session1' });
 		});
 
 		test('should target specific room', () => {
@@ -242,18 +224,14 @@ describe('Namespace', () => {
 		});
 
 		test('should make all sockets join room', () => {
-			const broadcastSpy = spyOn((namespace as any).adapter, 'getSockets').mockReturnValue(
-				new Set(['user1'])
-			);
+			const broadcastSpy = spyOn((namespace as any).adapter, 'getSockets').mockReturnValue(new Set(['user1']));
 
 			namespace.socketsJoin('room1');
 			expect(broadcastSpy).toHaveBeenCalled();
 		});
 
 		test('should make all sockets leave room', () => {
-			const broadcastSpy = spyOn((namespace as any).adapter, 'getSockets').mockReturnValue(
-				new Set(['user1'])
-			);
+			const broadcastSpy = spyOn((namespace as any).adapter, 'getSockets').mockReturnValue(new Set(['user1']));
 
 			namespace.socketsLeave('room1');
 			expect(broadcastSpy).toHaveBeenCalled();
@@ -268,16 +246,8 @@ describe('Namespace', () => {
 			const mockWs1 = new MockWebSocket();
 			const mockWs2 = new MockWebSocket();
 
-			socket1 = await namespace.handleConnection(
-				mockWs1 as any,
-				{ id: 'user1' },
-				{ id: 'session1' }
-			);
-			socket2 = await namespace.handleConnection(
-				mockWs2 as any,
-				{ id: 'user2' },
-				{ id: 'session2' }
-			);
+			socket1 = await namespace.handleConnection(mockWs1 as any, { id: 'user1' }, { id: 'session1' });
+			socket2 = await namespace.handleConnection(mockWs2 as any, { id: 'user2' }, { id: 'session2' });
 		});
 
 		test('should handle namespace-wide ACK', (done) => {
@@ -315,7 +285,7 @@ describe('Namespace', () => {
 					global.setTimeout = originalSetTimeout;
 					done();
 				},
-				{ timeout: 1 }
+				{ timeout: 1 },
 			);
 		});
 	});
@@ -372,16 +342,8 @@ describe('Namespace', () => {
 			const mockWs1 = new MockWebSocket();
 			const mockWs2 = new MockWebSocket();
 
-			const socket1 = await namespace.handleConnection(
-				mockWs1 as any,
-				{ id: 'user1' },
-				{ id: 'session1' }
-			);
-			const socket2 = await namespace.handleConnection(
-				mockWs2 as any,
-				{ id: 'user2' },
-				{ id: 'session2' }
-			);
+			const socket1 = await namespace.handleConnection(mockWs1 as any, { id: 'user1' }, { id: 'session1' });
+			const socket2 = await namespace.handleConnection(mockWs2 as any, { id: 'user2' }, { id: 'session2' });
 
 			const disconnectSpy1 = spyOn(socket1, 'disconnect');
 			const disconnectSpy2 = spyOn(socket2, 'disconnect');

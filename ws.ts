@@ -4,24 +4,11 @@ import type { WSContext } from 'hono/ws';
 import type { Context } from 'hono';
 
 import { Server } from '@/server';
-import { Client } from '@/client';
-import { Socket as SocketIO } from '@/socket';
-import type {
-	ClientToServerEvents,
-	InterServerEvents,
-	ServerToClientEvents,
-	SocketData,
-} from '#types/socket.types';
-import { Connection } from '@/connection';
-
-declare module 'bun' {
-	interface ServerWebSocket {
-		__socket?: SocketIO;
-	}
-}
+import type { ClientToServerEvents, ServerToClientEvents, SocketData } from '#types/socket-types';
+import type { DefaultEventsMap } from '#types/typed-events';
 
 // Create typed socket server
-const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>();
+const io = new Server<ClientToServerEvents, ServerToClientEvents, DefaultEventsMap, SocketData>();
 
 // Create WebSocket handler
 export const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket<WSContext>>();
@@ -34,11 +21,6 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 	if (!user || !session) {
 		return Promise.reject({ code: 3000, reason: 'Unauthorized' });
 	}
-
-	/**
-	 * Context
-	 * Custom client data
-	 * */
 	return io.onconnection(c, {
 		user,
 		session,

@@ -3,13 +3,7 @@
  */
 
 import { io } from '../src/server';
-import type {
-	ClientToServerEvents,
-	ServerToClientEvents,
-	InterServerEvents,
-	SocketData,
-	EventsMap,
-} from '../types/socket.types';
+import type { ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData, EventsMap } from '../types/socket-types';
 
 // ==== 1. Базовое использование с типизацией ====
 
@@ -82,13 +76,7 @@ interface ChatEvents extends EventsMap {
 }
 
 interface ChatEmitEvents extends EventsMap {
-	new_message: (data: {
-		id: string;
-		user: string;
-		message: string;
-		channel: string;
-		timestamp: string;
-	}) => void;
+	new_message: (data: { id: string; user: string; message: string; channel: string; timestamp: string }) => void;
 	user_joined_channel: (data: { user: string; channel: string }) => void;
 	user_left_channel: (data: { user: string; channel: string }) => void;
 }
@@ -165,11 +153,7 @@ function generateMessageId(): string {
 }
 
 // ✅ Типизированные utility функции
-export function broadcastToRoom<T extends keyof ServerToClientEvents>(
-	room: string,
-	event: T,
-	...data: Parameters<ServerToClientEvents[T]>
-): void {
+export function broadcastToRoom<T extends keyof ServerToClientEvents>(room: string, event: T, ...data: Parameters<ServerToClientEvents[T]>): void {
 	io.to(room).emit(event, ...data);
 }
 
@@ -179,13 +163,7 @@ export function sendNotificationToUser(userId: string, message: string): void {
 
 // ✅ Type guards для проверки событий
 export function isValidChatMessage(data: any): data is { room: string; message: string } {
-	return (
-		typeof data === 'object' &&
-		typeof data.room === 'string' &&
-		typeof data.message === 'string' &&
-		data.room.length > 0 &&
-		data.message.length > 0
-	);
+	return typeof data === 'object' && typeof data.room === 'string' && typeof data.message === 'string' && data.room.length > 0 && data.message.length > 0;
 }
 
 // Экспорт типизированного io для использования в других файлах

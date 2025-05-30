@@ -1,22 +1,11 @@
-/**
- * Socket.IO Types for Client-Server Communication
- * Based on Socket.IO v4+ typing standards
- */
+import type { NamespaceReservedEventsMap } from '@/namespace';
+import type { IncomingHttpHeaders } from 'http';
+import type { ParsedUrlQuery } from 'querystring';
+import type { EventsMap } from './typed-events';
 
-// Base event interface - events are functions that can be called
-export interface EventsMap {
-	[event: string]: (...args: any[]) => void;
-}
-
-// Default events map allowing any events
-export interface DefaultEventsMap {
-	[event: string]: (...args: any[]) => void;
-}
-
-// Inter-server events for clustering (optional)
-export interface InterServerEvents extends EventsMap {
-	ping: () => void;
-}
+// Room and socket ID types
+export type SocketId = string;
+export type Room = string;
 
 // Socket data type for socket.data attribute
 export interface SocketData {
@@ -69,12 +58,7 @@ export interface ServerToClientEvents extends EventsMap {
 
 	// Messaging
 	message: (data: string) => void;
-	chat_message: (data: {
-		from: string;
-		room: string;
-		message: string;
-		timestamp: string;
-	}) => void;
+	chat_message: (data: { from: string; room: string; message: string; timestamp: string }) => void;
 
 	// Room management
 	room_joined: (room: string) => void;
@@ -122,6 +106,13 @@ export type AckMap = Map<string, AckCallback>;
 // Socket connection states
 export type SocketState = 'connecting' | 'connected' | 'disconnecting' | 'disconnected';
 
+/**
+ * Next: From socket.io socket-types.ts
+ * @link https://github.com/socketio/socket.io/blob/main/packages/socket.io/lib/socket-types.ts
+ */
+
+type ClientReservedEvents = 'connect_error';
+
 // Disconnect reasons
 export type DisconnectReason =
 	| 'transport error'
@@ -134,19 +125,61 @@ export type DisconnectReason =
 	| 'client namespace disconnect'
 	| 'server namespace disconnect';
 
-// Room and socket ID types
-export type SocketId = string;
-export type Room = string;
+export interface SocketReservedEventsMap {
+	disconnect: (reason: DisconnectReason, description?: any) => void;
+	disconnecting: (reason: DisconnectReason, description?: any) => void;
+	error: (err: Error) => void;
+}
 
-// Handshake data
+// EventEmitter reserved events: https://nodejs.org/api/events.html#events_event_newlistener
+export interface EventEmitterReservedEventsMap {
+	newListener: (eventName: string | Symbol, listener: (...args: any[]) => void) => void;
+	removeListener: (eventName: string | Symbol, listener: (...args: any[]) => void) => void;
+}
+
+export const RESERVED_EVENTS: ReadonlySet<string | Symbol> = new Set<
+	ClientReservedEvents | keyof NamespaceReservedEventsMap<never, never, never, never> | keyof SocketReservedEventsMap | keyof EventEmitterReservedEventsMap
+>(<const>['connect', 'connect_error', 'disconnect', 'disconnecting', 'newListener', 'removeListener']);
+
+/**
+ * The handshake details
+ */
 export interface Handshake {
+	/**
+	 * The headers sent as part of the handshake
+	 */
+	// headers: IncomingHttpHeaders;
 	headers: Record<string, string>;
+	/**
+	 * The date of creation (as string)
+	 */
 	time: string;
+	/**
+	 * The ip of the client
+	 */
 	address: string;
+	/**
+	 * Whether the connection is cross-domain
+	 */
 	xdomain: boolean;
+	/**
+	 * Whether the connection is secure
+	 */
 	secure: boolean;
+	/**
+	 * The date of creation (as unix timestamp)
+	 */
 	issued: number;
+	/**
+	 * The request URL string
+	 */
 	url: string;
-	query: Record<string, string>;
-	data: Record<string, any>;
+	/**
+	 * The query object
+	 */
+	query: ParsedUrlQuery;
+	/**
+	 * The auth object
+	 */
+	auth: { [key: string]: any };
 }

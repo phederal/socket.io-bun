@@ -3,7 +3,7 @@
  */
 
 import { io } from '../src/server';
-import type { EventsMap, SocketData } from '../types/socket.types';
+import type { EventsMap, SocketData } from '../types/socket-types';
 
 // ==== 1. Определяем события для Chat namespace ====
 
@@ -15,10 +15,7 @@ interface ChatClientEvents extends EventsMap {
 	// Управление комнатами
 	join_room: (roomId: string) => void;
 	leave_room: (roomId: string) => void;
-	create_room: (
-		data: { name: string; isPrivate: boolean },
-		callback: (roomId: string) => void
-	) => void;
+	create_room: (data: { name: string; isPrivate: boolean }, callback: (roomId: string) => void) => void;
 
 	// Статус печати
 	typing_start: (roomId: string) => void;
@@ -306,12 +303,4 @@ function generateRoomId(): string {
 
 // Экспорт типизированного namespace
 export { chatNamespace };
-export type {
-	ChatClientEvents,
-	ChatServerEvents,
-	ChatSocketData,
-	ChatMessage,
-	ChatUser,
-	ChatRoom,
-	PrivateMessage,
-};
+export type { ChatClientEvents, ChatServerEvents, ChatSocketData, ChatMessage, ChatUser, ChatRoom, PrivateMessage };

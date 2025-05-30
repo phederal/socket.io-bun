@@ -1,0 +1,11 @@
+# Ignore artifacts:
+dist
+build
+coverage
+
+**/.git
+**/.svn
+**/.hg
+**/node_modules
+node_modules/**
+!node_modules/shared

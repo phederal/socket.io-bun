@@ -3,7 +3,7 @@
  * Extend these interfaces for your specific application needs
  */
 
-import type { EventsMap } from './socket.types';
+import type { EventsMap } from './socket-types';
 
 // ==== Game Events Example ====
 export interface GameClientEvents extends EventsMap {
@@ -60,10 +60,7 @@ export interface ChatClientEvents extends EventsMap {
 	remove_reaction: (data: { messageId: string; emoji: string }) => void;
 
 	// Rooms
-	create_room: (
-		data: { name: string; isPrivate: boolean },
-		callback: (roomId: string) => void
-	) => void;
+	create_room: (data: { name: string; isPrivate: boolean }, callback: (roomId: string) => void) => void;
 	join_room: (roomId: string) => void;
 	leave_room: (roomId: string) => void;
 
@@ -139,24 +136,14 @@ export interface FileClientEvents extends EventsMap {
 
 export interface FileServerEvents extends EventsMap {
 	// File events
-	file_upload_started: (data: {
-		fileId: string;
-		name: string;
-		size: number;
-		uploadedBy: string;
-	}) => void;
+	file_upload_started: (data: { fileId: string; name: string; size: number; uploadedBy: string }) => void;
 	file_uploaded: (file: FileInfo) => void;
 	file_chunk_received: (data: { fileId: string; chunk: Uint8Array; chunkIndex: number }) => void;
 	upload_progress: (data: { fileId: string; progress: number }) => void;
 
 	// Download events
 	file_info: (file: FileInfo) => void;
-	download_chunk: (data: {
-		fileId: string;
-		chunk: Uint8Array;
-		chunkIndex: number;
-		totalChunks: number;
-	}) => void;
+	download_chunk: (data: { fileId: string; chunk: Uint8Array; chunkIndex: number; totalChunks: number }) => void;
 	download_complete: (fileId: string) => void;
 }
 
@@ -188,20 +175,11 @@ export interface CollaborationClientEvents extends EventsMap {
 export interface CollaborationServerEvents extends EventsMap {
 	// Document events
 	document_joined: (data: { documentId: string; content: string; version: number }) => void;
-	user_joined_document: (data: {
-		userId: string;
-		documentId: string;
-		user: CollaborationUser;
-	}) => void;
+	user_joined_document: (data: { userId: string; documentId: string; user: CollaborationUser }) => void;
 	user_left_document: (data: { userId: string; documentId: string }) => void;
 
 	// Operational transform
-	text_operations: (data: {
-		documentId: string;
-		operations: TextOperation[];
-		version: number;
-		authorId: string;
-	}) => void;
+	text_operations: (data: { documentId: string; operations: TextOperation[]; version: number; authorId: string }) => void;
 	cursor_moved: (data: { userId: string; documentId: string; position: CursorPosition }) => void;
 
 	// Comments
@@ -251,15 +229,4 @@ interface CommentReply {
 }
 
 // Export all event types for easy importing
-export type {
-	GameState,
-	Player,
-	ChatMessage,
-	ChatRoom,
-	ChatUser,
-	TextOperation,
-	CursorPosition,
-	CollaborationUser,
-	DocumentComment,
-	CommentReply,
-};
+export type { GameState, Player, ChatMessage, ChatRoom, ChatUser, TextOperation, CursorPosition, CollaborationUser, DocumentComment, CommentReply };

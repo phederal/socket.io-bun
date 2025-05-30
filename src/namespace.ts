@@ -1,9 +1,13 @@
+import debugModule from 'debug';
 import { EventEmitter } from 'events';
 import type { ServerWebSocket } from 'bun';
 import type { WSContext } from 'hono/ws';
 import { Socket } from './socket';
 import { BroadcastOperator } from './broadcast';
 import { Adapter } from './adapter';
+import { StrictEventEmitter } from '#types/typed-events';
+import type { Server } from './server';
+
 import type {
 	ServerToClientEvents,
 	ClientToServerEvents,
@@ -11,22 +15,55 @@ import type {
 	Room,
 	Handshake,
 	AckCallback,
+	SocketData as DefaultSocketData,
+} from '../types/socket-types';
+import type {
+	RemoveAcknowledgements,
 	EventsMap,
 	DefaultEventsMap,
-	SocketData as DefaultSocketData,
-} from '../types/socket.types';
-import type { Server } from './server';
+	DecorateAcknowledgementsWithMultipleResponses,
+	EventNamesWithoutAck,
+	EventParams,
+} from '#types/typed-events';
+import type { Client } from './client';
+
+const debug = debugModule('socket.io:namespace');
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-type MiddlewareFn<
+export interface ExtendedError extends Error {
+	data?: any;
+}
+
+export interface NamespaceReservedEventsMap<
+	/** strict typing */
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData extends DefaultSocketData
-> = (
+	SocketData extends DefaultSocketData,
+> {
+	connect: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
+	connection: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
+}
+
+export interface ServerReservedEventsMap<
+	/** strict typing */
+	ListenEvents extends EventsMap,
+	EmitEvents extends EventsMap,
+	ServerSideEvents extends EventsMap,
+	SocketData extends DefaultSocketData,
+> extends NamespaceReservedEventsMap<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
+	new_namespace: (namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
+}
+
+export const RESERVED_EVENTS: ReadonlySet<string | Symbol> = new Set<
+	/** strict typing */
+	keyof ServerReservedEventsMap<never, never, never, never>
+>(<const>['connect', 'connection', 'new_namespace']);
+
+type MiddlewareFn<ListenEvents extends EventsMap, EmitEvents extends EventsMap, ServerSideEvents extends EventsMap, SocketData extends DefaultSocketData> = (
 	socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
-	next: (err?: Error) => void
+	next: (err?: Error) => void,
 ) => void;
 
 /**
@@ -37,31 +74,142 @@ export class Namespace<
 	ListenEvents extends EventsMap = ClientToServerEvents,
 	EmitEvents extends EventsMap = ServerToClientEvents,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData extends DefaultSocketData = DefaultSocketData
-> extends EventEmitter {
+	SocketData extends DefaultSocketData = DefaultSocketData,
+> extends StrictEventEmitter<
+	/** strict typing */
+	ServerSideEvents,
+	RemoveAcknowledgements<EmitEvents>,
+	NamespaceReservedEventsMap<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
+> {
 	public readonly name: string;
-	public readonly sockets: Map<
-		SocketId,
-		Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
-	> = new Map();
-	public readonly adapter: Adapter<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
+	public readonly sockets: Map<SocketId, Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> = new Map();
+	// @ts-ignore
+	public adapter: Adapter;
+	readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 
-	private middlewares: MiddlewareFn<ListenEvents, EmitEvents, ServerSideEvents, SocketData>[] =
-		[];
-	private _ids: number = 0;
+	private _fns: Array<(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>, next: (err?: ExtendedError) => void) => void> = [];
 
-	constructor(
-		public readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
-		name: string
-	) {
+	/** @private */
+	public _ids: number = 0;
+
+	constructor(server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>, name: string) {
 		super();
+		this.server = server;
 		this.name = name;
-		this.adapter = new Adapter<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(this);
+		this._initAdapter();
 	}
 
-	use(fn: MiddlewareFn<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): this {
-		this.middlewares.push(fn);
+	/**
+	 * Initializes the `Adapter` for this nsp.
+	 * Run upon changing adapter by `Server#adapter`
+	 * in addition to the constructor.
+	 *
+	 * @private
+	 */
+	_initAdapter(): void {
+		// @ts-ignore
+		this.adapter = new (this.server.adapter()!)(this);
+	}
+
+	use(
+		/** strict types */
+		fn: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>, next: (err?: ExtendedError) => void) => void,
+	): this {
+		this._fns.push(fn);
 		return this;
+	}
+
+	/**
+	 * Executes the middleware for an incoming client.
+	 *
+	 * @param socket - the socket that will get added
+	 * @param fn - last fn call in the middleware
+	 * @private
+	 */
+	private run(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>, fn: (err?: ExtendedError) => void) {
+		if (!this._fns.length) return fn();
+		const fns = this._fns.slice(0);
+		(function run(i: number) {
+			fns[i]!(socket, (err) => {
+				// upon error, short-circuit
+				if (err) return fn(err);
+				// if no middleware left, summon callback
+				if (!fns[i + 1]) return fn();
+				// go on to next
+				run(i + 1);
+			});
+		})(0);
+	}
+
+	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
+		return new BroadcastOperator<DecorateAcknowledgementsWithMultipleResponses<EmitEvents>, SocketData>(this.adapter).to(room);
+	}
+
+	in(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
+		return new BroadcastOperator<DecorateAcknowledgementsWithMultipleResponses<EmitEvents>, SocketData>(this.adapter).in(room);
+	}
+
+	except(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
+		return new BroadcastOperator<DecorateAcknowledgementsWithMultipleResponses<EmitEvents>, SocketData>(this.adapter).except(room);
+	}
+
+	/**
+	 * Adds a new client.
+	 *
+	 * @return {Socket}
+	 * @private
+	 */
+	async _add(
+		client: Client<ListenEvents, EmitEvents, ServerSideEvents>,
+		auth: Record<string, unknown>,
+		fn: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void,
+	) {
+		debug('adding socket to nsp %s', this.name);
+		const socket = await this._createSocket(client, auth);
+
+		if (client.conn.readyState === WebSocket.OPEN) {
+			return this._doConnect(socket, fn);
+		}
+
+		this.run(socket, (err) => {
+			process.nextTick(() => {
+				this._doConnect(socket, fn);
+			});
+		});
+	}
+
+	private async _createSocket(client: Client<ListenEvents, EmitEvents, ServerSideEvents>, auth: Record<string, unknown>) {
+		return new Socket(this, client, auth);
+	}
+
+	private _doConnect(
+		socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+		fn: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void,
+	) {
+		this.sockets.set(socket.id, socket);
+
+		// it's paramount that the internal `onconnect` logic
+		// fires before user-set events to prevent state order
+		// violations (such as a disconnection before the connection
+		// logic is complete)
+		socket._onconnect();
+		if (fn) fn(socket);
+
+		// fire user-set events
+		this.emitReserved('connect', socket);
+		this.emitReserved('connection', socket);
+	}
+
+	get binary(): BroadcastOperator<EmitEvents, SocketData> {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).binary;
+	}
+
+	get volatile(): BroadcastOperator<EmitEvents, SocketData> {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).volatile;
+	}
+
+	get local(): BroadcastOperator<EmitEvents, SocketData> {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).local;
 	}
 
 	override on(event: string | symbol, listener: (...args: any[]) => void): this {
@@ -72,105 +220,14 @@ export class Namespace<
 		return super.once(event, listener);
 	}
 
-	to(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).to(room);
-	}
-
-	in(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
-		return this.to(room);
-	}
-
-	except(room: Room | Room[]): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).except(room);
-	}
-
-	get binary(): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).binary;
-	}
-
-	emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean {
-		if (event === 'connection' || event === 'connect' || event === 'disconnect') {
-			return super.emit(event, ...args);
-		}
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(event, ...args);
-	}
-
-	/**
-	 * Emit с ACK для namespace
-	 */
-	emitWithAck<Ev extends keyof EmitEvents>(
-		event: Ev,
-		data: Parameters<EmitEvents[Ev]>[0],
-		callback: AckCallback,
-		options?: {
-			timeout?: number;
-			priority?: 'low' | 'normal' | 'high';
-			binary?: boolean;
-		}
-	): boolean {
-		// Для namespace ACK мы отправляем всем сокетам и собираем ответы
-		const targetSockets = this.adapter.getSockets();
-		if (targetSockets.size === 0) {
-			setTimeout(() => callback(null, []), 0);
-			return true;
-		}
-
-		const responses: any[] = [];
-		let responseCount = 0;
-		let timedOut = false;
-		const expectedResponses = targetSockets.size;
-		const timeout = options?.timeout || 5000;
-
-		const timer = setTimeout(() => {
-			if (!timedOut) {
-				timedOut = true;
-				callback(new Error('Namespace broadcast acknowledgement timeout'), responses);
-			}
-		}, timeout);
-
-		// Отправляем каждому сокету индивидуально
-		for (const socketId of targetSockets) {
-			const socket = this.sockets.get(socketId);
-			if (socket) {
-				socket.emitWithAck(
-					event as string,
-					data,
-					(err: any, response: any) => {
-						if (timedOut) return;
-
-						if (err) {
-							responses.push({ socketId, error: err.message || err });
-						} else {
-							responses.push({ socketId, data: response });
-						}
-						responseCount++;
-
-						if (responseCount >= expectedResponses) {
-							timedOut = true;
-							clearTimeout(timer);
-							callback(null, responses);
-						}
-					},
-					{
-						timeout: Math.floor(timeout * 0.8), // Немного меньше для individual sockets
-						priority: options?.priority,
-						binary: options?.binary,
-					}
-				);
-			} else {
-				// Socket не найден
-				responses.push({ socketId, error: 'Socket not found' });
-				responseCount++;
-
-				if (responseCount >= expectedResponses) {
-					timedOut = true;
-					clearTimeout(timer);
-					callback(null, responses);
-				}
-			}
-		}
-
-		return true;
+	// emit<Ev extends keyof EmitEvents>(event: Ev, ...args: Parameters<EmitEvents[Ev]>): boolean {
+	// 	if (event === 'connection' || event === 'connect' || event === 'disconnect') {
+	// 		return super.emit(event, ...args);
+	// 	}
+	// 	return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(event, ...args);
+	// }
+	override emit<Ev extends EventNamesWithoutAck<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(ev, ...args);
 	}
 
 	send(...args: Parameters<EmitEvents[any]>): boolean {
@@ -185,19 +242,11 @@ export class Namespace<
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).compress(compress);
 	}
 
-	get volatile(): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).volatile;
-	}
-
-	get local(): BroadcastOperator<EmitEvents, SocketData> {
-		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).local;
-	}
-
 	timeout(timeout: number): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).timeout(timeout);
 	}
 
-	fetchSockets(): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>[]> {
+	fetchSockets(): Promise<Socket<EmitEvents, SocketData>[]> {
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).fetchSockets();
 	}
 
@@ -217,95 +266,89 @@ export class Namespace<
 		return this.sockets.size;
 	}
 
-	private async handleConnection(
-		ws: ServerWebSocket<WSContext>,
-		data: Record<string, any>
-	): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> {
-		const socketId = data.user?.id || this.generateSocketId();
+	// private async handleConnection(
+	// 	ws: ServerWebSocket<WSContext>,
+	// 	auth: Record<string, any>,
+	// ): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> {
+	// 	const socketId = auth.user?.id || this.generateSocketId();
 
-		const handshake: Handshake = {
-			headers: {},
-			time: new Date().toISOString(),
-			address: ws.remoteAddress || 'unknown',
-			xdomain: false,
-			secure: true,
-			issued: Date.now(),
-			url: '/',
-			query: {},
-			data: data,
-		};
+	// 	const handshake: Handshake = {
+	// 		headers: {},
+	// 		time: new Date().toISOString(),
+	// 		address: ws.remoteAddress || 'unknown',
+	// 		xdomain: false,
+	// 		secure: true,
+	// 		issued: Date.now(),
+	// 		url: '/',
+	// 		query: {},
+	// 		auth: auth,
+	// 	};
 
-		const socket = new Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(
-			socketId,
-			ws,
-			this,
-			handshake
-		);
+	// 	const socket = new Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(socketId, ws, this, handshake);
 
-		// Run middlewares
-		await this.runMiddlewares(socket);
+	// 	// Run middlewares
+	// 	await this.runMiddlewares(socket);
 
-		// Add to namespace
-		this.sockets.set(socketId, socket);
-		this.adapter.addAll(socketId, socketId);
+	// 	// Add to namespace
+	// 	this.sockets.set(socketId, socket);
+	// 	this.adapter.addAll(socketId, socketId);
 
-		// Subscribe to namespace topic
-		ws.subscribe(`namespace:${this.name}`);
+	// 	// Subscribe to namespace topic
+	// 	ws.subscribe(`namespace:${this.name}`);
 
-		if (!isProduction) {
-			console.log(`[Namespace] Socket ${socketId} added to namespace ${this.name}`);
-		}
+	// 	if (!isProduction) {
+	// 		console.log(`[Namespace] Socket ${socketId} added to namespace ${this.name}`);
+	// 	}
 
-		return socket;
-	}
+	// 	return socket;
+	// }
 
-	removeSocket(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
-		if (this.sockets.has(socket.id)) {
-			this.sockets.delete(socket.id);
-			this.adapter.delAll(socket.id);
-			this.emit('disconnect', socket, 'transport close');
-		}
-	}
+	// removeSocket(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
+	// 	if (this.sockets.has(socket.id)) {
+	// 		this.sockets.delete(socket.id);
+	// 		this.adapter.delAll(socket.id);
+	// 		this.emit('disconnect', socket, 'transport close');
+	// 	}
+	// }
 
-	private _remove(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
+	/** @private */
+	_remove(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
 		if (this.sockets.has(socket.id)) {
 			this.sockets.delete(socket.id);
 			this.adapter.delAll(socket.id);
 		}
 	}
 
-	private async runMiddlewares(
-		socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
-	): Promise<void> {
-		return new Promise((resolve, reject) => {
-			if (this.middlewares.length === 0) {
-				return resolve();
-			}
+	// private async runMiddlewares(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): Promise<void> {
+	// 	return new Promise((resolve, reject) => {
+	// 		if (this.middlewares.length === 0) {
+	// 			return resolve();
+	// 		}
 
-			let index = 0;
+	// 		let index = 0;
 
-			const next = (err?: Error) => {
-				if (err) {
-					return reject(err);
-				}
+	// 		const next = (err?: Error) => {
+	// 			if (err) {
+	// 				return reject(err);
+	// 			}
 
-				if (index >= this.middlewares.length) {
-					return resolve();
-				}
+	// 			if (index >= this.middlewares.length) {
+	// 				return resolve();
+	// 			}
 
-				const middleware = this.middlewares[index++];
-				try {
-					middleware!(socket, next);
-				} catch (error) {
-					reject(error);
-				}
-			};
+	// 			const middleware = this.middlewares[index++];
+	// 			try {
+	// 				middleware!(socket, next);
+	// 			} catch (error) {
+	// 				reject(error);
+	// 			}
+	// 		};
 
-			next();
-		});
-	}
+	// 		next();
+	// 	});
+	// }
 
-	private generateSocketId(): string {
-		return `${this.name.replace('/', '')}_${Date.now()}_${this._ids++}`;
-	}
+	// private generateSocketId(): string {
+	// 	return `${this.name.replace('/', '')}_${Date.now()}_${this._ids++}`;
+	// }
 }

@@ -157,9 +157,7 @@ describe('SocketParser', () => {
 		});
 
 		test('should decode event with object data', async () => {
-			const result = await SocketParser.decode(
-				'42["chat_message",{"user":"john","text":"hello"}]'
-			);
+			const result = await SocketParser.decode('42["chat_message",{"user":"john","text":"hello"}]');
 			expect(result).toEqual({
 				event: 'chat_message',
 				data: { user: 'john', text: 'hello' },

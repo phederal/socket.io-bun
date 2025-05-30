@@ -43,10 +43,11 @@ export const server = Bun.serve({
 		open: websocket.open,
 		message: websocket.message,
 		close: websocket.close,
-		idleTimeout: 120,
-		maxPayloadLength: 16 * 1024 * 1024,
 		publishToSelf: false,
-		backpressureLimit: 64 * 1024, // 64KB backpressure limit
+		// perMessageDeflate: true,
+		idleTimeout: 120, // @default 120
+		maxPayloadLength: 16 * 1024 * 1024,
+		backpressureLimit: 1024 * 1024, // @default 1024KB
 	},
 
 	tls: {
@@ -61,9 +62,6 @@ io.attach(server);
 // Write io logic after attaching
 
 import './test/test-server';
-
-import { warmupPerformanceOptimizations } from './src/socket';
-warmupPerformanceOptimizations();
 
 // Дополнительная отладка
 // if (!isProduction) {
