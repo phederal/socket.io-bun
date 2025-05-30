@@ -46,13 +46,13 @@ export class Connection<
 		id: string,
 		server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
 		ctx: Context,
-		data: SocketData,
+		data?: SocketData,
 	) {
 		super();
 		this.id = id;
 		this.server = server;
 		this.ctx = ctx;
-		this.data = data;
+		this.data = data || {};
 	}
 
 	get readyState(): WebSocketReadyState {
