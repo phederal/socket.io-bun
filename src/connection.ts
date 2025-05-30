@@ -125,7 +125,7 @@ export class Connection<
 		this.pingInterval = setInterval(() => {
 			if (this.readyState === WebSocket.OPEN) {
 				// Используем нативный Bun WebSocket ping
-				this.ws.raw?.ping('2');
+				this.send('2');
 
 				// Или отправляем Engine.IO совместимый ping
 				// this.send('2'); // Engine.IO ping packet
