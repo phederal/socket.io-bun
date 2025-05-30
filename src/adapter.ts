@@ -60,38 +60,35 @@ export class Adapter<
 	 */
 	addAll(id: SocketId, rooms: Set<Room>): Promise<void> | void {
 		const isNew = !this.sids.has(id);
+		const socket = this.nsp.sockets.get(id);
+		if (!socket) return;
 
-		if (!this.sids.has(id)) {
+		if (isNew) {
 			this.sids.set(id, new Set());
+			debug('subscribe connection %s to topic %s', socket.id, this.nsp.name);
+			socket.ws.subscribe(this.nsp.name);
 		}
+
 		for (const room of rooms) {
+			const topic = `${this.nsp.name}${SEPARATOR}${room}`; // '#' can be used as wildcard
+
 			this.sids.get(id)!.add(room);
 
 			if (!this.rooms.has(room)) {
 				this.rooms.set(room, new Set());
 				this.emit('create-room', room);
 			}
+
 			if (!this.rooms.get(room)!.has(id)) {
 				this.rooms.get(room)!.add(id);
 				this.emit('join-room', room, id);
 			}
-		}
 
-		/** compatible with bun */
-		const socket = this.nsp.sockets.get(id);
-		if (!socket) return;
-		const sessionId = socket.id;
-		if (isNew) {
-			debug('subscribe connection %s to topic %s', sessionId, this.nsp.name);
-			socket.ws.subscribe(this.nsp.name);
-		}
-		rooms.forEach((room) => {
-			const topic = `${this.nsp.name}${SEPARATOR}${room}`; // '#' can be used as wildcard
 			if (!socket.ws.isSubscribed(topic)) {
-				debug('subscribe connection %s to topic %s', sessionId, topic);
+				debug('subscribe connection %s to topic %s', socket.id, topic);
 				socket.ws.subscribe(topic);
 			}
-		});
+		}
 	}
 
 	/**
@@ -133,21 +130,24 @@ export class Adapter<
 		if (roomSockets == null) return;
 
 		const deleted = roomSockets.delete(id);
+		if (!deleted) return; // Socket wasn't in room
+
 		if (deleted) {
 			this.emit('leave-room', room, id);
 		}
+
 		if (roomSockets.size === 0 && this.rooms.delete(room)) {
 			this.emit('delete-room', room);
 		}
 
 		/** compatible with bun */
 		const socket = this.nsp.sockets.get(id);
-		if (!socket) return;
-		const sessionId = socket.id;
-		const topic = `${this.nsp.name}${SEPARATOR}${room}`;
-		if (socket.ws.isSubscribed(topic)) {
-			debug('unsubscribe connection %s from topic %s', sessionId, topic);
-			socket.ws.unsubscribe(topic);
+		if (socket) {
+			const topic = `${this.nsp.name}${SEPARATOR}${room}`;
+			if (socket.ws.isSubscribed(topic)) {
+				debug('unsubscribe connection %s from topic %s', socket.id, topic);
+				socket.ws.unsubscribe(topic);
+			}
 		}
 	}
 

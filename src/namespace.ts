@@ -167,12 +167,23 @@ export class Namespace<
 		debug('adding socket to nsp %s', this.name);
 		const socket = await this._createSocket(client, auth);
 
-		if (client.conn.readyState === WebSocket.OPEN) {
-			return this._doConnect(socket, fn);
-		}
-
 		this.run(socket, (err) => {
 			process.nextTick(() => {
+				if (client.conn.readyState !== WebSocket.OPEN) {
+					debug('next called after client was closed - ignoring socket');
+					socket._cleanup();
+					return;
+				}
+
+				if (err) {
+					debug('middleware error, sending CONNECT_ERROR packet to the client');
+					socket._cleanup();
+					return socket._error({
+						message: err.message,
+						data: err.data,
+					});
+				}
+
 				this._doConnect(socket, fn);
 			});
 		});
@@ -214,10 +225,12 @@ export class Namespace<
 	}
 
 	override on(event: string | symbol, listener: (...args: any[]) => void): this {
+		// @ts-ignore // TODO: fix types on event
 		return super.on(event, listener);
 	}
 
 	override once(event: string | symbol, listener: (...args: any[]) => void): this {
+		// @ts-ignore // TODO: fix types on event
 		return super.once(event, listener);
 	}
 
@@ -228,6 +241,10 @@ export class Namespace<
 	// 	return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(event, ...args);
 	// }
 	override emit<Ev extends EventNamesWithoutAck<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
+		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(ev, ...args);
+	}
+
+	emitWithAck<Ev extends EventNamesWithoutAck<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(ev, ...args);
 	}
 
