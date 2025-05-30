@@ -74,6 +74,11 @@ export class Connection<
 		}
 	}
 
+	/** similar to writeToEngine */
+	writeToEngine(data: string | Uint8Array, opts?: any): void {
+		return this.send(data);
+	}
+
 	/**
 	 * Publish to Bun pub/sub system
 	 */
@@ -95,6 +100,8 @@ export class Connection<
 		this.ws = ws;
 		this.client = new Client(this, this.server);
 
+		this.startPingPong();
+
 		// Parse namespace from URL
 		const url = new URL(this.ctx.req.url);
 		let nspName = url.pathname.replace('/ws', '') || '/';
@@ -106,18 +113,16 @@ export class Connection<
 
 		// Emit connection event
 		this.emit('open', { event, ws, namespace: nspName });
-
-		this.startPingPong();
 	}
 
 	private startPingPong() {
 		this.pingInterval = setInterval(() => {
 			if (this.readyState === WebSocket.OPEN) {
 				// Используем нативный Bun WebSocket ping
-				this.ws.raw?.ping();
+				this.ws.raw?.ping('2');
 
 				// Или отправляем Engine.IO совместимый ping
-				this.send('2'); // Engine.IO ping packet
+				// this.send('2'); // Engine.IO ping packet
 
 				// Устанавливаем timeout для pong
 				this.pongTimeout = setTimeout(() => {
@@ -134,8 +139,25 @@ export class Connection<
 		}
 	}
 
+	private cleanup() {
+		if (this.pingInterval) {
+			clearInterval(this.pingInterval);
+			this.pingInterval = undefined;
+		}
+		if (this.pongTimeout) {
+			clearTimeout(this.pongTimeout);
+			this.pongTimeout = undefined;
+		}
+	}
+
 	async onMessage(event: MessageEvent<WSMessageReceive>, ws?: WSContext<ServerWebSocket<WSContext>>) {
 		debug('WebSocket message received for %s', this.id);
+
+		// Engine.IO pong
+		if (event.data === '3') {
+			this.onPong();
+			return;
+		}
 
 		try {
 			this.emit('data', event.data);
@@ -172,6 +194,7 @@ export class Connection<
 					reason = 'transport close';
 			}
 		}
+		this.cleanup();
 		this.emit('close', { event, ws });
 	}
 
