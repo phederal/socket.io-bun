@@ -31,7 +31,6 @@ export interface BroadcastFlags {
 	broadcast?: boolean;
 	timeout?: number;
 	binary?: boolean;
-	priority?: 'low' | 'normal' | 'high';
 }
 
 /**
@@ -50,6 +49,7 @@ export class BroadcastOperator<
 		private readonly flags: BroadcastFlags & {
 			expectSingleResponse?: boolean;
 		} = {},
+		private readonly sender?: Socket, // ✅ Добавить sender
 	) {}
 
 	/**
@@ -146,6 +146,7 @@ export class BroadcastOperator<
 				rooms: this.rooms,
 				except: this.exceptRooms,
 				flags: this.flags,
+				sender: this.sender,
 			});
 
 			return true;

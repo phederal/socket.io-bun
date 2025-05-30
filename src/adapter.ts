@@ -21,6 +21,7 @@ export interface BroadcastOptions {
 		local?: boolean;
 		broadcast?: boolean;
 	};
+	sender?: Socket;
 }
 
 /**
@@ -162,28 +163,42 @@ export class Adapter<
 		};
 
 		packet.nsp = this.nsp.name;
-		const encodedPackets = this._encode(packet, packetOpts);
+		const encodedPackets = this.encoder.encode(packet);
 
-		const useFastPublish = opts.rooms.size <= 1 && opts.except!.size === 0;
-		if (!useFastPublish) {
+		if (opts.except!.size > 0) {
 			return this.apply(opts, (socket) => {
-				// TODO: add socket.notifyOutgoingListeners
-				//   if (typeof socket.notifyOutgoingListeners === "function") {
-				//     socket.notifyOutgoingListeners(packet);
-				//   }
+				if (typeof socket.notifyOutgoingListeners === 'function') {
+					socket.notifyOutgoingListeners(packet);
+				}
 				socket.client.writeToEngine(encodedPackets, packetOpts);
 			});
+		} else {
+			if (opts.rooms.size <= 1) {
+				const topic = opts.rooms.size === 0 ? this.nsp.name : `${this.nsp.name}${SEPARATOR}${opts.rooms.keys().next().value}`;
+				encodedPackets.forEach((encodedPacket) => {
+					const isBinary = typeof encodedPacket !== 'string';
+					// "4" being the message type in the Engine.IO protocol, see https://github.com/socketio/engine.io-protocol
+					if (opts.sender?.ws) {
+						opts.sender.ws.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
+					} else {
+						this.nsp.server.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
+					}
+				});
+				return;
+			} else {
+				opts.rooms.forEach((room) => {
+					const topic = `${this.nsp.name}${SEPARATOR}${room}`;
+					encodedPackets.forEach((encodedPacket) => {
+						const isBinary = typeof encodedPacket !== 'string';
+						if (opts.sender?.ws) {
+							opts.sender.ws.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
+						} else {
+							this.nsp.server.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
+						}
+					});
+				});
+			}
 		}
-
-		const topic = opts.rooms.size === 0 ? this.nsp.name : `${this.nsp.name}${SEPARATOR}${opts.rooms.keys().next().value}`;
-		debug('fast publish to %s', topic);
-
-		// fast publish for clients connected with WebSocket
-		encodedPackets.forEach((encodedPacket) => {
-			const isBinary = typeof encodedPacket !== 'string';
-			// "4" being the message type in the Engine.IO protocol, see https://github.com/socketio/engine.io-protocol
-			this.nsp.server.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
-		});
 	}
 
 	broadcastWithAck(packet: any, opts: BroadcastOptions, clientCountCallback: (clientCount: number) => void, ack: (...args: any[]) => void) {
@@ -195,10 +210,9 @@ export class Adapter<
 		};
 
 		packet.nsp = this.nsp.name;
-		// we can use the same id for each packet, since the _ids counter is common (no duplicate)
 		packet.id = this.nsp._ids++;
 
-		const encodedPackets = this._encode(packet, packetOpts);
+		const encodedPackets = this.encoder.encode(packet);
 
 		let clientCount = 0;
 
@@ -214,10 +228,6 @@ export class Adapter<
 		});
 
 		clientCountCallback(clientCount);
-	}
-
-	private _encode(packet: any, packetOpts: Record<string, unknown>) {
-		return this.encoder.encode(packet);
 	}
 
 	/**

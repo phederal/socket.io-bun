@@ -187,6 +187,7 @@ export class Namespace<
 		fn: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void,
 	) {
 		this.sockets.set(socket.id, socket);
+		this.adapter.addAll(socket.id, new Set([socket.id]));
 
 		// it's paramount that the internal `onconnect` logic
 		// fires before user-set events to prevent state order
@@ -266,51 +267,6 @@ export class Namespace<
 		return this.sockets.size;
 	}
 
-	// private async handleConnection(
-	// 	ws: ServerWebSocket<WSContext>,
-	// 	auth: Record<string, any>,
-	// ): Promise<Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> {
-	// 	const socketId = auth.user?.id || this.generateSocketId();
-
-	// 	const handshake: Handshake = {
-	// 		headers: {},
-	// 		time: new Date().toISOString(),
-	// 		address: ws.remoteAddress || 'unknown',
-	// 		xdomain: false,
-	// 		secure: true,
-	// 		issued: Date.now(),
-	// 		url: '/',
-	// 		query: {},
-	// 		auth: auth,
-	// 	};
-
-	// 	const socket = new Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(socketId, ws, this, handshake);
-
-	// 	// Run middlewares
-	// 	await this.runMiddlewares(socket);
-
-	// 	// Add to namespace
-	// 	this.sockets.set(socketId, socket);
-	// 	this.adapter.addAll(socketId, socketId);
-
-	// 	// Subscribe to namespace topic
-	// 	ws.subscribe(`namespace:${this.name}`);
-
-	// 	if (!isProduction) {
-	// 		console.log(`[Namespace] Socket ${socketId} added to namespace ${this.name}`);
-	// 	}
-
-	// 	return socket;
-	// }
-
-	// removeSocket(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
-	// 	if (this.sockets.has(socket.id)) {
-	// 		this.sockets.delete(socket.id);
-	// 		this.adapter.delAll(socket.id);
-	// 		this.emit('disconnect', socket, 'transport close');
-	// 	}
-	// }
-
 	/** @private */
 	_remove(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
 		if (this.sockets.has(socket.id)) {
@@ -318,37 +274,4 @@ export class Namespace<
 			this.adapter.delAll(socket.id);
 		}
 	}
-
-	// private async runMiddlewares(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): Promise<void> {
-	// 	return new Promise((resolve, reject) => {
-	// 		if (this.middlewares.length === 0) {
-	// 			return resolve();
-	// 		}
-
-	// 		let index = 0;
-
-	// 		const next = (err?: Error) => {
-	// 			if (err) {
-	// 				return reject(err);
-	// 			}
-
-	// 			if (index >= this.middlewares.length) {
-	// 				return resolve();
-	// 			}
-
-	// 			const middleware = this.middlewares[index++];
-	// 			try {
-	// 				middleware!(socket, next);
-	// 			} catch (error) {
-	// 				reject(error);
-	// 			}
-	// 		};
-
-	// 		next();
-	// 	});
-	// }
-
-	// private generateSocketId(): string {
-	// 	return `${this.name.replace('/', '')}_${Date.now()}_${this._ids++}`;
-	// }
 }
