@@ -222,23 +222,6 @@ export class Server<
 		return new Connection<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(this.generateId(), this, c, data);
 	}
 
-	/**
-	 * Create Engine.IO handshake response (v4.x compatible)
-	 *
-	 * @private
-	 */
-	public handshake(sid: string): string {
-		const handshake = {
-			sid,
-			upgrades: ['websocket'],
-			pingInterval: this._opts.pingInterval,
-			pingTimeout: this._opts.pingTimeout,
-			maxPayload: this._opts.maxPayload,
-		};
-		const response = '0' + JSON.stringify(handshake);
-		return response;
-	}
-
 	private generateId() {
 		return base64id.generateId();
 	}
