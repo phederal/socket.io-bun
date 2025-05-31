@@ -27,7 +27,7 @@ app.use('/ws/*', async (c, next) => {
 });
 
 app.get('/', serveStatic({ path: 'test/test-client.html' }));
-app.get('/ws', wsUpgrade);
+// app.get('/ws', wsUpgrade);
 app.get('/ws/*', wsUpgrade);
 
 // Create server first
