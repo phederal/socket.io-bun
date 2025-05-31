@@ -155,6 +155,8 @@ export class Adapter<
 	 * Broadcast packet using direct socket sending and Bun's publish
 	 */
 	broadcast(packet: any, opts: BroadcastOptions): void {
+		// TODO: Remake this with using engine.io-parser encoder for encode packets from client or server.publish
+
 		const flags = opts.flags || {};
 		const packetOpts = {
 			preEncoded: true,
