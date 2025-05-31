@@ -15,10 +15,12 @@ export function createSocketIOClient(server: createTestServerType, nsp: string =
 	return clientIO(url + nsp, {
 		path: '/ws',
 		transports: ['websocket'],
+		upgrade: false,
 		timeout: 10000,
 		forceNew: true,
-		rejectUnauthorized: false,
+		// rejectUnauthorized: false,
 		autoConnect: true,
+		rememberUpgrade: true,
 	});
 }
 
@@ -37,7 +39,9 @@ export async function createTestServer(): Promise<createTestServerType> {
 
 	// Простая аутентификация для тестов
 	app.use('/ws/*', async (c, next) => {
+		// @ts-ignore
 		c.set('user', { id: `test_${Date.now()}` });
+		// @ts-ignore
 		c.set('session', { id: `session_${Date.now()}` });
 		await next();
 	});
@@ -60,7 +64,7 @@ export async function createTestServer(): Promise<createTestServerType> {
 		},
 	});
 
-	io.setBunServer(server);
+	io.attach(server);
 
 	const cleanup = () => {
 		server.stop();
