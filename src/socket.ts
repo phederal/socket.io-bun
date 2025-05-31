@@ -230,7 +230,7 @@ export class Socket<
 		this.join(this.id);
 		this.packet({
 			type: PacketType.CONNECT,
-			data: { sid: this.id },
+			data: { sid: this.id }, // TODO: FIX HANDSHAKE ON CONNECT
 		});
 	}
 

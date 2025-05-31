@@ -21,6 +21,7 @@ export const wsUpgrade = upgradeWebSocket((c: Context) => {
 	if (!user || !session) {
 		return Promise.reject({ code: 3000, reason: 'Unauthorized' });
 	}
+
 	return io.onconnection(c, {
 		user,
 		session,
