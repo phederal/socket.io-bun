@@ -282,6 +282,7 @@ export class Socket<
 				listener.apply(this, args);
 			}
 		}
+
 		this.dispatch(args);
 	}
 
