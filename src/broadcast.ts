@@ -19,7 +19,7 @@ import {
 	RESERVED_EVENTS,
 } from '../types/socket-types';
 import type { Adapter } from './adapter';
-import { PacketType } from './parser';
+import { PacketType } from './socket.io-parser';
 import type { Socket } from './socket';
 
 const isProduction = process.env.NODE_ENV === 'production';

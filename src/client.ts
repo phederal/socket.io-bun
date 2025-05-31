@@ -1,11 +1,11 @@
 import debugModule from 'debug';
-import * as parser from './parser';
+import * as parser from './socket.io-parser';
+import { PacketType, type Decoder, type Encoder, type Packet } from './socket.io-parser';
 import type { Server } from './server';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';
 import type { EventsMap } from '#types/typed-events';
 import type { SocketData as DefaultSocketData, SocketId } from '#types/socket-types';
-import { PacketType, type Decoder, type Encoder, type Packet } from './parser';
 import type { Connection } from './connection';
 
 const isProduction = process.env.NODE_ENV === 'production';

@@ -1,26 +1,23 @@
 import { EventEmitter } from 'events';
-import * as parser from './parser';
+import * as parser from './socket.io-parser';
 import debugModule from 'debug';
 import type { SocketData as DefaultSocketData } from '#types/socket-types';
 import type { Server } from './server';
 import type { ServerWebSocket, WebSocketReadyState } from 'bun';
 import type { Context } from 'hono';
 import type { WSContext, WSMessageReceive } from 'hono/ws';
-import type { Packet } from './parser';
+import type { Packet } from './socket.io-parser';
 import { Client } from './client';
 import type { EventsMap } from '#types/typed-events';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
 const debug = debugModule('engine:socket');
+debug.enabled = !isProduction;
 
 export interface SendOptions {
 	compress?: boolean;
 }
-
-type ReadyState = 'opening' | 'open' | 'closing' | 'closed';
-
-type SendCallback = () => void;
 
 /**
  * Imitate Engine.IO Socket (as RawSocket on client)
@@ -32,6 +29,7 @@ export class Connection<
 	SocketData extends DefaultSocketData = DefaultSocketData,
 > extends EventEmitter {
 	public readonly id: string;
+	public readonly handshake: any; // TODO: FIX HANDSHAKE ON CONNECT
 	public readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	public readonly ctx: Context;
 	public readonly data: {};
@@ -68,6 +66,7 @@ export class Connection<
 		}
 
 		try {
+			debug('Sending data: %s', data);
 			this.ws.send(data);
 		} catch (error) {
 			debug('Error sending data:', error);

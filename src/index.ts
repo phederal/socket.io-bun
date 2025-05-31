@@ -4,7 +4,7 @@ export { Socket } from './socket';
 export { Namespace } from './namespace';
 export { BroadcastOperator } from './broadcast';
 export { Adapter } from './adapter';
-export * as parser from './parser';
+export * as parser from './socket.io-parser';
 
 // Types
 export type {

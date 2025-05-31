@@ -20,7 +20,7 @@ import type { Client } from './client';
 import type { Namespace } from './namespace';
 import type { Server } from './server';
 import { BroadcastOperator, type BroadcastFlags } from './broadcast';
-import { PacketType, type Packet } from './parser';
+import { PacketType, type Packet } from './socket.io-parser';
 
 const debug = debugModule('socket.io:socket');
 
@@ -68,7 +68,7 @@ export class Socket<
 		super();
 		this.server = nsp.server;
 		this.adapter = nsp.adapter;
-		this.id = base64id.generateId();
+		this.id = client.conn.id;
 		this.adapter = this.nsp.adapter;
 		this.handshake = this.buildHandshake(auth);
 		this.on('error', () => {});
