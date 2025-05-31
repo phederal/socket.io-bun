@@ -212,6 +212,14 @@ export class Namespace<
 		this.emitReserved('connection', socket);
 	}
 
+	/** @private */
+	_remove(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
+		if (this.sockets.has(socket.id)) {
+			this.sockets.delete(socket.id);
+			this.adapter.delAll(socket.id);
+		}
+	}
+
 	get binary(): BroadcastOperator<EmitEvents, SocketData> {
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).binary;
 	}
@@ -282,13 +290,5 @@ export class Namespace<
 
 	get socketsCount(): number {
 		return this.sockets.size;
-	}
-
-	/** @private */
-	_remove(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
-		if (this.sockets.has(socket.id)) {
-			this.sockets.delete(socket.id);
-			this.adapter.delAll(socket.id);
-		}
 	}
 }
