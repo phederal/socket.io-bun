@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
 import debugModule from 'debug';
-import { WebSocket } from 'http';
 import type { SocketId, Room, SocketData as DefaultSocketData } from '../types/socket-types';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';

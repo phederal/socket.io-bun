@@ -191,7 +191,7 @@ export class Connection<
 					break;
 
 				case 'message':
-					debug('Received Socket.IO message from %s', this.id, packet.data);
+					debug('Received Socket.IO message from %s', this.id);
 					this.emit('data', packet.data);
 					break;
 

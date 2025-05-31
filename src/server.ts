@@ -4,7 +4,6 @@ import { Namespace, type ServerReservedEventsMap } from './namespace';
 import { BroadcastOperator } from './broadcast';
 import { Connection } from './connection';
 import { Adapter } from './adapter';
-import * as parser from './socket.io-parser';
 import { StrictEventEmitter } from '#types/typed-events';
 import type { Server as BunServer, ServerWebSocketSendStatus } from 'bun';
 import type { ServerToClientEvents, ClientToServerEvents, SocketData as DefaultSocketData, Room, AckCallback } from '../types/socket-types';
@@ -12,6 +11,7 @@ import type { EventsMap, DefaultEventsMap, RemoveAcknowledgements } from '#types
 import type { Socket } from './socket';
 import type { Context } from 'hono';
 import type { Client } from './client';
+import * as parser from './socket.io-parser';
 import type { Encoder } from './socket.io-parser';
 
 const debug = debugModule('socket.io:server');

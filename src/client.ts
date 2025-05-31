@@ -206,7 +206,6 @@ export class Client<
 	private ondecoded(packet: Packet): void {
 		const namespace = packet.nsp || '/';
 		packet.nsp = namespace;
-
 		try {
 			switch (packet.type) {
 				case PacketType.CONNECT:
