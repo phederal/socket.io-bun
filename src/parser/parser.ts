@@ -66,7 +66,15 @@ export class Encoder {
 		}
 
 		// Fast path для строковых данных
-		if (type === PacketType.EVENT && Array.isArray(data) && data.length === 2 && typeof data[0] === 'string' && typeof data[1] === 'string' && !id && !hasBinary(obj)) {
+		if (
+			type === PacketType.EVENT &&
+			Array.isArray(data) &&
+			data.length === 2 &&
+			typeof data[0] === 'string' &&
+			typeof data[1] === 'string' &&
+			!id &&
+			!hasBinary(obj)
+		) {
 			let encoded = Encoder.PACKET_TYPES_STR[type]!;
 			if (nsp !== '/') encoded += nsp + ',';
 			encoded += `["${data[0]}","${data[1].replace(/["\\]/g, '\\$&')}"]`;
@@ -74,7 +82,15 @@ export class Encoder {
 		}
 
 		// Fast path для простых чисел
-		if (type === PacketType.EVENT && Array.isArray(data) && data.length === 2 && typeof data[0] === 'string' && typeof data[1] === 'number' && !id && !hasBinary(obj)) {
+		if (
+			type === PacketType.EVENT &&
+			Array.isArray(data) &&
+			data.length === 2 &&
+			typeof data[0] === 'string' &&
+			typeof data[1] === 'number' &&
+			!id &&
+			!hasBinary(obj)
+		) {
 			let encoded = Encoder.PACKET_TYPES_STR[type]!;
 			if (nsp !== '/') encoded += nsp + ',';
 			encoded += `["${data[0]}",${data[1]}]`;
@@ -127,10 +143,6 @@ export class Encoder {
 		// data
 		if (obj.data !== undefined) {
 			str += JSON.stringify(obj.data, this.replacer);
-		}
-
-		if (!Encoder.isProduction) {
-			console.log('[OptimizedEncoder] encoded packet:', str);
 		}
 
 		return str;
@@ -229,7 +241,7 @@ export class Decoder extends Emitter<{}, {}, DecoderReservedEvents> {
 			throw new Error('invalid payload');
 		}
 
-		// Сверх-быстрая обработка одиночных символов
+		// Engine.IO packets
 		if (str.length === 1) {
 			const charCode = str.charCodeAt(0);
 			const type = charCode - 48; // '0' = 48
@@ -241,77 +253,93 @@ export class Decoder extends Emitter<{}, {}, DecoderReservedEvents> {
 
 		let i = 0;
 		const firstChar = str.charCodeAt(0);
-		const type = firstChar - 48; // Быстрое преобразование char в число
+		const engineType = firstChar - 48; // Engine.IO type
 
-		if (type < 0 || type > 6) {
+		if (engineType < 0 || engineType > 6) {
 			throw new Error('invalid packet type');
 		}
 
-		const p: any = { type };
-		i++;
+		// If it is an Engine.IO message packet (type 4), inside the Socket.IO packet
+		if (engineType === 4) {
+			i++; // Skip the Engine.IO type
 
-		// attachments для бинарных пакетов
-		if (type === PacketType.BINARY_EVENT || type === PacketType.BINARY_ACK) {
-			const start = i;
-			while (str.charCodeAt(i) !== 45 && i !== str.length) {
-				// '-' = 45
-				i++;
-			}
-			const buf = str.substring(start, i);
-			const numBuf = Number(buf);
-			if (isNaN(numBuf) || str.charCodeAt(i) !== 45) {
-				throw new Error('Illegal attachments');
-			}
-			p.attachments = numBuf;
-			i++;
-		}
-
-		// Parse namespace (быстрый поиск)
-		if (str.charCodeAt(i) === 47) {
-			// '/'
-			const start = i;
-			while (i < str.length) {
-				const c = str.charCodeAt(i);
-				if (c === 44) break; // ',' = 44
-				i++;
-			}
-			p.nsp = str.substring(start, i);
-			if (str.charCodeAt(i) === 44) i++; // пропускаем ','
-		} else {
-			p.nsp = '/';
-		}
-
-		// Parse acknowledgement id (оптимизированный)
-		const next = str.charCodeAt(i);
-		if (next >= 48 && next <= 57) {
-			// '0'-'9'
-			const start = i;
-			while (i < str.length) {
-				const charCode = str.charCodeAt(i);
-				if (charCode < 48 || charCode > 57) {
-					break;
-				}
-				i++;
-			}
-			p.id = Number(str.substring(start, i));
-		}
-
-		// Parse data (быстрый путь для простых типов)
-		if (i < str.length) {
-			const dataStr = str.substring(i);
-			const payload = this.tryParse(dataStr);
-			if (this.isPayloadValid(p.type, payload)) {
-				p.data = payload;
-			} else {
+			if (i >= str.length) {
 				throw new Error('invalid payload');
 			}
-		}
 
-		if (!Decoder.isProduction) {
-			console.log('[OptimizedDecoder] decoded packet:', p);
-		}
+			// Read Socket.IO type packet
+			const socketIOChar = str.charCodeAt(i);
+			const socketIOType = socketIOChar - 48;
 
-		return p;
+			if (socketIOType < 0 || socketIOType > 6) {
+				throw new Error('invalid socket.io packet type');
+			}
+
+			const p: any = { type: socketIOType };
+			i++;
+
+			// attachments для бинарных пакетов
+			if (socketIOType === PacketType.BINARY_EVENT || socketIOType === PacketType.BINARY_ACK) {
+				const start = i;
+				while (str.charCodeAt(i) !== 45 && i !== str.length) {
+					// '-' = 45
+					i++;
+				}
+				const buf = str.substring(start, i);
+				const numBuf = Number(buf);
+				if (isNaN(numBuf) || str.charCodeAt(i) !== 45) {
+					throw new Error('Illegal attachments');
+				}
+				p.attachments = numBuf;
+				i++;
+			}
+
+			// Parse namespace (быстрый поиск)
+			if (str.charCodeAt(i) === 47) {
+				// '/'
+				const start = i;
+				while (i < str.length) {
+					const c = str.charCodeAt(i);
+					if (c === 44) break; // ',' = 44
+					i++;
+				}
+				p.nsp = str.substring(start, i);
+				if (str.charCodeAt(i) === 44) i++; // пропускаем ','
+			} else {
+				p.nsp = '/';
+			}
+
+			// Parse acknowledgement id (оптимизированный)
+			const next = str.charCodeAt(i);
+			if (next >= 48 && next <= 57) {
+				// '0'-'9'
+				const start = i;
+				while (i < str.length) {
+					const charCode = str.charCodeAt(i);
+					if (charCode < 48 || charCode > 57) {
+						break;
+					}
+					i++;
+				}
+				p.id = Number(str.substring(start, i));
+			}
+
+			// Parse data (быстрый путь для простых типов)
+			if (i < str.length) {
+				const dataStr = str.substring(i);
+				const payload = this.tryParse(dataStr);
+				if (this.isPayloadValid(socketIOType, payload)) {
+					p.data = payload;
+				} else {
+					throw new Error('invalid payload');
+				}
+			}
+
+			return p;
+		} else {
+			// Default Engine.IO packets (ping, pong, open, close, upgrade, noop)
+			return { type: engineType, nsp: '/' };
+		}
 	}
 
 	private tryParse(str: string): any {
