@@ -1,12 +1,11 @@
 import { EventEmitter } from 'events';
-import * as parser from './socket.io-parser';
+import { type Packet, encodePacket, decodePacket } from 'engine.io-parser';
 import debugModule from 'debug';
 import type { SocketData as DefaultSocketData } from '#types/socket-types';
 import type { Server } from './server';
 import type { ServerWebSocket, WebSocketReadyState } from 'bun';
 import type { Context } from 'hono';
 import type { WSContext, WSMessageReceive } from 'hono/ws';
-import type { Packet } from './socket.io-parser';
 import { Client } from './client';
 import type { EventsMap } from '#types/typed-events';
 
@@ -60,61 +59,84 @@ export class Connection<
 	/**
 	 * Send raw data to WebSocket
 	 */
-	send(data: string | Uint8Array): void {
+	private sendRaw(data: string | Uint8Array): void {
 		if (this.readyState !== WebSocket.OPEN) {
 			debug('WebSocket not open, discarding message');
 		}
-
 		try {
-			debug('Sending data: %s', data);
+			debug('Sending raw data: %s', data);
 			this.ws.send(data);
 		} catch (error) {
-			debug('Error sending data:', error);
+			debug('Error sending raw data:', error);
+		}
+	}
+
+	/**
+	 * Send raw data to WebSocket
+	 */
+	send(packet: Packet): void {
+		if (this.readyState !== WebSocket.OPEN) {
+			debug('WebSocket not open, discarding message');
+		}
+		try {
+			encodePacket(packet, false, (encoded) => {
+				debug('Sending Engine.IO packet to %s: %s', this.id, typeof encoded === 'string' ? encoded : '[Binary]');
+				this.sendRaw(encoded);
+			});
+		} catch (error) {
+			debug('Error sending raw data:', error);
 		}
 	}
 
 	/** similar to writeToEngine */
 	write(data: string | Uint8Array, opts?: any): void {
-		return this.send(data);
+		encodePacket({ type: 'message', data }, false, (encoded) => {
+			this.sendRaw(encoded);
+		});
 	}
 
 	/** similar to writeToEngine */
 	writeToEngine(data: string | Uint8Array, opts?: any): void {
-		return this.send(data);
+		this.write(data, opts);
 	}
 
 	/**
 	 * Publish to Bun pub/sub system
 	 */
 	publish(topic: string, data: string | Uint8Array): boolean {
-		return this.server.publish(topic, data);
+		let status = false;
+		encodePacket({ type: 'message', data }, false, (encoded) => {
+			status = this.server.publish(topic, data);
+		});
+		return status;
 	}
 
 	/**
 	 * Close the WebSocket connection
 	 */
-	close(code?: number, reason?: string): void {
+	close(): void {
 		if (this.readyState === WebSocket.OPEN || this.readyState === WebSocket.CONNECTING) {
-			this.ws.close(code, reason);
+			this.cleanup();
 		}
 	}
 
 	async onOpen(event: Event, ws: WSContext<ServerWebSocket<WSContext>>) {
 		debug('WebSocket connection opened for %s', this.id);
 		this.ws = ws;
-		this.client = new Client(this, this.server);
-
-		debug('Starting ping/pong for %s (interval: %dms, timeout: %dms)', this.id, this.server._opts.pingInterval, this.server._opts.pingTimeout);
-		this.startPingPong();
 
 		// Parse namespace from URL
 		const url = new URL(this.ctx.req.url);
 		let nspName = url.pathname.replace('/ws', '') || '/';
 		if (nspName === '') nspName = '/';
 
-		// Send Socket.IO handshake (Engine.IO compatible format)
-		const handshakeResponse = this.server.handshake(this.id);
-		this.send(handshakeResponse);
+		// Send Engine.IO handshake
+		this.send(this._handshake());
+
+		debug('Starting ping/pong for %s (interval: %dms, timeout: %dms)', this.id, this.server._opts.pingInterval, this.server._opts.pingTimeout);
+		this.startPingPong();
+
+		// Create client
+		this.client = new Client(this, this.server);
 
 		// Emit connection event
 		this.emit('open', { event, ws, namespace: nspName });
@@ -123,25 +145,15 @@ export class Connection<
 	private startPingPong() {
 		this.pingInterval = setInterval(() => {
 			if (this.readyState === WebSocket.OPEN) {
-				// Используем нативный Bun WebSocket ping
-				this.send('2');
-
-				// Или отправляем Engine.IO совместимый ping
-				// this.send('2'); // Engine.IO ping packet
+				// Используем нативный Engine.IO ping packet
+				this.send({ type: 'ping' });
 
 				// Устанавливаем timeout для pong
 				this.pongTimeout = setTimeout(() => {
-					this.close(1002, 'ping timeout');
+					this.close();
 				}, this.server._opts.pingTimeout);
 			}
 		}, this.server._opts.pingInterval);
-	}
-
-	private onPong() {
-		if (this.pongTimeout) {
-			clearTimeout(this.pongTimeout);
-			this.pongTimeout = undefined;
-		}
 	}
 
 	private cleanup() {
@@ -153,23 +165,47 @@ export class Connection<
 			clearTimeout(this.pongTimeout);
 			this.pongTimeout = undefined;
 		}
+		try {
+			this.send({ type: 'close' });
+		} catch (e) {}
+		this.removeAllListeners();
 	}
 
 	async onMessage(event: MessageEvent<WSMessageReceive>, ws?: WSContext<ServerWebSocket<WSContext>>) {
-		debug('WebSocket message received for %s', this.id);
-
-		// Engine.IO pong
-		if (event.data === '3') {
-			debug('Received pong from %s', this.id);
-			this.onPong();
-			return;
-		}
-
 		try {
-			this.emit('data', event.data);
-		} catch (error) {
-			debug('Error processing message:', error);
-			this.emit('error', error);
+			const packet = decodePacket(event.data);
+			debug('Received Engine.IO packet from %s: %j', this.id, packet);
+
+			switch (packet.type) {
+				case 'ping':
+					debug('Received ping from %s', this.id);
+					this.send({ type: 'pong' });
+					break;
+
+				case 'pong':
+					debug('Received pong from %s', this.id);
+					if (this.pongTimeout) {
+						clearTimeout(this.pongTimeout);
+						this.pongTimeout = undefined;
+					}
+					break;
+
+				case 'message':
+					debug('Received Socket.IO message from %s', this.id);
+					this.emit('data', packet.data);
+					break;
+
+				case 'close':
+					debug('Received close from %s', this.id);
+					this.emit('close');
+					break;
+
+				default:
+					debug('Unknown Engine.IO packet type: %s', packet.type);
+			}
+		} catch (err) {
+			debug('Error decoding packet from %s: %s', this.id, err);
+			this.emit('error', err);
 		}
 	}
 
@@ -207,5 +243,25 @@ export class Connection<
 	onError(event: Event, ws?: WSContext<ServerWebSocket<WSContext>>) {
 		debug('WebSocket error for %s', this.id);
 		this.emit('error', new Error('WebSocket error'));
+	}
+
+	/**
+	 * Create Engine.IO handshake response (v4.x compatible)
+	 *
+	 * @private
+	 */
+	private _handshake(): Packet {
+		const handshake = {
+			sid: this.id,
+			upgrades: ['websocket'],
+			pingInterval: this.server._opts.pingInterval,
+			pingTimeout: this.server._opts.pingTimeout,
+			maxPayload: this.server._opts.maxPayload,
+		};
+
+		return {
+			type: 'open',
+			data: JSON.stringify(handshake),
+		};
 	}
 }
