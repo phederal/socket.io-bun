@@ -6,24 +6,6 @@ import { Hono } from 'hono';
 import { websocket, wsUpgrade, io } from '../../ws';
 import { io as clientIO, type Socket } from 'socket.io-client';
 
-let portCounter = 8900;
-
-export function createSocketIOClient(server: createTestServerType, nsp: string = '/'): Socket {
-	// Delete "/ws" only if it comes right after domain and port
-	const url = server.url.replace(/(:\/\/[^\/]+)\/ws(\/.*)?$/, '$1$2');
-	// Create client from socket.io-client
-	return clientIO(url + nsp, {
-		path: '/ws',
-		transports: ['websocket'],
-		upgrade: false,
-		timeout: 10000,
-		forceNew: true,
-		// rejectUnauthorized: false,
-		autoConnect: true,
-		rememberUpgrade: true,
-	});
-}
-
 export type createTestServerType = {
 	server: Bun.Server;
 	io: typeof io;
@@ -32,9 +14,13 @@ export type createTestServerType = {
 	cleanup: () => void;
 };
 
-export async function createTestServer(): Promise<createTestServerType> {
-	const port = ++portCounter;
+/** global */
+let portCounter: number = 8900;
+const hostname: string = 'localhost';
+let srv: createTestServerType['server'] | null = null;
 
+export async function server(): Promise<createTestServerType> {
+	const port = ++portCounter;
 	const app = new Hono();
 
 	// Простая аутентификация для тестов
@@ -50,7 +36,7 @@ export async function createTestServer(): Promise<createTestServerType> {
 	app.get('/ws/*', wsUpgrade);
 
 	const server = Bun.serve({
-		hostname: 'localhost',
+		hostname: hostname,
 		port,
 		fetch: app.fetch,
 		websocket: {
@@ -64,11 +50,10 @@ export async function createTestServer(): Promise<createTestServerType> {
 		},
 	});
 
-	io.attach(server);
+	srv = server;
 
-	const cleanup = () => {
-		server.stop();
-	};
+	io.attach(server);
+	const cleanup = () => server.stop();
 
 	return {
 		server,
@@ -77,4 +62,20 @@ export async function createTestServer(): Promise<createTestServerType> {
 		url: `wss://localhost:${port}/ws`,
 		cleanup,
 	};
+}
+
+export function client(server: createTestServerType, nsp: string = '/'): Socket {
+	// Delete "/ws" only if it comes right after domain and port
+	const url = server.url.replace(/(:\/\/[^\/]+)\/ws(\/.*)?$/, '$1$2');
+	// Create client from socket.io-client
+	return clientIO(url + nsp, {
+		path: '/ws',
+		transports: ['websocket'],
+		upgrade: false,
+		timeout: 10000,
+		forceNew: true,
+		// rejectUnauthorized: false,
+		autoConnect: true,
+		rememberUpgrade: true,
+	});
 }
