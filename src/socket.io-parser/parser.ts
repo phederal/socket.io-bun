@@ -3,6 +3,22 @@ import { deconstructPacket, reconstructPacket } from './binary';
 import { isBinary, hasBinary } from './is-binary';
 
 /**
+ * Engine.IO packets
+ * 0 = open
+ * 1 = close
+ * 2 = ping
+ * 3 = pong
+ * 4 = message
+ *
+ * Socket.IO (inside Engine.IO packets):
+ * 40 = CONNECT
+ * 41 = DISCONNECT
+ * 42 = EVENT
+ * 43 = ACK
+ * 44 = CONNECT_ERROR
+ */
+
+/**
  * Оптимизированный Socket.IO Parser с применением техник кеширования и микро-оптимизаций
  * Полная совместимость с оригинальным Socket.IO протоколом
  */
@@ -40,7 +56,6 @@ export class Encoder {
 
 	// Предкомпилированные константы для производительности
 	private static readonly PACKET_TYPES_STR = ['0', '1', '2', '3', '4', '5', '6'];
-	private static readonly isProduction = process.env.NODE_ENV === 'production';
 
 	constructor(private replacer?: (this: any, key: string, value: any) => any) {}
 
@@ -190,8 +205,6 @@ interface DecoderReservedEvents {
  */
 export class Decoder extends Emitter<{}, {}, DecoderReservedEvents> {
 	private reconstructor?: BinaryReconstructor;
-	private static readonly PACKET_TYPES_REVERSE = ['0', '1', '2', '3', '4', '5', '6'];
-	private static readonly isProduction = process.env.NODE_ENV === 'production';
 
 	constructor(private reviver?: (this: any, key: string, value: any) => any) {
 		super();
