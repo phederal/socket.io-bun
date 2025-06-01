@@ -9,7 +9,7 @@ import type {
 	Last,
 	TypedEventBroadcaster,
 } from '#types/typed-events';
-import { type ServerToClientEvents, type AckCallback, type SocketData as DefaultSocketData, type Handshake, RESERVED_EVENTS } from '../types/socket-types';
+import { type SocketData as DefaultSocketData, type Handshake, RESERVED_EVENTS } from '../types/socket-types';
 import type { Adapter, SocketId, Room } from './socket.io-adapter';
 import { PacketType } from './socket.io-parser';
 import type { Socket } from './socket';
@@ -29,8 +29,8 @@ export interface BroadcastFlags {
  * Simplified BroadcastOperator with only emit and emitWithAck
  */
 export class BroadcastOperator<
-	/** @see TypedEventBroadcaster */
-	EmitEvents extends EventsMap = ServerToClientEvents,
+	/** {@link TypedEventBroadcaster} */
+	EmitEvents extends EventsMap,
 	SocketData extends DefaultSocketData = DefaultSocketData,
 > implements TypedEventBroadcaster<EmitEvents>
 {

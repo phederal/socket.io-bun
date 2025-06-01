@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { websocket, wsUpgrade, io } from '../../ws';
 import { io as clientIO, type Socket } from 'socket.io-client';
 
-export type createTestServerType = {
+export type TestServerType = {
 	server: Bun.Server;
 	io: typeof io;
 	port: number;
@@ -17,9 +17,8 @@ export type createTestServerType = {
 /** global */
 let portCounter: number = 8900;
 const hostname: string = 'localhost';
-let srv: createTestServerType['server'] | null = null;
 
-export async function server(): Promise<createTestServerType> {
+export async function server(): Promise<TestServerType> {
 	const port = ++portCounter;
 	const app = new Hono();
 
@@ -50,10 +49,8 @@ export async function server(): Promise<createTestServerType> {
 		},
 	});
 
-	srv = server;
-
 	io.attach(server);
-	const cleanup = () => server.stop();
+	const cleanup = () => server.stop(true);
 
 	return {
 		server,
@@ -64,7 +61,7 @@ export async function server(): Promise<createTestServerType> {
 	};
 }
 
-export function client(server: createTestServerType, nsp: string = '/'): Socket {
+export function client(server: TestServerType, nsp: string = '/'): Socket {
 	// Delete "/ws" only if it comes right after domain and port
 	const url = server.url.replace(/(:\/\/[^\/]+)\/ws(\/.*)?$/, '$1$2');
 	// Create client from socket.io-client
