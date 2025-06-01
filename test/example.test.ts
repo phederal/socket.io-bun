@@ -1,18 +1,18 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { testEnv, testCleanup, sleep } from '#test/utils';
+import { testEnv, sleep } from '#test/utils';
 import type { Socket } from '@/socket';
 
 describe('Example test', () => {
-	const { createServer } = testEnv();
+	const { createServer, cleanup } = testEnv();
 
 	beforeEach(() => {
-		testCleanup();
+		cleanup();
 	});
 
 	afterEach(() => {
-		testCleanup();
+		cleanup();
 		console.log('\n');
 	});
 
