@@ -4,16 +4,9 @@ import EventEmitter from 'events';
 import { Namespace, type ExtendedError, type ServerReservedEventsMap } from './namespace';
 import { BroadcastOperator } from './broadcast';
 import { Connection } from './connection';
-import { Adapter, type Room } from './adapter';
+import { Adapter, SessionAwareAdapter, type Room } from './adapter';
 import type { Server as BunServer, ServerWebSocketSendStatus } from 'bun';
-import type {
-	RESERVED_EVENTS,
-	ServerToClientEvents,
-	ClientToServerEvents,
-	SocketData as DefaultSocketData,
-	AckCallback,
-	DisconnectReason,
-} from '../types/socket-types';
+import type { RESERVED_EVENTS, SocketData as DefaultSocketData, DisconnectReason } from '../types/socket-types';
 import {
 	StrictEventEmitter,
 	type EventsMap,
@@ -33,56 +26,208 @@ import type { Client } from './client';
 import * as parser from './socket.io-parser';
 import type { Encoder } from './socket.io-parser';
 import { debugConfig } from '../config';
+import { ParentNamespace } from './parent-namespace';
 
 const debug = debugModule('socket.io:server');
 debug.enabled = debugConfig.server;
 
-const isProduction = process.env.NODE_ENV === 'production';
+type ParentNspNameMatchFn = (
+	/** strict types */
+	name: string,
+	auth: { [key: string]: any },
+	fn: (err: Error | null, success: boolean) => void,
+) => void;
 
-type MiddlewareFn<SocketData> = (socket: any, next: (err?: Error) => void) => void;
-
-type AdapterConstructor = typeof Adapter | ((nsp: Namespace) => Adapter);
+type AdapterConstructor = typeof Adapter | ((nsp: Namespace<any, any, any, any>) => Adapter);
 
 interface ServerOptions {
+	/**
+	 * name of the path to capture
+	 * @default "/ws"
+	 */
 	path: string;
+	/**
+	 * the adapter to use
+	 * @default the in-memory adapter (@/adapter)
+	 */
 	adapter: AdapterConstructor;
+	/**
+	 * the parser to use
+	 * @default the default parser (@/socket.io-parser)
+	 */
 	parser: typeof parser; // not any type
-	pingInterval?: number;
-	pingTimeout?: number;
-	maxPayload?: number;
 	/**
 	 * how many ms before a client without namespace is closed
 	 * @default 45000
 	 */
 	connectTimeout: number;
+	/**
+	 * Whether to enable the recovery of connection state when a client temporarily disconnects.
+	 *
+	 * The connection state includes the missed packets, the rooms the socket was in and the `data` attribute.
+	 */
+	connectionStateRecovery: {
+		/**
+		 * The backup duration of the sessions and the packets.
+		 *
+		 * @default 120000 (2 minutes)
+		 */
+		maxDisconnectionDuration?: number;
+		/**
+		 * Whether to skip middlewares upon successful connection state recovery.
+		 *
+		 * @default true
+		 */
+		skipMiddlewares?: boolean;
+	};
+	/**
+	 * Whether to remove child namespaces that have no sockets connected to them
+	 * @default false
+	 */
+	cleanupEmptyChildNamespaces: boolean;
+
+	// TODO: move to engine.io layer
+	pingInterval?: number;
+	pingTimeout?: number;
+	maxPayload?: number;
 }
 
 /**
- * Main Socket.IO Server class with full TypeScript support
+ * Represents a Socket.IO server. // TODO: remake for socket.io-bun
+ *
+ * @example
+ * import { Server } from "socket.io";
+ *
+ * const io = new Server();
+ *
+ * io.on("connection", (socket) => {
+ *   console.log(`socket ${socket.id} connected`);
+ *
+ *   // send an event to the client
+ *   socket.emit("foo", "bar");
+ *
+ *   socket.on("foobar", () => {
+ *     // an event was received from the client
+ *   });
+ *
+ *   // upon disconnection
+ *   socket.on("disconnect", (reason) => {
+ *     console.log(`socket ${socket.id} disconnected due to ${reason}`);
+ *   });
+ * });
+ *
+ * io.listen(3000);
  */
 class Server<
-	ListenEvents extends EventsMap = ClientToServerEvents,
-	EmitEvents extends EventsMap = ServerToClientEvents,
+	/**
+	 * Types for the events received from the clients.
+	 *
+	 * @example
+	 * interface ClientToServerEvents {
+	 *   hello: (arg: string) => void;
+	 * }
+	 *
+	 * const io = new Server<ClientToServerEvents>();
+	 *
+	 * io.on("connection", (socket) => {
+	 *   socket.on("hello", (arg) => {
+	 *     // `arg` is inferred as string
+	 *   });
+	 * });
+	 */
+	ListenEvents extends EventsMap,
+	/**
+	 * Types for the events sent to the clients.
+	 *
+	 * @example
+	 * interface ServerToClientEvents {
+	 *   hello: (arg: string) => void;
+	 * }
+	 *
+	 * const io = new Server<DefaultEventMap, ServerToClientEvents>();
+	 *
+	 * io.emit("hello", "world");
+	 */
+	EmitEvents extends EventsMap,
+	/**
+	 * Types for the events received from and sent to the other servers.
+	 *
+	 * @example
+	 * interface InterServerEvents {
+	 *   ping: (arg: number) => void;
+	 * }
+	 *
+	 * const io = new Server<DefaultEventMap, DefaultEventMap, ServerToClientEvents>();
+	 *
+	 * io.serverSideEmit("ping", 123);
+	 *
+	 * io.on("ping", (arg) => {
+	 *   // `arg` is inferred as number
+	 * });
+	 */
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
+	/**
+	 * Additional properties that can be attached to the socket instance.
+	 *
+	 * Note: any property can be attached directly to the socket instance (`socket.foo = "bar"`), but the `data` object
+	 * will be included when calling {@link Server#fetchSockets}.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.data.eventsCount = 0;
+	 *
+	 *   socket.onAny(() => {
+	 *     socket.data.eventsCount++;
+	 *   });
+	 * });
+	 */
 	SocketData extends DefaultSocketData = DefaultSocketData,
 > extends StrictEventEmitter<
 	/** strict typing */
 	ServerSideEvents,
 	RemoveAcknowledgements<EmitEvents>,
-	ServerReservedEventsMap<ListenEvents, EmitEvents, ServerSideEvents, SocketData>
+	ServerReservedEventsMap<
+		/** strict typing */
+		ListenEvents,
+		EmitEvents,
+		ServerSideEvents,
+		SocketData
+	>
 > {
-	private engine?: BunServer;
+	public readonly sockets: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
+
+	/**
+	 * A reference to the underlying Engine.IO server.
+	 *
+	 * @example
+	 * const clientsCount = io.engine.clientsCount;
+	 *
+	 */
+	engine?: BunServer;
+
+	/** @private */
 	readonly _parser: typeof parser;
+	/** @private */
 	readonly encoder: Encoder;
 
-	public readonly _nsps: Map<string, Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> = new Map();
-	public readonly _clients: Map<string, Client<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> = new Map();
+	/** @private */
+	readonly _nsps: Map<string, Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> = new Map();
+	private parentNsps: Map<ParentNspNameMatchFn, ParentNamespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> = new Map();
+	/**
+	 * A subset of the {@link parentNsps} map, only containing {@link ParentNamespace} which are based on a regular
+	 * expression.
+	 *
+	 * @private
+	 */
+	private parentNamespacesFromRegExp: Map<RegExp, ParentNamespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> = new Map();
 
-	private _path?: string;
+	readonly _clients: Map<string, Client<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> = new Map();
+
 	private _adapter?: AdapterConstructor;
-
-	public readonly sockets: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	private readonly opts: Partial<ServerOptions>;
+	// private eio: Engine; // TODO
+	private _path?: string;
+
 	/** @private */
 	_connectTimeout!: number;
 
@@ -96,20 +241,75 @@ class Server<
 			pingInterval: 25000,
 			pingTimeout: 20000,
 			maxPayload: 1000000,
+			connectionStateRecovery: {
+				maxDisconnectionDuration: 2 * 60 * 1000,
+				skipMiddlewares: true,
+			},
 		},
 	) {
 		super();
-		this.path(opts.path || '/socket.io');
+		this.path(opts.path || '/ws');
 		this.connectTimeout(opts.connectTimeout || 45000);
 		this._parser = opts.parser || parser;
 		this.encoder = new this._parser.Encoder();
-		this.adapter(opts.adapter || Adapter);
 		this.opts = opts;
+		if (opts.connectionStateRecovery) {
+			opts.connectionStateRecovery = Object.assign(
+				{
+					maxDisconnectionDuration: 2 * 60 * 1000,
+					skipMiddlewares: true,
+				},
+				opts.connectionStateRecovery,
+			);
+			this.adapter(opts.adapter || SessionAwareAdapter);
+		} else {
+			this.adapter(opts.adapter || Adapter);
+		}
+		opts.cleanupEmptyChildNamespaces = !!opts.cleanupEmptyChildNamespaces;
 		this.sockets = this.of('/');
 	}
 
 	get _opts() {
 		return this.opts;
+	}
+
+	/**
+	 * Executes the middleware for an incoming namespace not already created on the server.
+	 *
+	 * @param name - name of incoming namespace
+	 * @param auth - the auth parameters
+	 * @param fn - callback
+	 *
+	 * @private
+	 */
+	_checkNamespace(
+		name: string,
+		auth: { [key: string]: any },
+		fn: (nsp: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> | false) => void,
+	): void {
+		if (this.parentNsps.size === 0) return fn(false);
+		const keysIterator = this.parentNsps.keys();
+		const run = () => {
+			const nextFn = keysIterator.next();
+			if (nextFn.done) {
+				return fn(false);
+			}
+			nextFn.value(name, auth, (err, allow) => {
+				if (err || !allow) {
+					return run();
+				}
+				if (this._nsps.has(name)) {
+					// the namespace was created in the meantime
+					debug('dynamic namespace %s already exists', name);
+					return fn(this._nsps.get(name) as Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>);
+				}
+				const namespace = this.parentNsps.get(nextFn.value)!.createChild(name);
+				debug('dynamic namespace %s was created', name);
+				fn(namespace);
+			});
+		};
+
+		run();
 	}
 
 	/**
@@ -124,9 +324,8 @@ class Server<
 	public path(v?: string): this | string {
 		if (!arguments.length) return this._path!;
 		this._path = v!.replace(/\/$/, '');
-
 		// const escapedPath = this._path.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-		// this.clientPathRegex = new RegExp('^' + escapedPath + '/socket\\.io(\\.msgpack|\\.esm)?(\\.min)?\\.js(\\.map)?(?:\\?|$)');
+		// Not using in this package (for now)
 		return this;
 	}
 
@@ -167,12 +366,19 @@ class Server<
 	 * @param opts - options passed to engine.io
 	 * @return self
 	 */
-	attach(srv: BunServer, opts: Partial<ServerOptions> = {}): void {
-		this.engine = srv;
-	}
-
 	listen(srv: BunServer, opts: Partial<ServerOptions> = {}): void {
 		return this.attach(srv, opts);
+	}
+
+	/**
+	 * Attaches socket.io to a bun server.
+	 *
+	 * @param srv - server instance
+	 * @param opts - options passed to engine.io
+	 * @return self
+	 */
+	attach(srv: BunServer, opts: Partial<ServerOptions> = {}): void {
+		this.engine = srv;
 	}
 
 	publish(topic: string, message: string | Uint8Array): boolean {
@@ -218,14 +424,38 @@ class Server<
 		name: string,
 		fn?: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void,
 	): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
+		// @ts-ignore
+		if (typeof name === 'function' || name instanceof RegExp) {
+			const parentNsp = new ParentNamespace(this);
+			debug('initializing parent namespace %s', parentNsp.name);
+			if (typeof name === 'function') {
+				this.parentNsps.set(name, parentNsp);
+			} else {
+				this.parentNsps.set((nsp, conn, next) => next(null, (name as unknown as RegExp).test(nsp)), parentNsp);
+				this.parentNamespacesFromRegExp.set(name, parentNsp);
+			}
+			if (fn) {
+				// @ts-ignore
+				parentNsp.on('connect', fn);
+			}
+			return parentNsp;
+		}
+
 		if (String(name)[0] !== '/') name = '/' + name;
 
 		let nsp = this._nsps.get(name);
 
 		if (!nsp) {
+			for (const [regex, parentNamespace] of this.parentNamespacesFromRegExp) {
+				if (regex.test(name as string)) {
+					debug('attaching namespace %s to parent namespace %s', name, regex);
+					return parentNamespace.createChild(name as string);
+				}
+			}
+
 			debug('initializing namespace %s', name);
 			nsp = new Namespace(this, name);
-			this._nsps.set(name, nsp as any);
+			this._nsps.set(name, nsp);
 
 			if (name !== '/') {
 				// @ts-ignore
@@ -252,6 +482,8 @@ class Server<
 			}),
 		);
 
+		// this.engine.close(); // TODO
+
 		for (const nsp of this._nsps.values()) {
 			nsp.disconnectSockets(true);
 			nsp.adapter.close();
@@ -274,7 +506,13 @@ class Server<
 	 *
 	 * @param fn - the middleware function
 	 */
-	use(fn: MiddlewareFn<SocketData>): this {
+	use(
+		fn: (
+			/** strict types */
+			socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+			next: (err?: ExtendedError) => void,
+		) => void,
+	): this {
 		this.sockets.use(fn);
 		return this;
 	}
@@ -403,7 +641,7 @@ class Server<
 	 *
 	 * @return a new {@link BroadcastOperator} instance for chaining
 	 */
-	get local(): BroadcastOperator<EmitEvents, SocketData> {
+	get local() {
 		return this.sockets.local;
 	}
 
