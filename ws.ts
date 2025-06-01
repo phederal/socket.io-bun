@@ -4,11 +4,12 @@ import type { WSContext } from 'hono/ws';
 import type { Context } from 'hono';
 
 import { Server } from './src';
-import type { ClientToServerEvents, ServerToClientEvents, SocketData } from '#types/socket-types';
+import type { SocketData } from '#types/socket-types';
 import type { DefaultEventsMap } from '#types/typed-events';
 
 // Create typed socket server
-const io = new Server<ClientToServerEvents, ServerToClientEvents, DefaultEventsMap, SocketData>();
+// <Listen, Emit, Reserved, SocketData>
+const io = new Server<any, any, DefaultEventsMap, SocketData>();
 
 // Create WebSocket handler
 export const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket<WSContext>>();
