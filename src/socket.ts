@@ -1,6 +1,6 @@
 import base64id from 'base64id';
 import debugModule from 'debug';
-import type { ServerToClientEvents, ClientToServerEvents, SocketId, Room, AckCallback, SocketData as DefaultSocketData } from '../types/socket-types';
+import type { ServerToClientEvents, ClientToServerEvents, AckCallback, SocketData as DefaultSocketData } from '../types/socket-types';
 import { RESERVED_EVENTS, type DisconnectReason, type Handshake, type SocketReservedEventsMap } from '#types/socket-types';
 import {
 	StrictEventEmitter,
@@ -15,14 +15,16 @@ import {
 	type FirstNonErrorArg,
 	type Last,
 } from '#types/typed-events';
-import type { Adapter } from './adapter';
+import type { Adapter, PrivateSessionId, Session, SocketId, Room } from './adapter';
 import type { Client } from './client';
 import type { Namespace } from './namespace';
-import type { Server } from './server';
+import type { Server } from './';
 import { BroadcastOperator, type BroadcastFlags } from './broadcast';
 import { PacketType, type Packet } from './socket.io-parser';
+import { debugConfig } from '../config';
 
 const debug = debugModule('socket.io:socket');
+debug.enabled = debugConfig.socket;
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -46,15 +48,41 @@ export class Socket<
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
 	SocketData extends DefaultSocketData = DefaultSocketData,
 > extends StrictEventEmitter<ListenEvents, EmitEvents, SocketReservedEventsMap> {
+	/**
+	 * An unique identifier for the session.
+	 */
 	public readonly id: SocketId;
+	/**
+	 * The handshake details.
+	 */
 	public readonly handshake: Handshake;
-	public readonly data: SocketData = {} as SocketData;
+	/**
+	 * Additional information that can be attached to the Socket instance and which will be used in the
+	 * {@link Server.fetchSockets()} method.
+	 */
+	public data: SocketData = {} as SocketData;
+
+	/**
+	 * Whether the socket is currently connected or not.
+	 *
+	 * @example
+	 * io.use((socket, next) => {
+	 *   console.log(socket.connected); // false
+	 *   next();
+	 * });
+	 *
+	 * io.on("connection", (socket) => {
+	 *   console.log(socket.connected); // true
+	 * });
+	 */
 	public connected: boolean = false;
+
+	// TODO: add pid
 
 	private readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	private readonly adapter: Adapter;
-	/** @private */
-	public acks = new Map<number, () => void>();
+
+	private acks = new Map<number, () => void>();
 	private fns: Array<(event: Event, next: (err?: Error) => void) => void> = [];
 	private flags: BroadcastFlags = {};
 	private _anyListeners?: Array<(...args: any[]) => void>;
@@ -64,6 +92,7 @@ export class Socket<
 		readonly nsp: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
 		readonly client: Client<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
 		auth: Record<string, unknown>,
+		// previousSession?: Session,
 	) {
 		super();
 		this.server = nsp.server;
@@ -71,6 +100,8 @@ export class Socket<
 		this.id = client.conn.id;
 		this.adapter = this.nsp.adapter;
 		this.handshake = this.buildHandshake(auth);
+
+		// prevents crash when the socket receives an "error" event without listener
 		this.on('error', () => {});
 	}
 
@@ -80,14 +111,10 @@ export class Socket<
 	 * @private
 	 */
 	private buildHandshake(auth: object = {}): Handshake {
-		const ip =
-			this.client.conn.ctx.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ||
-			this.client.conn.ctx.req.header('X-Real-IP') ||
-			this.client.conn.ctx.req.header('CF-Connecting-IP');
 		return {
 			headers: this.client.conn.ctx.req.header() || {},
 			time: new Date() + '',
-			address: ip ?? '0.0.0.0',
+			address: this.client.conn.ws.raw?.remoteAddress ?? '0.0.0.0',
 			xdomain: !!this.client.conn.ctx.req.header('Origin'),
 			// @ts-ignore
 			secure: !this.client.conn.ctx.req,
@@ -95,10 +122,28 @@ export class Socket<
 			url: this.client.conn.ctx.req.url,
 			// @ts-ignore
 			query: this.client.conn.ctx.req.queries || [],
-			auth,
+			auth: auth,
 		};
 	}
 
+	/**
+	 * Emits to this client.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.emit("hello", "world");
+	 *
+	 *   // all serializable datastructures are supported (no need to call JSON.stringify)
+	 *   socket.emit("hello", 1, "2", { 3: ["4"], 5: Buffer.from([6]) });
+	 *
+	 *   // with an acknowledgement from the client
+	 *   socket.emit("hello", "world", (val) => {
+	 *     // ...
+	 *   });
+	 * });
+	 *
+	 * @return Always returns `true`.
+	 */
 	override emit<Ev extends EventNames<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
 		if (RESERVED_EVENTS.has(ev)) {
 			throw new Error(`"${String(ev)}" is a reserved event name`);
@@ -121,12 +166,32 @@ export class Socket<
 		const flags = Object.assign({}, this.flags);
 		this.flags = {};
 
+		// TODO: add connected state recovered
+
 		this.notifyOutgoingListeners(packet);
 		this.packet(packet, flags);
 
 		return true;
 	}
 
+	/**
+	 * Emits an event and waits for an acknowledgement
+	 *
+	 * @example
+	 * io.on("connection", async (socket) => {
+	 *   // without timeout
+	 *   const response = await socket.emitWithAck("hello", "world");
+	 *
+	 *   // with a specific timeout
+	 *   try {
+	 *     const response = await socket.timeout(1000).emitWithAck("hello", "world");
+	 *   } catch (err) {
+	 *     // the client did not acknowledge the event in the given delay
+	 *   }
+	 * });
+	 *
+	 * @return a Promise that will be fulfilled when the client acknowledges the event
+	 */
 	public emitWithAck<Ev extends EventNamesWithAck<EmitEvents>>(
 		ev: Ev,
 		...args: AllButLast<EventParams<EmitEvents, Ev>>
@@ -167,23 +232,97 @@ export class Socket<
 		});
 	}
 
-	to(room: Room | Room[]): any {
+	/**
+	 * Targets a room when broadcasting.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   // the “foo” event will be broadcast to all connected clients in the “room-101” room, except this socket
+	 *   socket.to("room-101").emit("foo", "bar");
+	 *
+	 *   // the code above is equivalent to:
+	 *   io.to("room-101").except(socket.id).emit("foo", "bar");
+	 *
+	 *   // with an array of rooms (a client will be notified at most once)
+	 *   socket.to(["room-101", "room-102"]).emit("foo", "bar");
+	 *
+	 *   // with multiple chained calls
+	 *   socket.to("room-101").to("room-102").emit("foo", "bar");
+	 * });
+	 *
+	 * @param room - a room, or an array of rooms
+	 * @return a new {@link BroadcastOperator} instance for chaining
+	 */
+	to(room: Room | Room[]) {
 		return this.newBroadcastOperator().to(room);
 	}
 
-	in(room: Room | Room[]): any {
-		this.newBroadcastOperator().in(room);
+	/**
+	 * Targets a room when broadcasting. Similar to `to()`, but might feel clearer in some cases:
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   // disconnect all clients in the "room-101" room, except this socket
+	 *   socket.in("room-101").disconnectSockets();
+	 * });
+	 *
+	 * @param room - a room, or an array of rooms
+	 * @return a new {@link BroadcastOperator} instance for chaining
+	 */
+	in(room: Room | Room[]) {
+		return this.newBroadcastOperator().in(room);
 	}
 
+	/**
+	 * Excludes a room when broadcasting.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   // the "foo" event will be broadcast to all connected clients, except the ones that are in the "room-101" room
+	 *   // and this socket
+	 *   socket.except("room-101").emit("foo", "bar");
+	 *
+	 *   // with an array of rooms
+	 *   socket.except(["room-101", "room-102"]).emit("foo", "bar");
+	 *
+	 *   // with multiple chained calls
+	 *   socket.except("room-101").except("room-102").emit("foo", "bar");
+	 * });
+	 *
+	 * @param room - a room, or an array of rooms
+	 * @return a new {@link BroadcastOperator} instance for chaining
+	 */
 	except(room: Room | Room[]) {
 		return this.newBroadcastOperator().except(room);
 	}
 
+	/**
+	 * Sends a `message` event.
+	 *
+	 * This method mimics the WebSocket.send() method.
+	 *
+	 * @see https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/send
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.send("hello");
+	 *
+	 *   // this is equivalent to
+	 *   socket.emit("message", "hello");
+	 * });
+	 *
+	 * @return self
+	 */
 	send(...args: EventParams<EmitEvents, 'message'>): this {
 		this.emit('message', ...args);
 		return this;
 	}
 
+	/**
+	 * Sends a `message` event. Alias of {@link send}.
+	 *
+	 * @return self
+	 */
 	write(...args: EventParams<EmitEvents, 'message'>): this {
 		this.emit('message', ...args);
 		return this;
@@ -196,23 +335,64 @@ export class Socket<
 	 * @param {Object} opts - options
 	 * @private
 	 */
-	packet(packet: Omit<Packet, 'nsp'> & Partial<Pick<Packet, 'nsp'>>, opts: any = {}): void {
+	packet(
+		/** strict types */
+		packet: Omit<Packet, 'nsp'> & Partial<Pick<Packet, 'nsp'>>,
+		opts: any = {},
+	): void {
 		packet.nsp = this.nsp.name;
 		opts.compress = false !== opts.compress;
 		this.client._packet(packet as Packet, opts);
 	}
 
+	/**
+	 * Joins a room.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   // join a single room
+	 *   socket.join("room1");
+	 *
+	 *   // join multiple rooms
+	 *   socket.join(["room1", "room2"]);
+	 * });
+	 *
+	 * @param {String|Array} rooms - room or array of rooms
+	 * @return a Promise or nothing, depending on the adapter
+	 */
 	join(rooms: Room | Array<Room>): Promise<void> | void {
 		debug('join room %s', rooms);
+
 		return this.adapter.addAll(this.id, new Set(Array.isArray(rooms) ? rooms : [rooms]));
 	}
 
+	/**
+	 * Leaves a room.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   // leave a single room
+	 *   socket.leave("room1");
+	 *
+	 *   // leave multiple rooms
+	 *   socket.leave("room1").leave("room2");
+	 * });
+	 *
+	 * @param {String} room
+	 * @return a Promise or nothing, depending on the adapter
+	 */
 	leave(room: Room): Promise<void> | void {
 		debug('leave room %s', room);
+
 		return this.adapter.del(this.id, room);
 	}
 
-	leaveAll(): Promise<void> | void {
+	/**
+	 * Leave all rooms.
+	 *
+	 * @private
+	 */
+	private leaveAll(): Promise<void> | void {
 		return this.adapter.delAll(this.id);
 	}
 
@@ -246,15 +426,19 @@ export class Socket<
 			case PacketType.EVENT:
 				this.onevent(packet);
 				break;
+
 			case PacketType.BINARY_EVENT:
 				this.onevent(packet);
 				break;
+
 			case PacketType.ACK:
 				this.onack(packet);
 				break;
+
 			case PacketType.BINARY_ACK:
 				this.onack(packet);
 				break;
+
 			case PacketType.DISCONNECT:
 				this.ondisconnect();
 				break;
@@ -300,11 +484,13 @@ export class Socket<
 			if (sent) return;
 			const args = Array.prototype.slice.call(arguments);
 			debug('sending ack %j', args);
+
 			self.packet({
 				id: id,
 				type: PacketType.ACK,
 				data: args,
 			});
+
 			sent = true;
 		};
 	}
@@ -361,6 +547,9 @@ export class Socket<
 		if (!this.connected) return this;
 		debug('closing socket - reason %s', reason);
 		this.emitReserved('disconnecting', reason, description);
+
+		// TODO: add persist session
+
 		this._cleanup();
 		this.client._remove(this);
 		this.connected = false;
@@ -405,7 +594,7 @@ export class Socket<
 	 * @param {Boolean} close - if `true`, closes the underlying connection
 	 * @return self
 	 */
-	public disconnect(close = false): this {
+	disconnect(close = false): this {
 		if (!this.connected) return this;
 		if (close) {
 			this.client._disconnect();
@@ -416,25 +605,92 @@ export class Socket<
 		return this;
 	}
 
-	public compress(compress: boolean): this {
+	/**
+	 * Sets the compress flag.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.compress(false).emit("hello");
+	 * });
+	 *
+	 * @param {Boolean} compress - if `true`, compresses the sending data
+	 * @return {Socket} self
+	 */
+	compress(compress: boolean): this {
 		this.flags.compress = compress;
 		return this;
 	}
 
-	public get volatile(): this {
+	/**
+	 * Sets a modifier for a subsequent event emission that the event data may be lost if the client is not ready to
+	 * receive messages (because of network slowness or other issues, or because they’re connected through long polling
+	 * and is in the middle of a request-response cycle).
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.volatile.emit("hello"); // the client may or may not receive it
+	 * });
+	 *
+	 * @return {Socket} self
+	 */
+	get volatile(): this {
 		this.flags.volatile = true;
 		return this;
 	}
 
-	public get broadcast() {
+	/**
+	 * Sets a modifier for a subsequent event emission that the event data will only be broadcast to every sockets but the
+	 * sender.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   // the “foo” event will be broadcast to all connected clients, except this socket
+	 *   socket.broadcast.emit("foo", "bar");
+	 * });
+	 *
+	 * @return a new {@link BroadcastOperator} instance for chaining
+	 */
+	get broadcast() {
 		return this.newBroadcastOperator();
 	}
 
-	public get local() {
+	/**
+	 * Sets a modifier for a subsequent event emission that the event data will only be broadcast to the current node.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   // the “foo” event will be broadcast to all connected clients on this node, except this socket
+	 *   socket.local.emit("foo", "bar");
+	 * });
+	 *
+	 * @return a new {@link BroadcastOperator} instance for chaining
+	 */
+	get local() {
 		return this.newBroadcastOperator().local;
 	}
 
-	timeout(timeout: number): Socket<ListenEvents, DecorateAcknowledgements<EmitEvents>, ServerSideEvents, SocketData> {
+	/**
+	 * Sets a modifier for a subsequent event emission that the callback will be called with an error when the
+	 * given number of milliseconds have elapsed without an acknowledgement from the client:
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.timeout(5000).emit("my-event", (err) => {
+	 *     if (err) {
+	 *       // the client did not acknowledge the event in the given delay
+	 *     }
+	 *   });
+	 * });
+	 *
+	 * @returns self
+	 */
+	timeout(timeout: number): Socket<
+		/** strict types */
+		ListenEvents,
+		DecorateAcknowledgements<EmitEvents>,
+		ServerSideEvents,
+		SocketData
+	> {
 		this.flags.timeout = timeout;
 		return this;
 	}
@@ -447,11 +703,10 @@ export class Socket<
 	 */
 	private dispatch(event: Event): void {
 		debug('dispatching an event %j', event);
+		debug('available listeners: %j', this.eventNames());
 		this.run(event, (err) => {
 			process.nextTick(() => {
-				if (err) {
-					return this._onerror(err);
-				}
+				if (err) return this._onerror(err);
 				if (this.connected) {
 					super.emitUntyped.apply(this, event);
 				} else {
@@ -461,7 +716,30 @@ export class Socket<
 		});
 	}
 
-	public use(fn: (event: Event, next: (err?: Error) => void) => void): this {
+	/**
+	 * Sets up socket middleware.
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   socket.use(([event, ...args], next) => {
+	 *     if (isUnauthorized(event)) {
+	 *       return next(new Error("unauthorized event"));
+	 *     }
+	 *     // do not forget to call next
+	 *     next();
+	 *   });
+	 *
+	 *   socket.on("error", (err) => {
+	 *     if (err && err.message === "unauthorized event") {
+	 *       socket.disconnect();
+	 *     }
+	 *   });
+	 * });
+	 *
+	 * @param {Function} fn - middleware function (event, next)
+	 * @return {Socket} self
+	 */
+	use(fn: (event: Event, next: (err?: Error) => void) => void): this {
 		this.fns.push(fn);
 		return this;
 	}
@@ -495,6 +773,27 @@ export class Socket<
 		return !this.connected;
 	}
 
+	/**
+	 * A reference to the request that originated the underlying Engine.IO Socket.
+	 */
+	public get ctx() {
+		return this.client.ctx;
+	}
+
+	/**
+	 * A reference to the underlying Client transport connection (Engine.IO Socket object).
+	 *
+	 * @example
+	 * io.on("connection", (socket) => {
+	 *   // Not compatible with this socket.io-bun version
+	 *   console.log(socket.conn.transport.name); // prints "polling" or "websocket"
+	 *
+	 *   // Not compatible with this socket.io-bun version
+	 *   socket.conn.once("upgrade", () => {
+	 *     console.log(socket.conn.transport.name); // prints "websocket"
+	 *   });
+	 * });
+	 */
 	get conn() {
 		return this.client.conn;
 	}
