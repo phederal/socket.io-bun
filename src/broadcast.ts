@@ -14,8 +14,6 @@ import type { Adapter, SocketId, Room } from './socket.io-adapter';
 import { PacketType } from './socket.io-parser';
 import type { Socket } from './socket';
 
-const isProduction = process.env.NODE_ENV === 'production';
-
 export interface BroadcastFlags {
 	volatile?: boolean;
 	compress?: boolean;

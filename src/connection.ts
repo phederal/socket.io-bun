@@ -51,6 +51,7 @@ export class Connection<
 		this.server = server;
 		this.ctx = ctx;
 		this.data = data || {};
+		this.handshake = this._handshake();
 	}
 
 	get readyState(): WebSocketReadyState {
@@ -131,7 +132,7 @@ export class Connection<
 		if (nspName === '') nspName = '/';
 
 		// Send Engine.IO handshake
-		this.send(this._handshake());
+		this.send(this.handshake);
 
 		debug('Starting ping/pong for %s (interval: %dms, timeout: %dms)', this.id, this.server._opts.pingInterval, this.server._opts.pingTimeout);
 		this.startPingPong();
