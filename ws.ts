@@ -3,7 +3,7 @@ import type { ServerWebSocket } from 'bun';
 import type { WSContext } from 'hono/ws';
 import type { Context } from 'hono';
 
-import { Server } from '@/server';
+import { Server } from './src';
 import type { ClientToServerEvents, ServerToClientEvents, SocketData } from '#types/socket-types';
 import type { DefaultEventsMap } from '#types/typed-events';
 
