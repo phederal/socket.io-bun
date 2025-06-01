@@ -173,7 +173,6 @@ export class Connection<
 	}
 
 	async onMessage(event: MessageEvent<WSMessageReceive>, ws?: WSContext<ServerWebSocket<WSContext>>) {
-		console.log('♻️ Connection.onMessage called with:', event.data);
 		try {
 			const packet = decodePacket(event.data);
 			debug('Received Engine.IO packet from %s: %j', this.id, packet);
