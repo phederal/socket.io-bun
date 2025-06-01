@@ -1,6 +1,6 @@
 import base64id from 'base64id';
 import debugModule from 'debug';
-import type { ServerToClientEvents, ClientToServerEvents, AckCallback, SocketData as DefaultSocketData } from '../types/socket-types';
+import type { SocketData as DefaultSocketData } from '../types/socket-types';
 import { RESERVED_EVENTS, type DisconnectReason, type Handshake, type SocketReservedEventsMap } from '#types/socket-types';
 import {
 	StrictEventEmitter,
