@@ -138,9 +138,6 @@ export class Connection<
 
 		// Create client
 		this.client = new Client(this, this.server);
-
-		// Emit connection event
-		this.emit('open', { event, ws, namespace: nspName });
 	}
 
 	private startPingPong() {

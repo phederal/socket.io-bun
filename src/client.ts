@@ -13,8 +13,6 @@ import { debugConfig } from '../config';
 const debug = debugModule('socket.io:client');
 debug.enabled = debugConfig.client;
 
-const isProduction = process.env.NODE_ENV === 'production';
-
 type CloseReason = 'transport error' | 'transport close' | 'forced close' | 'ping timeout' | 'parse error';
 
 interface WriteOptions {
@@ -79,9 +77,6 @@ export class Client<
 		this.conn.on('data', this.ondata);
 		this.conn.on('error', this.onerror);
 		this.conn.on('close', this.onclose);
-		this.conn.on('open', () => {
-			this.connect('/');
-		});
 
 		this.connectTimeout = setTimeout(() => {
 			if (this.nsps.size === 0) {
@@ -101,20 +96,25 @@ export class Client<
 	 * @private
 	 */
 	private connect(name: string, auth: Record<string, unknown> = {}): void {
-		if (!name.startsWith('/')) {
-			name = '/' + name;
-		}
 		if (this.server._nsps.has(name)) {
 			debug('connecting to namespace %s', name);
 			return this.doConnect(name, auth);
-		} else {
-			debug('namespace %s not found', name);
-			// send error
-			this._packet({
-				type: PacketType.CONNECT_ERROR,
-				nsp: name,
-			});
 		}
+
+		this.server._checkNamespace(name, auth, (dynamicNspName: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> | false) => {
+			if (dynamicNspName) {
+				this.doConnect(name, auth);
+			} else {
+				debug('creation of namespace %s was denied', name);
+				this._packet({
+					type: PacketType.CONNECT_ERROR,
+					nsp: name,
+					data: {
+						message: 'Invalid namespace',
+					},
+				});
+			}
+		});
 	}
 
 	/**
@@ -132,6 +132,10 @@ export class Client<
 			this.sockets.set(socket.id, socket);
 			this.nsps.set(nsp.name, socket);
 			debug('socket %s connected to namespace %s', socket.id, nsp.name);
+			if (this.connectTimeout) {
+				clearTimeout(this.connectTimeout);
+				this.connectTimeout = undefined;
+			}
 		});
 	}
 
@@ -278,6 +282,10 @@ export class Client<
 					break;
 				case PacketType.CONNECT_ERROR:
 					debug('connect error for namespace %s: %s', namespace, packet.data);
+					const socket = this.nsps.get(namespace);
+					process.nextTick(function () {
+						if (socket) socket._onpacket(packet);
+					});
 					break;
 				default:
 					debug('unknown packet type: %s', packet.type);
@@ -331,6 +339,7 @@ export class Client<
 
 		this.sockets.clear();
 		this.nsps.clear();
+		this.decoder.destroy();
 	}
 
 	/**
@@ -342,7 +351,6 @@ export class Client<
 		this.conn.removeListener('error', this.onerror);
 		this.conn.removeListener('close', this.onclose);
 		this.decoder.removeListener('decoded', this.ondecoded);
-		this.decoder.destroy();
 
 		if (this.connectTimeout) {
 			clearTimeout(this.connectTimeout);
