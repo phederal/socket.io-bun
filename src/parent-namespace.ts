@@ -2,8 +2,8 @@ import { Namespace } from './namespace';
 import type { Server } from './index'; // TODO: add type RemoteSocket
 import type { EventParams, EventsMap, DefaultEventsMap, EventNamesWithoutAck } from '#types/typed-events';
 import type { SocketData as DefaultSocketData } from '#types/socket-types';
-import { Adapter } from './adapter';
-import type { BroadcastOptions } from './adapter';
+import { Adapter } from './socket.io-adapter';
+import type { BroadcastOptions } from './socket.io-adapter';
 import debugModule from 'debug';
 
 const debug = debugModule('socket.io:parent-namespace');

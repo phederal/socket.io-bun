@@ -7,7 +7,7 @@ import type { Namespace } from './namespace';
 import type { EventsMap } from '#types/typed-events';
 import type { SocketData as DefaultSocketData } from '#types/socket-types';
 import type { Connection } from './connection';
-import type { SocketId } from './adapter';
+import type { SocketId } from './socket.io-adapter';
 import { debugConfig } from '../config';
 
 const debug = debugModule('socket.io:client');

@@ -4,7 +4,7 @@ import type { ServerWebSocket } from 'bun';
 import type { WSContext } from 'hono/ws';
 import { Socket } from './socket';
 import { BroadcastOperator } from './broadcast';
-import { Adapter, type SocketId, type Room } from './adapter';
+import { Adapter, type SocketId, type Room } from './socket.io-adapter';
 import { StrictEventEmitter } from '#types/typed-events';
 import type { Server } from './';
 

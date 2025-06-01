@@ -15,7 +15,7 @@ import {
 	type FirstNonErrorArg,
 	type Last,
 } from '#types/typed-events';
-import type { Adapter, PrivateSessionId, Session, SocketId, Room } from './adapter';
+import type { Adapter, PrivateSessionId, Session, SocketId, Room } from './socket.io-adapter';
 import type { Client } from './client';
 import type { Namespace } from './namespace';
 import type { Server } from './';

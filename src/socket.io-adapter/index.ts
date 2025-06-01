@@ -1,11 +1,11 @@
 import { EventEmitter } from 'events';
 import debugModule from 'debug';
-import type { SocketData as DefaultSocketData } from '../types/socket-types';
-import type { Socket } from './socket';
-import type { Namespace } from './namespace';
+import type { SocketData as DefaultSocketData } from '../../types/socket-types';
+import type { Socket } from '../socket';
+import type { Namespace } from '../namespace';
 import type { DefaultEventsMap, EventsMap } from '#types/typed-events';
-import { debugConfig } from '../config';
-import { yeast } from './socket.io-adapter/yeast';
+import { debugConfig } from '../../config';
+import { yeast } from './yeast';
 
 const debug = debugModule('socket.io:adapter');
 debug.enabled = debugConfig.adapter;
