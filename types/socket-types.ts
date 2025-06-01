@@ -3,8 +3,6 @@ import type { IncomingHttpHeaders } from 'http';
 import type { ParsedUrlQuery } from 'querystring';
 import type { EventsMap } from './typed-events';
 
-// Room and socket ID types
-export type SocketId = string;
 export type Room = string;
 
 // Socket data type for socket.data attribute
