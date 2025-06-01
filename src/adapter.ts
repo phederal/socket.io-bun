@@ -1,31 +1,55 @@
 import { EventEmitter } from 'events';
 import debugModule from 'debug';
-import type { SocketId, Room, SocketData as DefaultSocketData } from '../types/socket-types';
+import type { SocketData as DefaultSocketData } from '../types/socket-types';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';
 import type { DefaultEventsMap, EventsMap } from '#types/typed-events';
+import { debugConfig } from '../config';
 
 const debug = debugModule('socket.io:adapter');
+debug.enabled = debugConfig.adapter;
 
 const SEPARATOR = '\x1f'; // see https://en.wikipedia.org/wiki/Delimiter#ASCII_delimited_text
 
-const isProduction = process.env.NODE_ENV === 'production';
+/**
+ * A public ID, sent by the server at the beginning of the Socket.IO session and which can be used for private messaging
+ */
+export type SocketId = string;
+/**
+ * A private ID, sent by the server at the beginning of the Socket.IO session and used for connection state recovery
+ * upon reconnection
+ */
+export type PrivateSessionId = string;
+
+// we could extend the Room type to "string | number", but that would be a breaking change
+// related: https://github.com/socketio/socket.io-redis-adapter/issues/418
+export type Room = string;
+
+export interface BroadcastFlags {
+	volatile?: boolean;
+	compress?: boolean;
+	local?: boolean;
+	broadcast?: boolean;
+	binary?: boolean;
+	timeout?: number;
+}
 
 export interface BroadcastOptions {
 	rooms: Set<Room>;
 	except?: Set<SocketId>;
-	flags?: {
-		volatile?: boolean;
-		compress?: boolean;
-		local?: boolean;
-		broadcast?: boolean;
-	};
+	flags?: BroadcastFlags;
 	sender?: Socket;
 }
 
-/**
- * Adapter for managing rooms and broadcasting using Bun's native pub/sub
- */
+interface SessionToPersist {
+	sid: SocketId;
+	pid: PrivateSessionId;
+	rooms: Room[];
+	data: unknown;
+}
+
+export type Session = SessionToPersist & { missedPackets: unknown[][] };
+
 export class Adapter<
 	ListenEvents extends EventsMap = DefaultEventsMap,
 	EmitEvents extends EventsMap = DefaultEventsMap,
@@ -36,7 +60,12 @@ export class Adapter<
 	private sids: Map<SocketId, Set<Room>> = new Map();
 	private readonly encoder;
 
-	constructor(public readonly nsp: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) {
+	/**
+	 * In-memory adapter constructor.
+	 *
+	 * @param {Namespace} nsp
+	 */
+	constructor(readonly nsp: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) {
 		super();
 		this.encoder = nsp.server.encoder;
 	}
@@ -47,7 +76,7 @@ export class Adapter<
 	public init(): Promise<void> | void {}
 	public close(): Promise<void> | void {}
 	public serverCount(): Promise<number> {
-		return Promise.resolve(-1);
+		return Promise.resolve(1);
 	}
 
 	/**
@@ -139,7 +168,7 @@ export class Adapter<
 			this.emit('delete-room', room);
 		}
 
-		/** compatible with bun */
+		/** compatible with bun pub/sub */
 		const socket = this.nsp.sockets.get(id);
 		if (socket) {
 			const topic = `${this.nsp.name}${SEPARATOR}${room}`;
@@ -151,7 +180,16 @@ export class Adapter<
 	}
 
 	/**
-	 * Broadcast packet using direct socket sending and Bun's publish
+	 * Broadcasts a packet.
+	 *
+	 * Options:
+	 *  - `flags` {Object} flags for this packet
+	 *  - `except` {Array} sids that should be excluded
+	 *  - `rooms` {Array} list of rooms to broadcast to
+	 *
+	 * @param {Object} packet   the packet object
+	 * @param {Object} opts     the options
+	 * @public
 	 */
 	broadcast(packet: any, opts: BroadcastOptions): void {
 		// TODO: Remake this with using engine.io-parser encoder for encode packets from client or server.publish
@@ -174,6 +212,7 @@ export class Adapter<
 				socket.client.writeToEngine(encodedPackets, packetOpts);
 			});
 		} else {
+			/** compatible with bun pub/sub */
 			if (opts.rooms.size <= 1) {
 				const topic = opts.rooms.size === 0 ? this.nsp.name : `${this.nsp.name}${SEPARATOR}${opts.rooms.keys().next().value}`;
 				encodedPackets.forEach((encodedPacket) => {
@@ -202,7 +241,28 @@ export class Adapter<
 		}
 	}
 
-	broadcastWithAck(packet: any, opts: BroadcastOptions, clientCountCallback: (clientCount: number) => void, ack: (...args: any[]) => void) {
+	/**
+	 * Broadcasts a packet and expects multiple acknowledgements.
+	 *
+	 * Options:
+	 *  - `flags` {Object} flags for this packet
+	 *  - `except` {Array} sids that should be excluded
+	 *  - `rooms` {Array} list of rooms to broadcast to
+	 *
+	 * @param {Object} packet   the packet object
+	 * @param {Object} opts     the options
+	 * @param clientCountCallback - the number of clients that received the packet
+	 * @param ack                 - the callback that will be called for each client response
+	 *
+	 * @public
+	 */
+	broadcastWithAck(
+		/** strict types */
+		packet: any,
+		opts: BroadcastOptions,
+		clientCountCallback: (clientCount: number) => void,
+		ack: (...args: any[]) => void,
+	) {
 		const flags = opts.flags || {};
 		const packetOpts = {
 			preEncoded: true,
@@ -211,6 +271,7 @@ export class Adapter<
 		};
 
 		packet.nsp = this.nsp.name;
+		// we can use the same id for each packet, since the _ids counter is common (no duplicate)
 		packet.id = this.nsp._ids++;
 
 		const encodedPackets = this.encoder.encode(packet);
@@ -221,7 +282,7 @@ export class Adapter<
 			// track the total number of acknowledgements that are expected
 			clientCount++;
 			// call the ack callback for each client response
-			socket.acks.set(packet.id, ack);
+			socket['acks'].set(packet.id, ack);
 			if (typeof socket.notifyOutgoingListeners === 'function') {
 				socket.notifyOutgoingListeners(packet);
 			}
@@ -350,6 +411,11 @@ export class Adapter<
 		}
 		return exceptSids;
 	}
+
+	// TODO: add cimpitability cluster
+	private serverSideEmit() {}
+	private persistSession() {}
+	private restoreSession() {}
 }
 
 // TODO: Add serving files

@@ -1,15 +1,19 @@
 import debugModule from 'debug';
 import * as parser from './socket.io-parser';
 import { PacketType, type Decoder, type Encoder, type Packet } from './socket.io-parser';
-import type { Server } from './server';
+import type { Server } from './';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';
 import type { EventsMap } from '#types/typed-events';
-import type { SocketData as DefaultSocketData, SocketId } from '#types/socket-types';
+import type { SocketData as DefaultSocketData } from '#types/socket-types';
 import type { Connection } from './connection';
+import type { SocketId } from './adapter';
+import { debugConfig } from '../config';
+
+const debug = debugModule('socket.io:client');
+debug.enabled = debugConfig.client;
 
 const isProduction = process.env.NODE_ENV === 'production';
-const debug = debugModule('socket.io:client');
 
 type CloseReason = 'transport error' | 'transport close' | 'forced close' | 'ping timeout' | 'parse error';
 
@@ -27,6 +31,7 @@ export class Client<
 	ServerSideEvents extends EventsMap,
 	SocketData extends DefaultSocketData = any,
 > {
+	private readonly id: string;
 	public readonly conn: Connection<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	public readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	public readonly encoder: Encoder;
@@ -45,7 +50,17 @@ export class Client<
 		this.server = server;
 		this.encoder = server.encoder;
 		this.decoder = new server._parser.Decoder();
+		this.id = conn.id;
 		this.setup();
+	}
+
+	/**
+	 * @return the reference to the request that originated the Engine.IO connection
+	 *
+	 * @public
+	 */
+	public get ctx() {
+		return this.conn.ctx;
 	}
 
 	/**
@@ -67,6 +82,15 @@ export class Client<
 		this.conn.on('open', () => {
 			this.connect('/');
 		});
+
+		this.connectTimeout = setTimeout(() => {
+			if (this.nsps.size === 0) {
+				debug('no namespace joined yet, close the client');
+				this.close();
+			} else {
+				debug('the client has already joined a namespace, nothing to do');
+			}
+		}, this.server._connectTimeout);
 	}
 
 	/**

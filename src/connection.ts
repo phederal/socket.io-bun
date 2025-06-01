@@ -2,17 +2,18 @@ import { EventEmitter } from 'events';
 import { type Packet, encodePacket, decodePacket } from 'engine.io-parser';
 import debugModule from 'debug';
 import type { SocketData as DefaultSocketData } from '#types/socket-types';
-import type { Server } from './server';
+import type { Server } from './';
 import type { ServerWebSocket, WebSocketReadyState } from 'bun';
 import type { Context } from 'hono';
 import type { WSContext, WSMessageReceive } from 'hono/ws';
 import { Client } from './client';
 import type { EventsMap } from '#types/typed-events';
+import { debugConfig } from '../config';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
 const debug = debugModule('engine:socket');
-debug.enabled = !isProduction;
+debug.enabled = debugConfig.connection;
 
 export interface SendOptions {
 	compress?: boolean;
@@ -172,6 +173,7 @@ export class Connection<
 	}
 
 	async onMessage(event: MessageEvent<WSMessageReceive>, ws?: WSContext<ServerWebSocket<WSContext>>) {
+		console.log('♻️ Connection.onMessage called with:', event.data);
 		try {
 			const packet = decodePacket(event.data);
 			debug('Received Engine.IO packet from %s: %j', this.id, packet);

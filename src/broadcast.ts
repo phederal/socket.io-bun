@@ -9,16 +9,8 @@ import type {
 	Last,
 	TypedEventBroadcaster,
 } from '#types/typed-events';
-import {
-	type ServerToClientEvents,
-	type SocketId,
-	type Room,
-	type AckCallback,
-	type SocketData as DefaultSocketData,
-	type Handshake,
-	RESERVED_EVENTS,
-} from '../types/socket-types';
-import type { Adapter } from './adapter';
+import { type ServerToClientEvents, type AckCallback, type SocketData as DefaultSocketData, type Handshake, RESERVED_EVENTS } from '../types/socket-types';
+import type { Adapter, SocketId, Room } from './adapter';
 import { PacketType } from './socket.io-parser';
 import type { Socket } from './socket';
 
