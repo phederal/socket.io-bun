@@ -8,7 +8,7 @@ import { Adapter, type SocketId, type Room } from './adapter';
 import { StrictEventEmitter } from '#types/typed-events';
 import type { Server } from './';
 
-import type { ServerToClientEvents, ClientToServerEvents, Handshake, AckCallback, SocketData as DefaultSocketData } from '../types/socket-types';
+import type { Handshake, SocketData as DefaultSocketData } from '../types/socket-types';
 import type {
 	RemoveAcknowledgements,
 	EventsMap,
@@ -22,8 +22,6 @@ import { debugConfig } from '../config';
 
 const debug = debugModule('socket.io:namespace');
 debug.enabled = debugConfig.namespace;
-
-const isProduction = process.env.NODE_ENV === 'production';
 
 export interface ExtendedError extends Error {
 	data?: any;
@@ -54,11 +52,6 @@ export const RESERVED_EVENTS: ReadonlySet<string | Symbol> = new Set<
 	/** strict typing */
 	keyof ServerReservedEventsMap<never, never, never, never>
 >(<const>['connect', 'connection', 'new_namespace']);
-
-type MiddlewareFn<ListenEvents extends EventsMap, EmitEvents extends EventsMap, ServerSideEvents extends EventsMap, SocketData extends DefaultSocketData> = (
-	socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
-	next: (err?: Error) => void,
-) => void;
 
 /**
  * A Namespace is a communication channel that allows you to split the logic of your application over a single shared
@@ -114,8 +107,8 @@ type MiddlewareFn<ListenEvents extends EventsMap, EmitEvents extends EventsMap, 
  * ```
  */
 export class Namespace<
-	ListenEvents extends EventsMap = ClientToServerEvents,
-	EmitEvents extends EventsMap = ServerToClientEvents,
+	ListenEvents extends EventsMap,
+	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
 	SocketData extends DefaultSocketData = DefaultSocketData,
 > extends StrictEventEmitter<

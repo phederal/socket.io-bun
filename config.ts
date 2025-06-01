@@ -3,6 +3,7 @@ export const debugConfig = {
 	client: false,
 	connection: true,
 	namespace: false,
+	parentNamespace: false,
 	server: false,
 	socket: true,
 };
