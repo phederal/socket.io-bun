@@ -286,9 +286,8 @@ export class Socket extends EventEmitter {
 
 	/**
 	 * Sends a packet.
-	 * // TODO: fix arg "type" ts types
 	 */
-	private sendPacket(type: PacketType | string | Buffer<ArrayBufferLike>, data?: Packet['data'], options?: Packet['options'], callback?: any) {
+	private sendPacket(type: PacketType, data?: Packet['data'], options?: Packet['options'], callback?: any) {
 		if ('function' === typeof options) {
 			callback = options;
 			options = undefined;
