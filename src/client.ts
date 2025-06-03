@@ -1,6 +1,7 @@
 import debugModule from 'debug';
 import * as parser from './socket.io-parser';
 import { PacketType, type Decoder, type Encoder, type Packet } from './socket.io-parser';
+import type { Socket as RawSocket } from './engine.io';
 import type { Server } from './';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';
@@ -30,7 +31,7 @@ export class Client<
 	SocketData extends DefaultSocketData = any,
 > {
 	private readonly id: string;
-	public readonly conn: Connection<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
+	public readonly conn: RawSocket;
 	public readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	public readonly encoder: Encoder;
 	public readonly decoder: Decoder;
@@ -41,7 +42,7 @@ export class Client<
 
 	constructor(
 		/** strict types */
-		conn: Connection<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+		conn: RawSocket,
 		server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
 	) {
 		this.conn = conn;

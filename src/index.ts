@@ -5,6 +5,7 @@ import { Namespace, type ExtendedError, type ServerReservedEventsMap } from './n
 import { BroadcastOperator } from './broadcast';
 import { Connection } from './connection';
 import { Adapter, SessionAwareAdapter, type Room } from './socket.io-adapter';
+import type { ServerOptions as EngineOptions, AttachOptions } from './engine.io/server';
 import type { Server as BunServer, ServerWebSocketSendStatus } from 'bun';
 import type { RESERVED_EVENTS, SocketData as DefaultSocketData, DisconnectReason } from '../types/socket-types';
 import {
@@ -22,11 +23,13 @@ import {
 } from '#types/typed-events';
 import { Socket } from './socket';
 import type { Context } from 'hono';
-import type { Client } from './client';
+import { Client } from './client';
 import * as parser from './socket.io-parser';
 import type { Encoder } from './socket.io-parser';
 import { debugConfig } from '../config';
 import { ParentNamespace } from './parent-namespace';
+import { Server as Engine } from './engine.io';
+import type { WSContext } from 'hono/ws';
 
 const debug = debugModule('socket.io:server');
 debug.enabled = debugConfig.server;
@@ -203,7 +206,8 @@ class Server<
 	 * const clientsCount = io.engine.clientsCount;
 	 *
 	 */
-	engine?: BunServer;
+	engine!: Engine;
+	server!: BunServer;
 
 	/** @private */
 	readonly _parser: typeof parser;
@@ -225,7 +229,6 @@ class Server<
 
 	private _adapter?: AdapterConstructor;
 	private readonly opts: Partial<ServerOptions>;
-	// private eio: Engine; // TODO
 	private _path?: string;
 
 	/** @private */
@@ -367,26 +370,63 @@ class Server<
 	 * @return self
 	 */
 	listen(srv: BunServer, opts: Partial<ServerOptions> = {}): void {
-		return this.attach(srv, opts);
+		this.attach(srv, opts);
 	}
 
 	/**
 	 * Attaches socket.io to a bun server.
+	 * Initialize engine server.
 	 *
 	 * @param srv - server instance
 	 * @param opts - options passed to engine.io
 	 * @return self
 	 */
 	attach(srv: BunServer, opts: Partial<ServerOptions> = {}): void {
-		this.engine = srv;
+		Object.assign(opts, this.opts);
+		// set engine.io path to `/socket.io`
+		opts.path = opts.path || this._path;
+		this.initEngine(srv, opts);
 	}
 
-	publish(topic: string, message: string | Uint8Array): boolean {
-		if (!this.engine) {
-			console.warn('[SocketServer] Bun server not set, cannot publish');
-			return false;
-		}
-		return <ServerWebSocketSendStatus>this.engine.publish(topic, message) > 0;
+	/**
+	 * Initialize engine
+	 *
+	 * @param srv - the server to attach to
+	 * @param opts - options passed to engine.io
+	 * @private
+	 */
+	private initEngine(srv: BunServer, opts: EngineOptions & AttachOptions): void {
+		// initialize engine
+		debug('creating engine.io instance with opts %j', opts);
+
+		this.engine = new Engine({
+			pingInterval: opts.pingInterval || 25000,
+			pingTimeout: opts.pingTimeout || 20000,
+			maxHttpBufferSize: opts.maxPayload || 1000000,
+		});
+
+		// Export http server
+		this.server = srv;
+
+		// bind to engine events
+		this.bind(this.engine);
+	}
+
+	/**
+	 * Binds socket.io to an engine.io instance.
+	 *
+	 * @param engine engine.io (or compatible) server
+	 * @return self
+	 */
+	public bind(engine: any): this {
+		// TODO apply strict types to the engine: "connection" event, `close()` and a method to serve static content
+		//  this would allow to provide any custom engine, like one based on Deno or Bun built-in HTTP server
+		engine.on('connection', this.onconnection.bind(this));
+		engine.on('connection', (conn: Socket) => {
+			const client = new Client(conn, this);
+			this._clients.set(conn.id, client);
+		});
+		return this;
 	}
 
 	/**
@@ -397,8 +437,23 @@ class Server<
 	 * @return Connection
 	 * @private
 	 */
-	onconnection(c: Context, data?: SocketData): Connection<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
-		return new Connection<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(base64id.generateId(), this, c, data);
+	onconnection(c: Context, data?: SocketData) {
+		// return new Connection<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(base64id.generateId(), this, c, data);
+		const esocket = this.engine.handleRequest(c);
+		return {
+			onOpen: (event: Event, ws: WSContext) => esocket.transport.onOpen(ws),
+			onMessage: (event: Event, ws: WSContext) => esocket.transport.onMessage?.(event.data),
+			onClose: (event: Event, ws: WSContext) => esocket.close(),
+			onError: (event: Event, ws: WSContext) => esocket.emit('error', new Error('WebSocket error')),
+		};
+	}
+
+	publish(topic: string, message: string | Uint8Array): boolean {
+		if (!this.engine) {
+			console.warn('[SocketServer] Bun server not set, cannot publish');
+			return false;
+		}
+		return <ServerWebSocketSendStatus>this.server.publish(topic, message) > 0;
 	}
 
 	/**

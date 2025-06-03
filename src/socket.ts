@@ -113,7 +113,7 @@ export class Socket<
 	private buildHandshake(auth: object = {}): Handshake {
 		return {
 			headers: this.client.conn.ctx.req.header() || {},
-			time: new Date() + '',
+			time: new Date().toISOString(),
 			address: this.client.conn.ws.raw?.remoteAddress ?? '0.0.0.0',
 			xdomain: !!this.client.conn.ctx.req.header('Origin'),
 			// @ts-ignore
@@ -774,13 +774,6 @@ export class Socket<
 	}
 
 	/**
-	 * A reference to the request that originated the underlying Engine.IO Socket.
-	 */
-	public get ctx() {
-		return this.client.ctx;
-	}
-
-	/**
 	 * A reference to the underlying Client transport connection (Engine.IO Socket object).
 	 *
 	 * @example
@@ -799,7 +792,14 @@ export class Socket<
 	}
 
 	get ws() {
-		return this.client.conn.ws.raw!;
+		return this.client.conn.ws;
+	}
+
+	/**
+	 * A reference to the request that originated the underlying Engine.IO Socket.
+	 */
+	get ctx() {
+		return this.client.conn.ctx;
 	}
 
 	/**

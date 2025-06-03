@@ -20,6 +20,10 @@ export interface SendOptions {
 }
 
 /**
+ * !Remove this class on next release socket.io-bun
+ */
+
+/**
  * Imitate Engine.IO Socket (as RawSocket on client)
  */
 export class Connection<

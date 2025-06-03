@@ -39,7 +39,7 @@ export class BroadcastOperator<
 		private readonly flags: BroadcastFlags & {
 			expectSingleResponse?: boolean;
 		} = {},
-		private readonly sender?: Socket, // ✅ Добавить sender
+		private readonly sender?: Socket,
 	) {}
 
 	/**
