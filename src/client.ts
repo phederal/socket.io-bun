@@ -7,7 +7,6 @@ import type { Socket } from './socket';
 import type { Namespace } from './namespace';
 import type { EventsMap } from '#types/typed-events';
 import type { SocketData as DefaultSocketData } from '#types/socket-types';
-import type { Connection } from './connection';
 import type { SocketId } from './socket.io-adapter';
 import { debugConfig } from '../config';
 
@@ -207,7 +206,7 @@ export class Client<
 		}
 		const packets = Array.isArray(encodedPackets) ? encodedPackets : [encodedPackets];
 		for (const encodedPacket of packets) {
-			this.conn.write(encodedPacket, opts);
+			this.conn.send(encodedPacket, opts);
 		}
 	}
 

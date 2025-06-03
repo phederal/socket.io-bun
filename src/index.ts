@@ -5,7 +5,6 @@ import { Namespace, type ExtendedError, type ServerReservedEventsMap } from './n
 import { BroadcastOperator } from './broadcast';
 import { Connection } from './connection';
 import { Adapter, SessionAwareAdapter, type Room } from './socket.io-adapter';
-import type { ServerOptions as EngineOptions, AttachOptions } from './engine.io/server';
 import type { Server as BunServer, ServerWebSocketSendStatus } from 'bun';
 import type { RESERVED_EVENTS, SocketData as DefaultSocketData, DisconnectReason } from '../types/socket-types';
 import {
@@ -28,8 +27,7 @@ import * as parser from './socket.io-parser';
 import type { Encoder } from './socket.io-parser';
 import { debugConfig } from '../config';
 import { ParentNamespace } from './parent-namespace';
-import { Server as Engine } from './engine.io';
-import type { WSContext } from 'hono/ws';
+import { Server as Engine, Socket as RawSocket } from './engine.io';
 
 const debug = debugModule('socket.io:server');
 debug.enabled = debugConfig.server;
@@ -43,7 +41,7 @@ type ParentNspNameMatchFn = (
 
 type AdapterConstructor = typeof Adapter | ((nsp: Namespace<any, any, any, any>) => Adapter);
 
-interface ServerOptions {
+export interface ServerOptions {
 	/**
 	 * name of the path to capture
 	 * @default "/ws"
@@ -89,14 +87,15 @@ interface ServerOptions {
 	 */
 	cleanupEmptyChildNamespaces: boolean;
 
-	// TODO: move to engine.io layer
-	pingInterval?: number;
-	pingTimeout?: number;
-	maxPayload?: number;
+	pingTimeout: number;
+	pingInterval: number;
+	transports: 'websocket';
+	perMessageDeflate: boolean;
+	maxPayload: number;
 }
 
 /**
- * Represents a Socket.IO server. // TODO: remake for socket.io-bun
+ * Represents a Socket.IO server.
  *
  * @example
  * import { Server } from "socket.io";
@@ -241,9 +240,6 @@ class Server<
 	 */
 	constructor(
 		opts: Partial<ServerOptions> = {
-			pingInterval: 25000,
-			pingTimeout: 20000,
-			maxPayload: 1000000,
 			connectionStateRecovery: {
 				maxDisconnectionDuration: 2 * 60 * 1000,
 				skipMiddlewares: true,
@@ -321,10 +317,10 @@ class Server<
 	 * @param {String} v pathname
 	 * @return {Server|String} self when setting or value when getting
 	 */
-	public path(v: string): this;
-	public path(): string;
-	public path(v?: string): this | string;
-	public path(v?: string): this | string {
+	path(v: string): this;
+	path(): string;
+	path(v?: string): this | string;
+	path(v?: string): this | string {
 		if (!arguments.length) return this._path!;
 		this._path = v!.replace(/\/$/, '');
 		// const escapedPath = this._path.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -336,10 +332,10 @@ class Server<
 	 * Set the delay after which a client without namespace is closed
 	 * @param v
 	 */
-	public connectTimeout(v: number): this;
-	public connectTimeout(): number;
-	public connectTimeout(v?: number): this | number;
-	public connectTimeout(v?: number): this | number {
+	connectTimeout(v: number): this;
+	connectTimeout(): number;
+	connectTimeout(v?: number): this | number;
+	connectTimeout(v?: number): this | number {
 		if (v === undefined) return this._connectTimeout;
 		this._connectTimeout = v;
 		return this;
@@ -351,9 +347,9 @@ class Server<
 	 * @param v pathname
 	 * @return self when setting or value when getting
 	 */
-	public adapter(): AdapterConstructor | undefined;
-	public adapter(v: AdapterConstructor): this;
-	public adapter(v?: AdapterConstructor): AdapterConstructor | undefined | this {
+	adapter(): AdapterConstructor | undefined;
+	adapter(v: AdapterConstructor): this;
+	adapter(v?: AdapterConstructor): AdapterConstructor | undefined | this {
 		if (!arguments.length) return this._adapter;
 		this._adapter = v;
 		for (const nsp of this._nsps.values()) {
@@ -395,19 +391,10 @@ class Server<
 	 * @param opts - options passed to engine.io
 	 * @private
 	 */
-	private initEngine(srv: BunServer, opts: EngineOptions & AttachOptions): void {
+	private initEngine(srv: BunServer, opts: Partial<ServerOptions> = {}): void {
+		debug('creating engine.io instance');
 		// initialize engine
-		debug('creating engine.io instance with opts %j', opts);
-
-		this.engine = new Engine({
-			pingInterval: opts.pingInterval || 25000,
-			pingTimeout: opts.pingTimeout || 20000,
-			maxHttpBufferSize: opts.maxPayload || 1000000,
-		});
-
-		// Export http server
-		this.server = srv;
-
+		this.engine = new Engine(srv, opts);
 		// bind to engine events
 		this.bind(this.engine);
 	}
@@ -418,11 +405,13 @@ class Server<
 	 * @param engine engine.io (or compatible) server
 	 * @return self
 	 */
-	public bind(engine: any): this {
+	bind(engine: any): this {
 		// TODO apply strict types to the engine: "connection" event, `close()` and a method to serve static content
 		//  this would allow to provide any custom engine, like one based on Deno or Bun built-in HTTP server
-		engine.on('connection', this.onconnection.bind(this));
-		engine.on('connection', (conn: Socket) => {
+		engine.on('connection', (conn: RawSocket) => {
+			// prevent duplicate clients
+			if (conn.id in this._clients) return this;
+			// create client if not exist
 			const client = new Client(conn, this);
 			this._clients.set(conn.id, client);
 		});
@@ -434,18 +423,11 @@ class Server<
 	 *
 	 * @param {Context} c
 	 * @param {SocketData} data
-	 * @return Connection
+	 * @return any (for compatibility)
 	 * @private
 	 */
-	onconnection(c: Context, data?: SocketData) {
-		// return new Connection<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(base64id.generateId(), this, c, data);
-		const esocket = this.engine.handleRequest(c);
-		return {
-			onOpen: (event: Event, ws: WSContext) => esocket.transport.onOpen(ws),
-			onMessage: (event: Event, ws: WSContext) => esocket.transport.onMessage?.(event.data),
-			onClose: (event: Event, ws: WSContext) => esocket.close(),
-			onError: (event: Event, ws: WSContext) => esocket.emit('error', new Error('WebSocket error')),
-		};
+	onconnection(c: Context, data?: SocketData): any {
+		return this.engine.handleRequest(c, data);
 	}
 
 	publish(topic: string, message: string | Uint8Array): boolean {
@@ -463,7 +445,7 @@ class Server<
 	 * // with a simple string
 	 * const myNamespace = io.of("/my-namespace");
 	 *
-	 * // with a regex // TODO: (not compatible on this version of socket.io-bun)
+	 * // with a regex
 	 * const dynamicNsp = io.of(/^\/dynamic-\d+$/).on("connection", (socket) => {
 	 *   const namespace = socket.nsp; // newNamespace.name === "/dynamic-101"
 	 *
@@ -537,7 +519,7 @@ class Server<
 			}),
 		);
 
-		// this.engine.close(); // TODO
+		this.engine.close();
 
 		for (const nsp of this._nsps.values()) {
 			nsp.disconnectSockets(true);
@@ -831,5 +813,5 @@ const io = Object.assign(
 
 export default io;
 export { Server, Socket, Namespace, BroadcastOperator };
-export type { DisconnectReason, ServerOptions, DefaultEventsMap, ExtendedError }; // RemoteSocket removed
+export type { DisconnectReason, DefaultEventsMap, ExtendedError }; // RemoteSocket removed
 export type { Event } from './socket';

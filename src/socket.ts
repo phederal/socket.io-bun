@@ -26,8 +26,6 @@ import { debugConfig } from '../config';
 const debug = debugModule('socket.io:socket');
 debug.enabled = debugConfig.socket;
 
-const isProduction = process.env.NODE_ENV === 'production';
-
 const RECOVERABLE_DISCONNECT_REASONS: ReadonlySet<DisconnectReason> = new Set([
 	'transport error',
 	'transport close',
@@ -769,7 +767,7 @@ export class Socket<
 	/**
 	 * Whether the socket is currently disconnected
 	 */
-	public get disconnected() {
+	get disconnected() {
 		return !this.connected;
 	}
 
@@ -792,7 +790,7 @@ export class Socket<
 	}
 
 	get ws() {
-		return this.client.conn.ws;
+		return this.client.conn.ws.raw!;
 	}
 
 	/**
@@ -831,7 +829,7 @@ export class Socket<
 	 *
 	 * @param listener
 	 */
-	public onAny(listener: (...args: any[]) => void): this {
+	onAny(listener: (...args: any[]) => void): this {
 		this._anyListeners = this._anyListeners || [];
 		this._anyListeners.push(listener);
 		return this;
@@ -843,7 +841,7 @@ export class Socket<
 	 *
 	 * @param listener
 	 */
-	public prependAny(listener: (...args: any[]) => void): this {
+	prependAny(listener: (...args: any[]) => void): this {
 		this._anyListeners = this._anyListeners || [];
 		this._anyListeners.unshift(listener);
 		return this;
@@ -869,7 +867,7 @@ export class Socket<
 	 *
 	 * @param listener
 	 */
-	public offAny(listener?: (...args: any[]) => void): this {
+	offAny(listener?: (...args: any[]) => void): this {
 		if (!this._anyListeners) {
 			return this;
 		}
@@ -891,7 +889,7 @@ export class Socket<
 	 * Returns an array of listeners that are listening for any event that is specified. This array can be manipulated,
 	 * e.g. to remove listeners.
 	 */
-	public listenersAny() {
+	listenersAny() {
 		return this._anyListeners || [];
 	}
 
@@ -910,7 +908,7 @@ export class Socket<
 	 *
 	 * @param listener
 	 */
-	public onAnyOutgoing(listener: (...args: any[]) => void): this {
+	onAnyOutgoing(listener: (...args: any[]) => void): this {
 		this._anyOutgoingListeners = this._anyOutgoingListeners || [];
 		this._anyOutgoingListeners.push(listener);
 		return this;
@@ -929,7 +927,7 @@ export class Socket<
 	 *
 	 * @param listener
 	 */
-	public prependAnyOutgoing(listener: (...args: any[]) => void): this {
+	prependAnyOutgoing(listener: (...args: any[]) => void): this {
 		this._anyOutgoingListeners = this._anyOutgoingListeners || [];
 		this._anyOutgoingListeners.unshift(listener);
 		return this;
@@ -955,7 +953,7 @@ export class Socket<
 	 *
 	 * @param listener - the catch-all listener
 	 */
-	public offAnyOutgoing(listener?: (...args: any[]) => void): this {
+	offAnyOutgoing(listener?: (...args: any[]) => void): this {
 		if (!this._anyOutgoingListeners) {
 			return this;
 		}
@@ -977,7 +975,7 @@ export class Socket<
 	 * Returns an array of listeners that are listening for any event that is specified. This array can be manipulated,
 	 * e.g. to remove listeners.
 	 */
-	public listenersAnyOutgoing() {
+	listenersAnyOutgoing() {
 		return this._anyOutgoingListeners || [];
 	}
 
