@@ -1,55 +1,69 @@
-/**
- * Простой helper для тестов - создает сервер + Socket.IO клиент
- */
-
 import { Hono } from 'hono';
 import { websocket, wsUpgrade, io } from '../../ws';
 import { io as clientIO, type Socket } from 'socket.io-client';
 
-export type TestServerType = {
-	server: Bun.Server;
-	io: typeof io;
-	port: number;
-	url: string;
-	cleanup: () => void;
-};
+export interface TestServerConfig {
+	port?: number;
+	hostname?: string;
+	namespace?: string;
+	auth?: Record<string, any>;
+	tls?: boolean;
+}
 
-export type TestEnvType = {
-	createServer: () => Promise<
-		TestServerType & {
-			createClient: (nsp?: string) => Socket;
-		}
-	>;
-	cleanup: () => void;
-};
+export interface TestClientConfig {
+	namespace?: string;
+	transports?: string[];
+	timeout?: number;
+	autoConnect?: boolean;
+}
 
-/** global */
-let portCounter: number = 8900;
-const hostname: string = 'localhost';
+export class TestEnvironment {
+	private static portCounter = 8900;
+	private readonly hostname: string;
+	private readonly usesTLS: boolean;
 
-// Глобальные списки для отслеживания всех ресурсов
-const globalServers: TestServerType[] = [];
-const globalClients: Socket[] = [];
+	private server?: Bun.Server;
+	private serverUrl?: string;
+	private clients: Socket[] = [];
 
-export function testEnv(): TestEnvType {
-	const createServer = async () => {
-		const port = ++portCounter;
+	constructor(config: TestServerConfig = {}) {
+		this.hostname = config.hostname || 'localhost';
+		this.usesTLS = config.tls !== false || true;
+
+		// Привязываем методы к контексту
+		this.createServer = this.createServer.bind(this);
+		this.createClient = this.createClient.bind(this);
+		this.cleanup = this.cleanup.bind(this);
+	}
+
+	get testEnv() {
+		return this;
+	}
+
+	/**
+	 * Создает и запускает тестовый сервер
+	 */
+	async createServer(config: TestServerConfig = {}): Promise<typeof io> {
+		const port = config.port || ++TestEnvironment.portCounter;
 		const app = new Hono();
 
-		// Простая аутентификация для тестов
+		// Middleware для аутентификации
 		app.use('/ws/*', async (c, next) => {
+			const user = config.auth?.user || { id: `test_user_${Date.now()}` };
+			const session = config.auth?.session || { id: `test_session_${Date.now()}` };
+
 			// @ts-ignore
-			c.set('user', { id: `test_${Date.now()}` });
+			c.set('user', user);
 			// @ts-ignore
-			c.set('session', { id: `session_${Date.now()}` });
+			c.set('session', session);
 			await next();
 		});
 
 		app.get('/ws', wsUpgrade);
 		app.get('/ws/*', wsUpgrade);
 
-		const bunServer = Bun.serve({
-			hostname: hostname,
+		const serverOptions: any = {
+			hostname: this.hostname,
 			port,
 			fetch: app.fetch,
 			websocket: {
@@ -57,80 +71,93 @@ export function testEnv(): TestEnvType {
 				message: websocket.message,
 				close: websocket.close,
 			},
-			tls: {
+		};
+
+		// Добавляем TLS если нужно
+		if (this.usesTLS) {
+			serverOptions.tls = {
 				key: Bun.file('dev/localhost-key.pem'),
 				cert: Bun.file('dev/localhost.pem'),
-			},
-		});
+			};
+		}
 
-		const serverUrl = `wss://${hostname}:${port}`;
+		this.server = Bun.serve(serverOptions);
+		this.serverUrl = `${this.usesTLS ? 'wss' : 'ws'}://${this.hostname}:${port}`;
 
 		// Привязываем Socket.IO к серверу
-		io.attach(bunServer);
+		io.attach(this.server);
 
-		const server: TestServerType = {
-			server: bunServer,
-			io,
-			port,
-			url: serverUrl,
-			cleanup: () => bunServer.stop(true),
-		};
+		return io;
+	}
 
-		// Функция создания клиента привязана к этому серверу
-		const createClient = (nsp: string = '/'): Socket => {
-			const socket = clientIO(serverUrl + nsp, {
-				path: '/ws',
-				transports: ['websocket'],
-				upgrade: false,
-				timeout: 10000,
-				forceNew: true,
-				autoConnect: true,
-				rememberUpgrade: true,
-			});
+	/**
+	 * Создает клиента без создания сервера (для переиспользования существующего)
+	 */
+	createClient(clientConfig: TestClientConfig = {}): Socket {
+		if (!this.serverUrl) {
+			throw new Error('Server must be created first before creating clients');
+		}
 
-			globalClients.push(socket);
-			return socket;
-		};
+		const namespace = clientConfig.namespace || '/';
+		const socket = clientIO(this.serverUrl + namespace, {
+			path: '/ws',
+			transports: (clientConfig.transports as any) || ['websocket'],
+			timeout: clientConfig.timeout || 10000,
+			autoConnect: clientConfig.autoConnect !== false,
+			forceNew: true,
+			upgrade: false,
+			rememberUpgrade: true,
+		});
 
-		globalServers.push(server);
+		this.clients.push(socket);
+		return socket;
+	}
 
-		return {
-			...server,
-			createClient,
-		};
-	};
-
-	const cleanup = () => {
+	/**
+	 * Очищает все ресурсы
+	 */
+	cleanup(): void {
 		// Отключаем всех клиентов
-		globalClients.forEach((client) => {
+		this.clients.forEach((client) => {
 			if (client.connected) {
 				client.disconnect();
 			}
 		});
-		globalClients.length = 0;
+		this.clients = [];
 
-		// Останавливаем все серверы
-		globalServers.forEach((server) => server.cleanup());
-		globalServers.length = 0;
-	};
+		// Останавливаем сервер
+		if (this.server) {
+			this.server.stop(true);
+			this.server = undefined;
+			this.serverUrl = undefined;
+		}
+	}
 
-	return {
-		createServer,
-		cleanup,
-	};
+	/**
+	 * Проверяет, что все клиенты подключены
+	 */
+	clientsConnected(): boolean {
+		return this.clients.every((client) => client.connected);
+	}
+
+	/**
+	 * Получает количество подключенных клиентов
+	 */
+	get clientsConnectedCount(): number {
+		return this.clients.filter((client) => client.connected).length;
+	}
+
+	/**
+	 * Получает URL сервера
+	 */
+	get url(): string | undefined {
+		return this.serverUrl;
+	}
 }
 
-// Глобальная функция cleanup для использования в afterEach
-export function testCleanup() {
-	// Отключаем всех клиентов
-	globalClients.forEach((client) => {
-		if (client.connected) {
-			client.disconnect();
-		}
-	});
-	globalClients.length = 0;
-
-	// Останавливаем все серверы
-	globalServers.forEach((server) => server.cleanup());
-	globalServers.length = 0;
+/**
+ * Утилита для создания тестового окружения (для обратной совместимости)
+ */
+export function createTestEnv(config: TestServerConfig = {}): TestEnvironment {
+	return new TestEnvironment(config);
 }
