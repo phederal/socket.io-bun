@@ -127,7 +127,7 @@ export class Transport extends EventEmitter {
 	/**
 	 * Handle WebSocket error
 	 */
-	onError(ev: ErrorEvent) {
+	onError(ev: Event) {
 		debug('WebSocket transport error');
 		this.emit('error', new Error('WebSocket transport error'));
 	}

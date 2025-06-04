@@ -5,7 +5,7 @@ import { Namespace, type ExtendedError, type ServerReservedEventsMap } from './n
 import { BroadcastOperator } from './broadcast';
 import { Connection } from './connection';
 import { Adapter, SessionAwareAdapter, type Room } from './socket.io-adapter';
-import type { Server as BunServer, ServerWebSocketSendStatus } from 'bun';
+import type { Server as BunServer, ServerWebSocket, ServerWebSocketSendStatus } from 'bun';
 import type { RESERVED_EVENTS, SocketData as DefaultSocketData, DisconnectReason } from '../types/socket-types';
 import {
 	StrictEventEmitter,
@@ -28,6 +28,7 @@ import type { Encoder } from './socket.io-parser';
 import { debugConfig } from '../config';
 import { ParentNamespace } from './parent-namespace';
 import { Server as Engine, Socket as RawSocket } from './engine.io';
+import type { WSContext, WSEvents } from 'hono/ws';
 
 const debug = debugModule('socket.io:server');
 debug.enabled = debugConfig.server;
@@ -426,8 +427,14 @@ class Server<
 	 * @return any (for compatibility)
 	 * @private
 	 */
-	onconnection(c: Context, data?: SocketData): any {
-		return this.engine.handleRequest(c, data);
+	onconnection(c: Context, data?: SocketData): WSEvents<ServerWebSocket<WSContext>> {
+		const transport = this.engine.handleRequest(c, data);
+		return {
+			onOpen: transport.onOpen.bind(transport),
+			onMessage: transport.onMessage.bind(transport),
+			onClose: transport.onClose.bind(transport),
+			onError: transport.onError.bind(transport),
+		};
 	}
 
 	publish(topic: string, message: string | Uint8Array): boolean {
