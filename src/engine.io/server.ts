@@ -75,10 +75,12 @@ export class Server extends EventEmitter {
 		const conn = getConnInfo(ctx);
 
 		if (query.sid && this.clients.has(query.sid)) {
-			const client = this.clients.get(query.sid);
-			if (client) {
-				const clientExist = getConnInfo(client.ctx);
-				if (clientExist.remote.address === conn.remote.address) return client;
+			const socket = this.clients.get(query.sid);
+			if (socket) {
+				const clientExist = getConnInfo(socket.ctx);
+				if (clientExist.remote.address === conn.remote.address) {
+					return socket.transport;
+				}
 			}
 		}
 
