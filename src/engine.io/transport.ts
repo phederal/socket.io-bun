@@ -160,6 +160,7 @@ export class Transport extends EventEmitter {
 			} catch (error) {
 				debug('Error sending packet:', error);
 				this.emit('error', error);
+				this.writable = true;
 			}
 		}
 
