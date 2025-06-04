@@ -1,5 +1,5 @@
 /**
- * Скрипт для запуска тестов с реальным сервером
+ * Temp script for running tests with test server
  */
 
 import { spawn } from 'bun';
