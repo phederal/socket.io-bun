@@ -263,6 +263,7 @@ export class Client<
 							});
 						} else {
 							debug('no socket found for namespace %s, ignoring event', namespace);
+							// Maybe we should send CONNECT_ERROR?
 						}
 					}
 					break;
@@ -277,6 +278,7 @@ export class Client<
 							});
 						} else {
 							debug('no socket found for namespace %s, ignoring ack', namespace);
+							// Maybe we should send CONNECT_ERROR?
 						}
 					}
 					break;
