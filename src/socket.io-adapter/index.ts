@@ -40,7 +40,6 @@ export interface BroadcastOptions {
 	rooms: Set<Room>;
 	except?: Set<SocketId>;
 	flags?: BroadcastFlags;
-	socket?: Socket;
 }
 
 interface SessionToPersist {
@@ -186,7 +185,7 @@ export class Adapter extends EventEmitter {
 	 * @param {Object} packet   the packet object
 	 * @param {Object} opts     the options
 	 */
-	broadcast(packet: Packet, opts: BroadcastOptions): void {
+	broadcast(packet: Packet, opts: BroadcastOptions & { socket?: Socket }): void {
 		const flags = opts.flags || {};
 		const packetOpts = {
 			preEncoded: true,
@@ -197,6 +196,7 @@ export class Adapter extends EventEmitter {
 		const encodedPackets = this.encoder.encode(packet);
 
 		// TODO: use bun pub/sub instead of socket.io pub/sub
+		// TODO: create modified this.apply for bun pub/sub
 		// if (opts.rooms.size === 0) {
 		// 	// write to socket
 		// 	if (opts.socket) return opts.socket.client.writeToEngine(encodedPackets, packetOpts);
@@ -221,6 +221,7 @@ export class Adapter extends EventEmitter {
 			if (typeof socket.notifyOutgoingListeners === 'function') {
 				socket.notifyOutgoingListeners(packet);
 			}
+
 			socket.client.writeToEngine(encodedPackets, packetOpts);
 		});
 	}
@@ -359,7 +360,6 @@ export class Adapter extends EventEmitter {
 	private apply(opts: BroadcastOptions, callback: (socket: Socket) => void): void {
 		const rooms = opts.rooms;
 		const except = this.computeExceptSids(opts.except);
-
 		if (rooms.size) {
 			const ids = new Set();
 			for (const room of rooms) {
