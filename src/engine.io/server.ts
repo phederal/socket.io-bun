@@ -35,18 +35,23 @@ export interface ServerOptions {
 	 * Max allowed payload size, in bytes. Set to false to disable.
 	 */
 	maxPayload?: number;
+	/**
+	 * an optional packet which will be concatenated to the handshake packet emitted by Engine.IO.
+	 */
+	initialPacket?: any;
 }
 
 export class Server extends EventEmitter {
-	private server: BunServer;
-	public clients: Map<string, Socket>;
-	public clientsCount: number;
 	public opts: ServerOptions;
 
-	constructor(server: BunServer, opts: Partial<ServerOptions> = {}) {
+	public bun: BunServer;
+	protected clients: Map<string, Socket>;
+	public clientsCount: number;
+
+	constructor(bun: BunServer, opts: Partial<ServerOptions> = {}) {
 		super();
 
-		this.server = server;
+		this.bun = bun;
 		this.clients = new Map();
 		this.clientsCount = 0;
 

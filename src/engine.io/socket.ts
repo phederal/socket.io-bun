@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import type { Server } from './server';
 import type { WebSocketReadyState } from 'bun';
-import type { Packet, PacketType } from 'engine.io-parser';
+import type { Packet, PacketType, RawData } from 'engine.io-parser';
 import { Transport } from './transport';
 import type { Context } from 'hono';
 import debugModule from 'debug';
@@ -17,6 +17,9 @@ export interface EngineSocketOptions {
 	maxPayload?: number;
 }
 
+export interface SendOptions {
+	compress?: boolean;
+}
 type SendCallback = (transport: Transport) => void;
 
 export class Socket extends EventEmitter {
@@ -132,10 +135,9 @@ export class Socket extends EventEmitter {
 			}),
 		);
 
-		// TODO: send initial packet
-		// if (this.server.opts.initialPacket) {
-		// 	this.sendPacket('message', this.server.opts.initialPacket);
-		// }
+		if (this.server.opts.initialPacket) {
+			this.sendPacket('message', this.server.opts.initialPacket);
+		}
 
 		this.emit('open');
 		this.schedulePing();
@@ -278,29 +280,62 @@ export class Socket extends EventEmitter {
 
 	/**
 	 * Sends a message packet.
+	 *
+	 * @param {Object} data
+	 * @param {Object} options
+	 * @param {Function} callback
+	 * @return {Socket} for chaining
 	 */
-	public send(data: any, options?: any, callback?: any) {
+	send(data: RawData, options?: SendOptions, callback?: any) {
+		this.sendPacket('message', data, options, callback);
+		return this;
+	}
+
+	/**
+	 * Alias of {@link send}.
+	 *
+	 * @param data
+	 * @param options
+	 * @param callback
+	 */
+	write(data: RawData, options?: SendOptions, callback?: SendCallback) {
 		this.sendPacket('message', data, options, callback);
 		return this;
 	}
 
 	/**
 	 * Sends a packet.
+	 *
+	 * @param {String} type - packet type
+	 * @param {String} data
+	 * @param {Object} options
+	 * @param {Function} callback
+	 *
+	 * @private
 	 */
-	private sendPacket(type: PacketType, data?: Packet['data'], options?: Packet['options'], callback?: any) {
+	private sendPacket(type: PacketType, data?: RawData, options: SendOptions = {}, callback?: SendCallback) {
 		if ('function' === typeof options) {
 			callback = options;
-			options = undefined;
+			options = {};
 		}
 
 		if (WebSocket.CLOSING !== this.readyState && WebSocket.CLOSED !== this.readyState) {
-			const packet: Packet = { type, options };
-			if (data) packet.data = data; // TODO
+			debug('sending packet "%s" (%s)', type, data);
+			// compression is enabled by default
+			options.compress = options.compress !== false;
+
+			const packet: Packet = {
+				type,
+				options: options as { compress: boolean },
+			};
+			if (data) packet.data = data;
 
 			this.emit('packetCreate', packet);
 			this.writeBuffer.push(packet);
 
-			if ('function' === typeof callback) this.sentCallbackFn.push(callback);
+			// add send callback to object, if defined
+			if ('function' === typeof callback) this.packetsFn.push(callback);
+
 			this.flush();
 		}
 	}
