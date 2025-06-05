@@ -11,10 +11,12 @@ export interface TestServerConfig {
 }
 
 export interface TestClientConfig {
-	namespace?: string;
-	transports?: string[];
-	timeout?: number;
-	autoConnect?: boolean;
+        namespace?: string;
+        transports?: string[];
+        timeout?: number;
+        autoConnect?: boolean;
+        auth?: Record<string, any>;
+        query?: Record<string, any>;
 }
 
 export class TestEnvironment {
@@ -98,16 +100,18 @@ export class TestEnvironment {
 			throw new Error('Server must be created first before creating clients');
 		}
 
-		const namespace = clientConfig.namespace || '/';
-		const socket = clientIO(this.serverUrl + namespace, {
-			path: '/ws',
-			transports: (clientConfig.transports as any) || ['websocket'],
-			timeout: clientConfig.timeout || 10000,
-			autoConnect: clientConfig.autoConnect !== false,
-			forceNew: true,
-			upgrade: false,
-			rememberUpgrade: true,
-		});
+               const namespace = clientConfig.namespace || '/';
+               const socket = clientIO(this.serverUrl + namespace, {
+                        path: '/ws',
+                        transports: (clientConfig.transports as any) || ['websocket'],
+                        timeout: clientConfig.timeout || 10000,
+                        autoConnect: clientConfig.autoConnect !== false,
+                        forceNew: true,
+                        upgrade: false,
+                        rememberUpgrade: true,
+                        auth: clientConfig.auth,
+                        query: clientConfig.query,
+                });
 
 		this.clients.push(socket);
 		return socket;

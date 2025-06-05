@@ -7,3 +7,7 @@ import './rooms/rooms.test';
 import './namespaces/namespaces.test';
 import './connection/disconnect.test';
 import './connection/server-disconnect.test';
+import './handshake/handshake.test';
+import './middleware/middleware.test';
+import './socket-middleware/socket-middleware.test';
+import './socket-timeout/socket-timeout.test';
