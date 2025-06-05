@@ -95,7 +95,7 @@ export class Socket<
 		super();
 		this.server = nsp.server;
 		this.adapter = nsp.adapter;
-		this.id = client.conn.id;
+		this.id = base64id.generateId();
 		this.handshake = this.buildHandshake(auth);
 
 		// prevents crash when the socket receives an "error" event without listener
@@ -582,7 +582,10 @@ export class Socket<
 	 * @private
 	 */
 	_error(err: any): void {
-		this.packet({ type: PacketType.CONNECT_ERROR, data: err });
+		this.packet({
+			type: PacketType.CONNECT_ERROR,
+			data: err.message ? { message: err.message, data: err.data } : err,
+		});
 	}
 
 	/**
