@@ -5,11 +5,13 @@ import type { WSContext } from 'hono/ws';
 import type { ServerWebSocket, WebSocketReadyState } from 'bun';
 import debugModule from 'debug';
 import { debugConfig } from '../../config';
+import * as parser from 'engine.io-parser';
 
 const debug = debugModule('engine:transport');
 debug.enabled = debugConfig.engine_transport;
 
 export class Transport extends EventEmitter {
+	public name: string = 'websocket';
 	/**
 	 * The session ID.
 	 */
@@ -29,15 +31,21 @@ export class Transport extends EventEmitter {
 	 */
 	protected discarded = false;
 	/**
+	 * The parser to use (depends on the revision of the {@link Transport#protocol}.
+	 * @protected
+	 */
+	protected parser: typeof parser;
+	/**
 	 * Whether the transport supports binary payloads (else it will be base64-encoded)
 	 * @protected
 	 */
 	protected supportsBinary: boolean;
 
-	private ws!: WSContext<ServerWebSocket<WSContext>>;
+	private socket!: WSContext<ServerWebSocket<WSContext>>;
 
-	constructor(private readonly ctx: Context) {
+	constructor() {
 		super();
+		this.parser = parser;
 		this.supportsBinary = false; // TODO
 	}
 
@@ -82,10 +90,10 @@ export class Transport extends EventEmitter {
 		// this.socket.end(); // maybe be working on next release
 
 		// Bun ws
-		if (this.ws && this.writable) {
-			this.ws.close();
-			// if (!terminate) this.ws.close();
-			// else this.ws.raw?.terminate();
+		if (this.socket && this.writable) {
+			this.socket.close();
+			// if (!terminate) this.socket.close();
+			// else this.socket.raw?.terminate();
 			this.writable = false;
 		}
 	}
@@ -95,7 +103,7 @@ export class Transport extends EventEmitter {
 	 */
 	onOpen(ev: Event, ws: WSContext<ServerWebSocket<WSContext>>) {
 		debug('WebSocket transport opened');
-		this.ws = ws;
+		this.socket = ws;
 		this.writable = true;
 		this.emit('ready');
 	}
@@ -139,43 +147,31 @@ export class Transport extends EventEmitter {
 	send(packets: Packet[]): void {
 		this.writable = false;
 
+		/** each packet */
 		for (let i = 0; i < packets.length; i++) {
 			const packet = packets[i];
 			if (!packet) continue;
 			const isLast = i + 1 === packets.length;
 
-			try {
-				encodePacket(packet, this.supportsBinary, (data) => {
-					// const isBinary = typeof data !== 'string';
-					// const compress = this.perMessageDeflate && Buffer.byteLength(data) > this.perMessageDeflate.threshold;
+			/** callback to send a packet */
+			const send = (data: parser.RawData) => {
+				try {
 					debug('writing "%s"', data);
-					this.ws.send(data, { compress: false });
-					// this.socket.send(data, isBinary, compress);
+					this.socket.send(data, packet.options);
 					if (isLast) {
 						this.emit('drain');
 						this.writable = true;
 						this.emit('ready');
 					}
-				});
-			} catch (error) {
-				debug('Error sending packet:', error);
-				this.emit('error', error);
-				this.writable = true;
-			}
-		}
+				} catch (error) {
+					debug('Error sending packet:', error);
+					this.emit('error', error);
+					this.writable = true;
+				}
+			};
 
-		// if (!this.writable || !this.ws) {
-		// 	debug('Transport not writable, discarding packet');
-		// }
-		// try {
-		// 	encodePacket(packet, this.supportsBinary, (encoded) => {
-		// 		debug('Sending Engine.IO packet: %s', typeof encoded === 'string' ? encoded : '[Binary]');
-		// 		this.ws.send(encoded, { compress: false });
-		// 	});
-		// 	// this.emit('drain');
-		// } catch (error) {
-		// 	debug('Error sending packet:', error);
-		// 	this.emit('error', error);
-		// }
+			/** encode packet and send */
+			this.parser.encodePacket(packet, this.supportsBinary, send);
+		}
 	}
 }

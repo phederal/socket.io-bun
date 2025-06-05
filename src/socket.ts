@@ -93,10 +93,10 @@ export class Socket<
 		// previousSession?: Session,
 	) {
 		super();
-                this.server = nsp.server;
-                this.adapter = nsp.adapter;
-                this.id = client.conn.id;
-               this.handshake = this.buildHandshake(auth);
+		this.server = nsp.server;
+		this.adapter = nsp.adapter;
+		this.id = client.conn.id;
+		this.handshake = this.buildHandshake(auth);
 
 		// prevents crash when the socket receives an "error" event without listener
 		this.on('error', () => {});
@@ -771,6 +771,13 @@ export class Socket<
 	}
 
 	/**
+	 * A reference to the request that originated the underlying Engine.IO Socket.
+	 */
+	get ctx() {
+		return this.client.conn.ctx;
+	}
+
+	/**
 	 * A reference to the underlying Client transport connection (Engine.IO Socket object).
 	 *
 	 * @example
@@ -790,13 +797,6 @@ export class Socket<
 
 	get ws() {
 		return this.client.conn.ws.raw!;
-	}
-
-	/**
-	 * A reference to the request that originated the underlying Engine.IO Socket.
-	 */
-	get ctx() {
-		return this.client.conn.ctx;
 	}
 
 	/**

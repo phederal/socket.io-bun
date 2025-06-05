@@ -3,10 +3,11 @@ import base64id from 'base64id';
 import { Socket } from './socket';
 import type { Context } from 'hono';
 import { Transport } from './transport';
-import type { Server as BunServer, ServerWebSocketSendStatus } from 'bun';
+import type { Server as BunServer } from 'bun';
 import debugModule from 'debug';
 import { getConnInfo } from 'hono/bun';
 import { debugConfig } from '../../config';
+import { encodePacket, decodePacket, type Packet } from 'engine.io-parser';
 
 const debug = debugModule('engine:server');
 debug.enabled = debugConfig.engine;
@@ -91,7 +92,7 @@ export class Server extends EventEmitter {
 
 		debug('Setting transport for new client');
 		const id = base64id.generateId();
-		const socket = new Socket(id, this, new Transport(ctx), ctx, data);
+		const socket = new Socket(id, this, new Transport(), ctx, data);
 		this.clients.set(id, socket);
 		this.clientsCount++;
 		socket.once('close', () => {
@@ -104,6 +105,39 @@ export class Server extends EventEmitter {
 		 * @return {Transport}
 		 */
 		return socket.transport;
+	}
+
+	publish(topics: string | string[], encodedPackets: Array<string | Buffer>, opts?: { compress?: boolean }): void {
+		if (this.clientsCount === 0) {
+			debug('publish by bun server but no clients');
+			return;
+		}
+
+		const packets = (encodedPackets = Array.isArray(encodedPackets) ? encodedPackets : [encodedPackets]);
+		topics = Array.isArray(topics) ? topics : [topics];
+
+		/** each topics (each rooms) */
+		for (let i = 0; i < packets.length; i++) {
+			const packet = packets[i];
+			if (!packet) continue;
+
+			topics.forEach((topic) => {
+				debug('publish to %s', topic);
+				try {
+					encodePacket(
+						{ type: 'message', data: packet },
+						false, // binary
+						(encoded) => {
+							/** send packet message */
+							this.bun.publish(topic, encoded, opts?.compress);
+							debug('published "%s"', encoded);
+						},
+					);
+				} catch (error) {
+					debug('Error publish packet:', error);
+				}
+			});
+		}
 	}
 
 	/**

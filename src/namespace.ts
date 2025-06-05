@@ -153,18 +153,15 @@ export class Namespace<
 	 *
 	 * @private
 	 */
-        _initAdapter(): void {
-                let AdapterConstructor: any;
-                if (typeof (this.server as any).adapter === 'function') {
-                        AdapterConstructor = (this.server as any).adapter();
-                } else {
-                        AdapterConstructor = Adapter;
-                }
-                if (AdapterConstructor) {
-                        // @ts-ignore
-                        this.adapter = new AdapterConstructor(this);
-                }
-        }
+	_initAdapter(): void {
+		let AdapterConstructor: any;
+		if (typeof (this.server as any).adapter === 'function') {
+			AdapterConstructor = (this.server as any).adapter();
+		} else {
+			AdapterConstructor = Adapter;
+		}
+		if (AdapterConstructor) this.adapter = new AdapterConstructor(this);
+	}
 
 	/**
 	 * Registers a middleware, which is a function that gets executed for every incoming {@link Socket}.
@@ -287,8 +284,7 @@ export class Namespace<
 			process.nextTick(() => {
 				if (client.conn.readyState !== WebSocket.OPEN) {
 					debug('next called after client was closed - ignoring socket');
-					socket._cleanup();
-					return;
+					return socket._cleanup();
 				}
 
 				if (err) {
@@ -370,20 +366,6 @@ export class Namespace<
 	override emit<Ev extends EventNamesWithoutAck<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
 		return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(ev, ...args);
 	}
-
-	// emitWithAck<Ev extends EventNamesWithoutAck<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
-	// 	return new BroadcastOperator<EmitEvents, SocketData>(this.adapter).emit(ev, ...args);
-	// }
-
-	// override on(event: string | symbol, listener: (...args: any[]) => void): this {
-	// 	// @ts-ignore // TODO: fix types on event
-	// 	return super.on(event, listener);
-	// }
-
-	// override once(event: string | symbol, listener: (...args: any[]) => void): this {
-	// 	// @ts-ignore // TODO: fix types on event
-	// 	return super.once(event, listener);
-	// }
 
 	/**
 	 * Sends a `message` event to all clients.

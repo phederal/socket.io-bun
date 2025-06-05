@@ -11,7 +11,7 @@ import type {
 } from '#types/typed-events';
 import { type SocketData as DefaultSocketData, type Handshake, RESERVED_EVENTS } from '../types/socket-types';
 import type { Adapter, SocketId, Room } from './socket.io-adapter';
-import { PacketType } from './socket.io-parser';
+import { PacketType, type Packet } from './socket.io-parser';
 import type { Socket } from './socket';
 
 export interface BroadcastFlags {
@@ -39,7 +39,7 @@ export class BroadcastOperator<
 		private readonly flags: BroadcastFlags & {
 			expectSingleResponse?: boolean;
 		} = {},
-		private readonly sender?: Socket,
+		private readonly socket?: Socket,
 	) {}
 
 	/**
@@ -124,6 +124,7 @@ export class BroadcastOperator<
 		}
 		// set up packet object
 		const data = [ev, ...args];
+		// type without nsp.name because it added by adapter
 		const packet = {
 			type: PacketType.EVENT,
 			data: data,
@@ -132,11 +133,11 @@ export class BroadcastOperator<
 		const withAck = typeof data[data.length - 1] === 'function';
 
 		if (!withAck) {
-			this.adapter.broadcast(packet, {
+			this.adapter.broadcast(packet as Packet, {
 				rooms: this.rooms,
 				except: this.exceptRooms,
 				flags: this.flags,
-				sender: this.sender,
+				socket: this.socket,
 			});
 
 			return true;

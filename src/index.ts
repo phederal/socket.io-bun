@@ -437,14 +437,6 @@ class Server<
 		};
 	}
 
-	publish(topic: string, message: string | Uint8Array): boolean {
-		if (!this.engine) {
-			console.warn('[SocketServer] Bun server not set, cannot publish');
-			return false;
-		}
-		return <ServerWebSocketSendStatus>this.server.publish(topic, message) > 0;
-	}
-
 	/**
 	 * Looks up a namespace.
 	 *

@@ -67,7 +67,7 @@ export class Socket extends EventEmitter {
 	 * Get WebSocket instance (compatibility with connection.ts)
 	 */
 	get ws() {
-		return this.transport['ws'];
+		return this.transport['socket'];
 	}
 
 	/**
@@ -326,6 +326,7 @@ export class Socket extends EventEmitter {
 
 			const packet: Packet = {
 				type,
+				// compitibility with bun pub/sub
 				options: options as { compress: boolean },
 			};
 			if (data) packet.data = data;

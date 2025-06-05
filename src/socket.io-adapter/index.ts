@@ -6,6 +6,7 @@ import type { Namespace } from '../namespace';
 import type { DefaultEventsMap, EventsMap } from '#types/typed-events';
 import { debugConfig } from '../../config';
 import { yeast } from './yeast';
+import type { Packet } from '@/socket.io-parser';
 
 const debug = debugModule('socket.io:adapter');
 debug.enabled = debugConfig.adapter;
@@ -39,7 +40,7 @@ export interface BroadcastOptions {
 	rooms: Set<Room>;
 	except?: Set<SocketId>;
 	flags?: BroadcastFlags;
-	sender?: Socket;
+	socket?: Socket;
 }
 
 interface SessionToPersist {
@@ -69,9 +70,9 @@ export class Adapter extends EventEmitter {
 	/**
 	 * To be overridden
 	 */
-	public init(): Promise<void> | void {}
-	public close(): Promise<void> | void {}
-	public serverCount(): Promise<number> {
+	init(): Promise<void> | void {}
+	close(): Promise<void> | void {}
+	serverCount(): Promise<number> {
 		return Promise.resolve(1);
 	}
 
@@ -80,7 +81,6 @@ export class Adapter extends EventEmitter {
 	 *
 	 * @param {SocketId} id     the socket id
 	 * @param {Set<Room>} rooms   a set of rooms
-	 * @public
 	 */
 	addAll(id: SocketId, rooms: Set<Room>): Promise<void> | void {
 		const isNew = !this.sids.has(id);
@@ -185,56 +185,44 @@ export class Adapter extends EventEmitter {
 	 *
 	 * @param {Object} packet   the packet object
 	 * @param {Object} opts     the options
-	 * @public
 	 */
-	broadcast(packet: any, opts: BroadcastOptions): void {
-		// TODO: Remake this with using engine.io-parser encoder for encode packets from client or server.publish
-
+	broadcast(packet: Packet, opts: BroadcastOptions): void {
 		const flags = opts.flags || {};
 		const packetOpts = {
 			preEncoded: true,
 			volatile: flags.volatile,
 			compress: flags.compress,
 		};
-
 		packet.nsp = this.nsp.name;
 		const encodedPackets = this.encoder.encode(packet);
 
-		if (opts.except!.size > 0) {
-			return this.apply(opts, (socket) => {
-				if (typeof socket.notifyOutgoingListeners === 'function') {
-					socket.notifyOutgoingListeners(packet);
-				}
-				socket.client.writeToEngine(encodedPackets, packetOpts);
-			});
-		} else {
-			/** compatible with bun pub/sub */
-			if (opts.rooms.size <= 1) {
-				const topic = opts.rooms.size === 0 ? this.nsp.name : `${this.nsp.name}${SEPARATOR}${opts.rooms.keys().next().value}`;
-				encodedPackets.forEach((encodedPacket) => {
-					const isBinary = typeof encodedPacket !== 'string';
-					// "4" being the message type in the Engine.IO protocol, see https://github.com/socketio/engine.io-protocol
-					if (opts.sender?.ws) {
-						opts.sender.ws.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
-					} else {
-						this.nsp.server.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
-					}
-				});
-				return;
-			} else {
-				opts.rooms.forEach((room) => {
-					const topic = `${this.nsp.name}${SEPARATOR}${room}`;
-					encodedPackets.forEach((encodedPacket) => {
-						const isBinary = typeof encodedPacket !== 'string';
-						if (opts.sender?.ws) {
-							opts.sender.ws.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
-						} else {
-							this.nsp.server.publish(topic, isBinary ? encodedPacket : '4' + encodedPacket);
-						}
-					});
-				});
+		// TODO: use bun pub/sub instead of socket.io pub/sub
+		// if (opts.rooms.size === 0) {
+		// 	// write to socket
+		// 	if (opts.socket) return opts.socket.client.writeToEngine(encodedPackets, packetOpts);
+		// 	// publish to all on namespace
+		// 	else return this.nsp.server.engine.publish(this.nsp.name, encodedPackets, packetOpts);
+		// } else {
+		// 	if (opts.except!.size > 0) {
+		// 		return this.apply(opts, (socket) => {
+		// 			if (typeof socket.notifyOutgoingListeners === 'function') {
+		// 				socket.notifyOutgoingListeners(packet);
+		// 			}
+		// 			socket.client.writeToEngine(encodedPackets, packetOpts);
+		// 		});
+		// 	} else {
+		// 		const rooms = [...opts.rooms].map((room) => `${this.nsp.name}${SEPARATOR}${room}`);
+		// 		if (opts.socket) return rooms.forEach((room) => opts.socket!.client.writeToEngine(encodedPackets, packetOpts));
+		// 		else return this.nsp.server.engine.publish(rooms, encodedPackets, packetOpts);
+		// 	}
+		// }
+
+		return this.apply(opts, (socket) => {
+			if (typeof socket.notifyOutgoingListeners === 'function') {
+				socket.notifyOutgoingListeners(packet);
 			}
-		}
+			socket.client.writeToEngine(encodedPackets, packetOpts);
+		});
 	}
 
 	/**
@@ -250,7 +238,6 @@ export class Adapter extends EventEmitter {
 	 * @param clientCountCallback - the number of clients that received the packet
 	 * @param ack                 - the callback that will be called for each client response
 	 *
-	 * @public
 	 */
 	broadcastWithAck(
 		/** strict types */
@@ -293,7 +280,7 @@ export class Adapter extends EventEmitter {
 	 *
 	 * @param {Set<Room>} rooms   the explicit set of rooms to check.
 	 */
-	public sockets(rooms: Set<Room>): Promise<Set<SocketId>> {
+	sockets(rooms: Set<Room>): Promise<Set<SocketId>> {
 		const sids = new Set<SocketId>();
 
 		this.apply({ rooms }, (socket) => {
@@ -308,7 +295,7 @@ export class Adapter extends EventEmitter {
 	 *
 	 * @param {SocketId} id   the socket id
 	 */
-	public socketRooms(id: SocketId): Set<Room> | undefined {
+	socketRooms(id: SocketId): Set<Room> | undefined {
 		return this.sids.get(id);
 	}
 
@@ -317,7 +304,7 @@ export class Adapter extends EventEmitter {
 	 *
 	 * @param opts - the filters to apply
 	 */
-	public fetchSockets(opts: BroadcastOptions): Promise<Socket[]> {
+	fetchSockets(opts: BroadcastOptions): Promise<Socket[]> {
 		const sockets: Socket[] = [];
 
 		this.apply(opts, (socket) => {
@@ -412,21 +399,21 @@ export class Adapter extends EventEmitter {
 	 * Send a packet to the other Socket.IO servers in the cluster
 	 * @param packet - an array of arguments, which may include an acknowledgement callback at the end
 	 */
-	public serverSideEmit(packet: any[]): void {
+	serverSideEmit(packet: any[]): void {
 		console.warn('this adapter does not support the serverSideEmit() functionality');
 	}
 
 	/**
 	 * Save the client session in order to restore it upon reconnection.
 	 */
-	public persistSession(session: SessionToPersist) {}
+	persistSession(session: SessionToPersist) {}
 
 	/**
 	 * Restore the session and find the packets that were missed by the client.
 	 * @param pid
 	 * @param offset
 	 */
-	public restoreSession(pid: PrivateSessionId, offset: string): Promise<Session> | null {
+	restoreSession(pid: PrivateSessionId, offset: string): Promise<Session> | null {
 		return null;
 	}
 }

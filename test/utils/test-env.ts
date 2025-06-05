@@ -27,8 +27,8 @@ export class TestEnvironment {
 	private clients: Socket[] = [];
 
 	constructor(config: TestServerConfig = {}) {
-               this.hostname = config.hostname || 'localhost';
-               this.usesTLS = config.tls !== false;
+		this.hostname = config.hostname || 'localhost';
+		this.usesTLS = config.tls !== false;
 
 		// Привязываем методы к контексту
 		this.createServer = this.createServer.bind(this);
@@ -66,6 +66,7 @@ export class TestEnvironment {
 			hostname: this.hostname,
 			port,
 			fetch: app.fetch,
+			publishToSelf: false,
 			websocket: {
 				open: websocket.open,
 				message: websocket.message,
