@@ -30,7 +30,6 @@ export class TestEnvironment {
 		this.hostname = config.hostname || 'localhost';
 		this.usesTLS = config.tls !== false;
 
-		// Привязываем методы к контексту
 		this.createServer = this.createServer.bind(this);
 		this.createClient = this.createClient.bind(this);
 		this.cleanup = this.cleanup.bind(this);
@@ -40,14 +39,11 @@ export class TestEnvironment {
 		return this;
 	}
 
-	/**
-	 * Создает и запускает тестовый сервер
-	 */
 	async createServer(config: TestServerConfig = {}): Promise<typeof io> {
 		const port = config.port || ++TestEnvironment.portCounter;
 		const app = new Hono();
 
-		// Middleware для аутентификации
+		// Middleware for authentication (custom socket data)
 		app.use('/ws/*', async (c, next) => {
 			const user = config.auth?.user || { id: `test_user_${Date.now()}` };
 			const session = config.auth?.session || { id: `test_session_${Date.now()}` };
@@ -71,10 +67,13 @@ export class TestEnvironment {
 				open: websocket.open,
 				message: websocket.message,
 				close: websocket.close,
+				// idleTimeout: 30,
+				// maxPayloadLength: 16 * 1024 * 1024,
+				// backpressureLimit: 1024 * 1024,
 			},
 		};
 
-		// Добавляем TLS если нужно
+		// Add tls if necessary
 		if (this.usesTLS) {
 			serverOptions.tls = {
 				key: Bun.file('dev/localhost-key.pem'),
@@ -92,7 +91,7 @@ export class TestEnvironment {
 	}
 
 	/**
-	 * Создает клиента без создания сервера (для переиспользования существующего)
+	 * Creates a client without creating a server (to re -use the existing)
 	 */
 	createClient(clientConfig: TestClientConfig = {}): Socket {
 		if (!this.serverUrl) {
@@ -107,7 +106,9 @@ export class TestEnvironment {
 			autoConnect: clientConfig.autoConnect !== false,
 			forceNew: true,
 			upgrade: false,
-			rememberUpgrade: true,
+			rememberUpgrade: false,
+			reconnection: false,
+			rejectUnauthorized: false,
 		});
 
 		this.clients.push(socket);
@@ -118,7 +119,10 @@ export class TestEnvironment {
 	 * Очищает все ресурсы
 	 */
 	cleanup(): void {
-		// Отключаем всех клиентов
+		// Clear listensers
+		io.removeAllListeners();
+
+		// Disconnect all customers
 		this.clients.forEach((client) => {
 			if (client.connected) {
 				client.disconnect();
@@ -126,7 +130,7 @@ export class TestEnvironment {
 		});
 		this.clients = [];
 
-		// Останавливаем сервер
+		// Stop the server
 		if (this.server) {
 			this.server.stop(true);
 			this.server = undefined;
@@ -135,21 +139,21 @@ export class TestEnvironment {
 	}
 
 	/**
-	 * Проверяет, что все клиенты подключены
+	 * Checks that all customers are connected
 	 */
 	clientsConnected(): boolean {
 		return this.clients.every((client) => client.connected);
 	}
 
 	/**
-	 * Получает количество подключенных клиентов
+	 * Receives the number of connected customers
 	 */
 	get clientsConnectedCount(): number {
 		return this.clients.filter((client) => client.connected).length;
 	}
 
 	/**
-	 * Получает URL сервера
+	 * Receive a URL server
 	 */
 	get url(): string | undefined {
 		return this.serverUrl;
@@ -157,7 +161,7 @@ export class TestEnvironment {
 }
 
 /**
- * Утилита для создания тестового окружения (для обратной совместимости)
+ * A utility for creating a test environment (for reverse compatibility)
  */
 export function createTestEnv(config: TestServerConfig = {}): TestEnvironment {
 	return new TestEnvironment(config);
