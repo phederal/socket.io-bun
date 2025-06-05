@@ -7,9 +7,7 @@ import type { Socket } from '../src/socket';
 describe('Socket.IO Example Tests', () => {
 	const { createServer, createClient, cleanup, testEnv } = new TestEnvironment();
 
-	afterEach(() => {
-		cleanup();
-	});
+	afterEach(() => cleanup());
 
 	test('should successfully connect client to server', async () => {
 		/** */
@@ -248,28 +246,27 @@ describe('Socket.IO Example Tests', () => {
 
 			io.on('connection', (socket: Socket) => {
 				socket.on('binary_test', (data) => {
-					console.log('data');
 					expect(data).toBeInstanceOf(Buffer);
 					socket.emit('binary_response', Buffer.from('response'));
 				});
 			});
 
 			client.on('connect', () => {
-				// const binaryData = Buffer.from('test binary data');
-				client.emit('binary_test', '123');
+				const binaryData = Buffer.from('test binary data');
+				client.emit('binary_test', binaryData);
 			});
 
-			// client.on('binary_response', (response: Buffer) => {
-			// 	clearTimeout(timeout);
-			// 	expect(response).toBeInstanceOf(Buffer);
-			// 	expect(response.toString()).toBe('response');
-			// 	resolve();
-			// });
+			client.on('binary_response', (response: Buffer) => {
+				clearTimeout(timeout);
+				expect(response).toBeInstanceOf(Buffer);
+				expect(response.toString()).toBe('response');
+				resolve();
+			});
 
-			// client.on('connect_error', (error) => {
-			// 	clearTimeout(timeout);
-			// 	reject(error);
-			// });
+			client.on('connect_error', (error) => {
+				clearTimeout(timeout);
+				reject(error);
+			});
 		});
 	});
 });
