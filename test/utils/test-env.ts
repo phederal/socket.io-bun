@@ -25,6 +25,9 @@ export class TestEnvironment {
 	private server?: Bun.Server;
 	private serverUrl?: string;
 	private clients: Socket[] = [];
+	private pendingClients: Socket[] = [];
+	private isConnecting = false;
+	private createDelay = 0;
 
 	constructor(config: TestServerConfig = {}) {
 		this.hostname = config.hostname || 'localhost';
@@ -67,9 +70,6 @@ export class TestEnvironment {
 				open: websocket.open,
 				message: websocket.message,
 				close: websocket.close,
-				// idleTimeout: 30,
-				// maxPayloadLength: 16 * 1024 * 1024,
-				// backpressureLimit: 1024 * 1024,
 			},
 		};
 
@@ -91,7 +91,7 @@ export class TestEnvironment {
 	}
 
 	/**
-	 * Creates a client without creating a server (to re -use the existing)
+	 * Создает клиента с отложенным подключением
 	 */
 	createClient(clientConfig: TestClientConfig = {}): Socket {
 		if (!this.serverUrl) {
@@ -103,7 +103,7 @@ export class TestEnvironment {
 			path: '/ws',
 			transports: (clientConfig.transports as any) || ['websocket'],
 			timeout: clientConfig.timeout || 10000,
-			autoConnect: clientConfig.autoConnect !== false,
+			autoConnect: false, // ключевой момент - отключаем автоподключение
 			forceNew: true,
 			upgrade: false,
 			rememberUpgrade: false,
@@ -112,23 +112,61 @@ export class TestEnvironment {
 		});
 
 		this.clients.push(socket);
+		this.pendingClients.push(socket);
+
+		// Run the connection with a small delay
+		if (!this.isConnecting) {
+			this.isConnecting = true;
+
+			setTimeout(async () => {
+				await this._connectPendingClients();
+			}, this.createDelay);
+		}
+
 		return socket;
+	}
+
+	/**
+	 * Connects all accumulated customers in order
+	 */
+	private async _connectPendingClients(): Promise<void> {
+		const clientsToConnect = [...this.pendingClients];
+		this.pendingClients = [];
+		this.isConnecting = false;
+		// We connect customers strictly in order, we are waiting for everyone
+		for (const socket of clientsToConnect) {
+			socket.connect();
+			// We are waiting for the connection of the current client before the transition to the next
+			await new Promise<void>((resolve) => {
+				if (socket.connected) {
+					resolve();
+					return;
+				}
+				socket.once('connect', () => resolve());
+				socket.once('connect_error', () => resolve()); // Even with an error we continue
+			});
+			// Small pause for stability
+			await new Promise((resolve) => setTimeout(resolve, this.createDelay));
+		}
 	}
 
 	/**
 	 * Очищает все ресурсы
 	 */
 	cleanup(): void {
-		// Clear listensers
+		// Clear listeners
 		io.removeAllListeners();
+		io.disconnectSockets(true);
 
-		// Disconnect all customers
+		// Disconnect all clients
 		this.clients.forEach((client) => {
 			if (client.connected) {
 				client.disconnect();
 			}
 		});
 		this.clients = [];
+		this.pendingClients = [];
+		this.isConnecting = false;
 
 		// Stop the server
 		if (this.server) {
@@ -139,21 +177,21 @@ export class TestEnvironment {
 	}
 
 	/**
-	 * Checks that all customers are connected
+	 * Checks that all clients are connected
 	 */
 	clientsConnected(): boolean {
 		return this.clients.every((client) => client.connected);
 	}
 
 	/**
-	 * Receives the number of connected customers
+	 * Gets the number of connected clients
 	 */
 	get clientsConnectedCount(): number {
 		return this.clients.filter((client) => client.connected).length;
 	}
 
 	/**
-	 * Receive a URL server
+	 * Get server URL
 	 */
 	get url(): string | undefined {
 		return this.serverUrl;
