@@ -93,11 +93,10 @@ export class Socket<
 		// previousSession?: Session,
 	) {
 		super();
-		this.server = nsp.server;
-		this.adapter = nsp.adapter;
-		this.id = client.conn.id;
-		this.adapter = this.nsp.adapter;
-		this.handshake = this.buildHandshake(auth);
+                this.server = nsp.server;
+                this.adapter = nsp.adapter;
+                this.id = client.conn.id;
+               this.handshake = this.buildHandshake(auth);
 
 		// prevents crash when the socket receives an "error" event without listener
 		this.on('error', () => {});
