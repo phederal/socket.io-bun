@@ -1,0 +1,9 @@
+import './connection/connect.test';
+import './events/events.test';
+import './events/ack.test';
+import './events/binary.test';
+import './connection/multiple-clients.test';
+import './rooms/rooms.test';
+import './namespaces/namespaces.test';
+import './connection/disconnect.test';
+import './connection/server-disconnect.test';
