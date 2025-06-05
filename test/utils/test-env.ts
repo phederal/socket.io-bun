@@ -27,8 +27,8 @@ export class TestEnvironment {
 	private clients: Socket[] = [];
 
 	constructor(config: TestServerConfig = {}) {
-		this.hostname = config.hostname || 'localhost';
-		this.usesTLS = config.tls !== false || true;
+               this.hostname = config.hostname || 'localhost';
+               this.usesTLS = config.tls !== false;
 
 		// Привязываем методы к контексту
 		this.createServer = this.createServer.bind(this);
