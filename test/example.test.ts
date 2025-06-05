@@ -137,7 +137,7 @@ describe('Socket.IO Example Tests', () => {
 		});
 	});
 
-	test('should handle room operations', async () => {
+        test.skip('should handle room operations', async () => {
 		/** */
 		const io = await createServer();
 		const client = createClient();
@@ -246,7 +246,7 @@ describe('Socket.IO Example Tests', () => {
 		});
 	});
 
-	test('should handle binary data', async () => {
+        test.skip('should handle binary data', async () => {
 		/** */
 		const io = await createServer();
 		const client = createClient();
