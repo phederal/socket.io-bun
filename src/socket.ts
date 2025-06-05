@@ -164,6 +164,15 @@ export class Socket<
 		this.flags = {};
 
 		// TODO: add connected state recovered
+		// @ts-ignore
+		// if (this.nsp.server.opts.connectionStateRecovery) {
+		//   // this ensures the packet is stored and can be transmitted upon reconnection
+		//   this.adapter.broadcast(packet, {
+		//     rooms: new Set([this.id]),
+		//     except: new Set(),
+		//     flags,
+		//   });
+		// } else { ...> }
 
 		this.notifyOutgoingListeners(packet);
 		this.packet(packet, flags);
