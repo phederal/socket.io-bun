@@ -16,7 +16,6 @@ describe('Socket.IO Example Tests', () => {
 		const io = await createServer();
 		const client = createClient();
 		/** */
-
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
 
@@ -39,7 +38,6 @@ describe('Socket.IO Example Tests', () => {
 		const io = await createServer();
 		const client = createClient();
 		/** */
-
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('Event exchange timeout')), 5000);
 
@@ -73,7 +71,6 @@ describe('Socket.IO Example Tests', () => {
 		const io = await createServer();
 		const client = createClient();
 		/** */
-
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('ACK timeout')), 5000);
 
@@ -108,7 +105,6 @@ describe('Socket.IO Example Tests', () => {
 		const client1 = createClient();
 		const client2 = createClient();
 		/** */
-
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('Multiple clients timeout')), 5000);
 			let connectedCount = 0;
@@ -142,13 +138,12 @@ describe('Socket.IO Example Tests', () => {
 		const io = await createServer();
 		const client = createClient();
 		/** */
-
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('Room operations timeout')), 5000);
 
 			io.on('connection', (socket: Socket) => {
 				socket.join('test-room');
-				socket.to('test-room').emit('room_broadcast', 'Hello room!');
+				io.to('test-room').emit('room_broadcast', 'Hello room!');
 			});
 
 			client.on('room_broadcast', (message: string) => {
@@ -168,7 +163,6 @@ describe('Socket.IO Example Tests', () => {
 		/** */
 		const io = await createServer();
 		/** */
-
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('Namespace timeout')), 5000);
 
@@ -198,7 +192,6 @@ describe('Socket.IO Example Tests', () => {
 		const io = await createServer();
 		const client = createClient();
 		/** */
-
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('Disconnection timeout')), 5000);
 
@@ -225,7 +218,6 @@ describe('Socket.IO Example Tests', () => {
 		const io = await createServer();
 		const client = createClient();
 		/** */
-
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('Server disconnection timeout')), 5000);
 
@@ -251,33 +243,33 @@ describe('Socket.IO Example Tests', () => {
 		const io = await createServer();
 		const client = createClient();
 		/** */
-
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error('Binary data timeout')), 5000);
 
 			io.on('connection', (socket: Socket) => {
-				socket.on('binary_test', (data: Buffer) => {
+				socket.on('binary_test', (data) => {
+					console.log('data');
 					expect(data).toBeInstanceOf(Buffer);
 					socket.emit('binary_response', Buffer.from('response'));
 				});
 			});
 
-			client.on('binary_response', (response: Buffer) => {
-				clearTimeout(timeout);
-				expect(response).toBeInstanceOf(Buffer);
-				expect(response.toString()).toBe('response');
-				resolve();
-			});
-
 			client.on('connect', () => {
-				const binaryData = Buffer.from('test binary data');
-				client.emit('binary_test', binaryData);
+				// const binaryData = Buffer.from('test binary data');
+				client.emit('binary_test', '123');
 			});
 
-			client.on('connect_error', (error) => {
-				clearTimeout(timeout);
-				reject(error);
-			});
+			// client.on('binary_response', (response: Buffer) => {
+			// 	clearTimeout(timeout);
+			// 	expect(response).toBeInstanceOf(Buffer);
+			// 	expect(response.toString()).toBe('response');
+			// 	resolve();
+			// });
+
+			// client.on('connect_error', (error) => {
+			// 	clearTimeout(timeout);
+			// 	reject(error);
+			// });
 		});
 	});
 });

@@ -5,8 +5,8 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { createTestServer, createSocketIOClient } from '../utils/test-helper';
-import type { createTestServerType } from '../utils/test-helper';
+import { createTestServer, createSocketIOClient } from '../utils/test-env';
+import type { createTestServerType } from '../utils/test-env';
 import type { Socket as SocketIOClient } from 'socket.io-client';
 import type { Socket } from '../../src/socket';
 
