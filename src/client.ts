@@ -233,9 +233,6 @@ export class Client<
 	private ondecoded(packet: Packet): void {
 		const namespace = packet.nsp || '/';
 		packet.nsp = namespace;
-		console.log('2 step');
-		console.log(packet);
-		console.log(packet.type);
 		try {
 			switch (packet.type) {
 				case PacketType.CONNECT:
@@ -260,7 +257,6 @@ export class Client<
 						const socket = this.nsps.get(namespace);
 						if (socket) {
 							debug('routing event packet to socket %s in namespace %s', socket.id, namespace);
-							console.log('3 step', socket);
 							process.nextTick(() => {
 								socket._onpacket(packet);
 							});
