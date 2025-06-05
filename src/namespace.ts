@@ -153,10 +153,18 @@ export class Namespace<
 	 *
 	 * @private
 	 */
-	_initAdapter(): void {
-		// @ts-ignore
-		this.adapter = new (this.server.adapter()!)(this);
-	}
+        _initAdapter(): void {
+                let AdapterConstructor: any;
+                if (typeof (this.server as any).adapter === 'function') {
+                        AdapterConstructor = (this.server as any).adapter();
+                } else {
+                        AdapterConstructor = Adapter;
+                }
+                if (AdapterConstructor) {
+                        // @ts-ignore
+                        this.adapter = new AdapterConstructor(this);
+                }
+        }
 
 	/**
 	 * Registers a middleware, which is a function that gets executed for every incoming {@link Socket}.
