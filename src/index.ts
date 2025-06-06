@@ -518,10 +518,9 @@ class Server<
 			}),
 		);
 
-		this.engine.close();
+		// await new Promise((resolve) => setTimeout(resolve, 50));
 
-		// this._nsps.clear();
-		// this.removeAllListeners();
+		this.engine.close();
 
 		fn && fn();
 	}
