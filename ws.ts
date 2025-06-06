@@ -1,8 +1,12 @@
+/**
+ * Example file for init io server
+ * and use with hono createBunWebSocket
+ */
+
 import { createBunWebSocket } from 'hono/bun';
 import type { ServerWebSocket } from 'bun';
 import type { WSContext } from 'hono/ws';
 import type { Context } from 'hono';
-
 import { Server } from './src';
 import type { SocketData } from '#types/socket-types';
 import type { DefaultEventsMap } from '#types/typed-events';

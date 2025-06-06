@@ -1,6 +1,14 @@
 import { Hono } from 'hono';
-import { websocket, wsUpgrade, io } from '../../ws';
 import { io as clientIO, type Socket } from 'socket.io-client';
+
+// imports for wsUpgrade
+import { createBunWebSocket } from 'hono/bun';
+import type { ServerWebSocket } from 'bun';
+import type { WSContext } from 'hono/ws';
+import type { Context } from 'hono';
+import { Server } from '../../src';
+import type { SocketData } from '#types/socket-types';
+import type { DefaultEventsMap } from '#types/typed-events';
 
 export interface TestServerConfig {
 	port?: number;
@@ -22,6 +30,7 @@ export class TestEnvironment {
 	private readonly hostname: string;
 	private readonly usesTLS: boolean;
 
+	private io?: Server<any, any, DefaultEventsMap, SocketData>;
 	private server?: Bun.Server;
 	private serverUrl?: string;
 	private clients: Socket[] = [];
@@ -44,6 +53,28 @@ export class TestEnvironment {
 
 	async createServer(config: TestServerConfig = {}): Promise<typeof io> {
 		this.cleanup(); // Clean up previous server if exists
+
+		/**
+		 * Create wsUpgrade (moved from ws.ts)
+		 */
+		// <Listen, Emit, Reserved, SocketData>
+		this.io = new Server<any, any, DefaultEventsMap, SocketData>();
+		const io = this.io; // for use in this fn
+		// Create WebSocket handler
+		const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket<WSContext>>();
+		// WebSocket upgrade handler
+		const wsUpgrade = upgradeWebSocket((c: Context) => {
+			const user = c.get('user') || 'user_test1';
+			const session = c.get('session') || 'session_test1';
+			if (!user || !session) {
+				return Promise.reject({ code: 3000, reason: 'Unauthorized' });
+			}
+			return io.onconnection(c, {
+				user,
+				session,
+			});
+		});
+		/** end file create wsUpgrade (moved from ws.ts) */
 
 		const port = config.port || ++TestEnvironment.portCounter;
 		const app = new Hono();
@@ -236,15 +267,24 @@ export class TestEnvironment {
 	 * Cleans all resources
 	 */
 	cleanup(): void {
+		const io = this.io!;
+
 		// Clear listeners
 		io.removeAllListeners();
 		io.disconnectSockets(true);
 
 		// Clear namespaces
 		for (const [name, nsp] of io._nsps) {
-			nsp['_fns'] = [];
 			nsp.removeAllListeners();
+			nsp.sockets.clear();
+			if (nsp.adapter) {
+				nsp.adapter.removeAllListeners();
+			}
+			nsp['_fns'] = [];
 		}
+
+		io.close(); // close io server
+		this.io = undefined; // delete io server
 
 		// Disconnect all clients
 		this.clients.forEach((client) => {
@@ -252,6 +292,7 @@ export class TestEnvironment {
 				client.disconnect();
 			}
 		});
+
 		this.clients = [];
 		this.pendingClients = [];
 
