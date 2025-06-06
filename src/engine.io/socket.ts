@@ -368,6 +368,7 @@ export class Socket extends EventEmitter {
 
 	/**
 	 * Closes the socket and underlying transport.
+	 * Checking for packets in the write buffer and then closing transport
 	 *
 	 * @param {Boolean} discard - optional, discard the transport
 	 * @return {Socket} for chaining

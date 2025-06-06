@@ -156,5 +156,6 @@ export class Server extends EventEmitter {
 	 */
 	private cleanup() {
 		this.clients.clear();
+		// TODO: do not clear clients for waiting restore session
 	}
 }
