@@ -322,7 +322,6 @@ export class Namespace<
 		) => void,
 	) {
 		this.sockets.set(socket.id, socket);
-		this.adapter.addAll(socket.id, new Set([socket.id]));
 
 		// it's paramount that the internal `onconnect` logic
 		// fires before user-set events to prevent state order
@@ -344,7 +343,6 @@ export class Namespace<
 	_remove(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
 		if (this.sockets.has(socket.id)) {
 			this.sockets.delete(socket.id);
-			this.adapter.delAll(socket.id);
 		}
 	}
 
