@@ -43,6 +43,8 @@ export class TestEnvironment {
 	}
 
 	async createServer(config: TestServerConfig = {}): Promise<typeof io> {
+		this.cleanup(); // Clean up previous server if exists
+
 		const port = config.port || ++TestEnvironment.portCounter;
 		const app = new Hono();
 
