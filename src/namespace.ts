@@ -1,7 +1,4 @@
 import debugModule from 'debug';
-import { EventEmitter } from 'events';
-import type { ServerWebSocket } from 'bun';
-import type { WSContext } from 'hono/ws';
 import { Socket } from './socket';
 import { BroadcastOperator } from './broadcast';
 import { Adapter, type SocketId, type Room } from './socket.io-adapter';
