@@ -232,69 +232,53 @@ export class Client<
 	 */
 	private ondecoded(packet: Packet): void {
 		const namespace = packet.nsp || '/';
-		packet.nsp = namespace;
-		try {
-			switch (packet.type) {
-				case PacketType.CONNECT:
-					{
-						const authPayload = packet.data || {};
-						debug('handling connect packet for namespace %s', namespace);
-						this.connect(namespace, authPayload);
-					}
-					break;
-				case PacketType.DISCONNECT:
-					{
-						const socket = this.nsps.get(namespace);
-						if (socket) {
-							debug('handling disconnect packet for namespace %s', namespace);
-							socket.disconnect();
-						}
-					}
-					break;
-				case PacketType.EVENT:
-				case PacketType.BINARY_EVENT:
-					{
-						const socket = this.nsps.get(namespace);
-						if (socket) {
-							debug('routing event packet to socket %s in namespace %s', socket.id, namespace);
-							process.nextTick(() => {
-								socket._onpacket(packet);
-							});
-						} else {
-							debug('no socket found for namespace %s, ignoring event', namespace);
-							// Maybe we should send CONNECT_ERROR?
-						}
-					}
-					break;
-				case PacketType.ACK:
-				case PacketType.BINARY_ACK:
-					{
-						const socket = this.nsps.get(namespace);
-						if (socket) {
-							debug('routing ack packet to socket %s in namespace %s', socket.id, namespace);
-							process.nextTick(() => {
-								socket._onpacket(packet);
-							});
-						} else {
-							debug('no socket found for namespace %s, ignoring ack', namespace);
-							// Maybe we should send CONNECT_ERROR?
-						}
-					}
-					break;
-				case PacketType.CONNECT_ERROR:
-					debug('connect error for namespace %s: %s', namespace, packet.data);
-					const socket = this.nsps.get(namespace);
-					process.nextTick(function () {
-						if (socket) socket._onpacket(packet);
+		const authPayload = packet.data || {};
+		const socket = this.nsps.get(namespace);
+
+		switch (packet.type) {
+			case PacketType.CONNECT:
+				if (!socket) {
+					debug('handling connect packet for namespace %s', namespace);
+					this.connect(namespace, authPayload);
+				} else {
+					debug('invalid state - CONNECT packet for existing socket in namespace %s', namespace);
+					this.close();
+				}
+				break;
+
+			case PacketType.DISCONNECT:
+			case PacketType.EVENT:
+			case PacketType.BINARY_EVENT:
+			case PacketType.ACK:
+			case PacketType.BINARY_ACK:
+				if (socket) {
+					debug('routing %s packet to socket %s in namespace %s', packet.type, socket.id, namespace);
+					process.nextTick(() => {
+						socket._onpacket(packet);
 					});
-					break;
-				default:
-					debug('unknown packet type: %s', packet.type);
-					this.onerror(new Error(`Unknown packet type: ${packet.type}`));
-			}
-		} catch (error) {
-			debug('error handling packet: %s', error);
-			this.onerror(error as Error);
+				} else {
+					debug('invalid state - %s packet for non-existent socket in namespace %s', packet.type, namespace);
+					this.close();
+				}
+				break;
+
+			case PacketType.CONNECT_ERROR:
+				if (socket) {
+					debug('routing connect_error packet to socket %s in namespace %s', socket.id, namespace);
+					process.nextTick(() => {
+						socket._onpacket(packet);
+					});
+				} else {
+					debug('connect_error for non-existent socket in namespace %s', namespace);
+					// Maybe we should send CONNECT_ERROR?
+				}
+				break;
+
+			default:
+				debug('unknown packet type: %s', packet.type);
+				this.onerror(new Error(`Unknown packet type: ${packet.type}`));
+				this.close(); // not have in socket.io, but we added
+				break;
 		}
 	}
 
