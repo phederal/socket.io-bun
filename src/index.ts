@@ -381,6 +381,7 @@ class Server<
 		Object.assign(opts, this.opts);
 		// set engine.io path to `/socket.io`
 		opts.path = opts.path || this._path;
+		this.bun = srv;
 		this.initEngine(srv, opts);
 	}
 
