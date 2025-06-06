@@ -240,6 +240,12 @@ export class TestEnvironment {
 		io.removeAllListeners();
 		io.disconnectSockets(true);
 
+		// Clear namespaces
+		for (const [name, nsp] of io._nsps) {
+			nsp['_fns'] = [];
+			nsp.removeAllListeners();
+		}
+
 		// Disconnect all clients
 		this.clients.forEach((client) => {
 			if (client.connected) {
