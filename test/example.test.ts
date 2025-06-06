@@ -5,7 +5,7 @@ import { TestEnvironment } from './utils/test-env';
 import type { Socket } from '../src/socket';
 
 describe('Socket.IO Example Tests', () => {
-	const { createServer, createClient, cleanup, testEnv } = new TestEnvironment();
+	const { createServer, createClient, createClients, createClientsAsync, cleanup, testEnv } = new TestEnvironment();
 
 	afterEach(() => cleanup());
 
