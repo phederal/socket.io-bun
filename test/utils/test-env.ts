@@ -267,6 +267,7 @@ export class TestEnvironment {
 	 * Cleans all resources
 	 */
 	cleanup(): void {
+		if (!this.io) return;
 		const io = this.io!;
 
 		// Clear listeners
