@@ -195,16 +195,18 @@ export class TestEnvironment {
 		const clients = Array.from({ length: count }, (_, i) => this.createClient(configClient));
 		if (callback) await Promise.all(clients.map((client, i, all) => callback(client, i, all)));
 
-		await new Promise<void>((resolve, reject) => {
-			let connected = 0;
-			for (const client of clients) {
-				client.once('connect', () => {
-					connected++;
-					if (connected === clients.length) resolve();
-				});
-				client.once('connect_error', reject);
-			}
-		});
+		if (connectedOnly) {
+			await new Promise<void>((resolve, reject) => {
+				let connected = 0;
+				for (const client of clients) {
+					client.once('connect', () => {
+						connected++;
+						if (connected === clients.length) resolve();
+					});
+					client.once('connect_error', reject);
+				}
+			});
+		}
 
 		return clients;
 	}
