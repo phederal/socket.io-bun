@@ -177,8 +177,11 @@ export class Namespace<
 	 * @param fn - the middleware function
 	 */
 	use(
-		/** strict types */
-		fn: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>, next: (err?: ExtendedError) => void) => void,
+		fn: (
+			/** strict types */
+			socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+			next: (err?: ExtendedError) => void,
+		) => void,
 	): this {
 		this._fns.push(fn);
 		return this;
@@ -191,7 +194,11 @@ export class Namespace<
 	 * @param fn - last fn call in the middleware
 	 * @private
 	 */
-	private run(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>, fn: (err?: ExtendedError) => void) {
+	private run(
+		/** strict types */
+		socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+		fn: (err?: ExtendedError) => void,
+	) {
 		if (!this._fns.length) return fn();
 		const fns = this._fns.slice(0);
 		(function run(i: number) {
