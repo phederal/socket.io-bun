@@ -491,15 +491,44 @@ describe('Server', () => {
 				const timeout = setTimeout(() => reject(new Error('timeout')), 3000);
 
 				client.on('connect', async () => {
+					client.once('disconnect', () => {
+						clearTimeout(timeout);
+						expect(client.connected).toBe(false);
+						resolve();
+					});
+
 					try {
 						await io.close();
-						expect(client.connected).toBe(false);
-						clearTimeout(timeout);
-						resolve();
 					} catch (error) {
 						clearTimeout(timeout);
 						reject(error);
 					}
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should close server properly (graceful shutdown)', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
+
+				client.on('connect', async () => {
+					// ✅ Ждем disconnect события
+					client.once('disconnect', () => {
+						clearTimeout(timeout);
+						expect(client.connected).toBe(false);
+						resolve();
+					});
+
+					// Отправляем disconnect пакет клиенту
+					io.disconnectSockets();
+
+					// Ждем немного и закрываем сервер
+					setTimeout(() => io.close(), 100);
 				});
 
 				client.on('connect_error', reject);
