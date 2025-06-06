@@ -206,7 +206,7 @@ class Server<
 	 *
 	 */
 	engine!: Engine;
-	server!: BunServer;
+	bun!: BunServer;
 
 	/** @private */
 	readonly _parser: typeof parser;
@@ -512,15 +512,15 @@ class Server<
 				nsp.sockets.forEach((socket) => {
 					socket._onclose('server shutting down');
 				});
-				nsp.disconnectSockets(true);
+
 				await nsp.adapter.close();
 			}),
 		);
 
 		this.engine.close();
 
-		this._nsps.clear();
-		this.removeAllListeners();
+		// this._nsps.clear();
+		// this.removeAllListeners();
 
 		fn && fn();
 	}

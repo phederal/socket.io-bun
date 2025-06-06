@@ -53,7 +53,7 @@ export class Transport extends EventEmitter {
 		return this._readyState;
 	}
 	set readyState(state: WebSocketReadyState) {
-		debug('readyState updated from %s to %s (%s)', this._readyState, state, 'websocket');
+		debug('readyState updated from %s to %s (%s)', this._readyState, state, this.name);
 		this._readyState = state;
 	}
 
@@ -128,7 +128,7 @@ export class Transport extends EventEmitter {
 	 */
 	onClose(ev: CloseEvent) {
 		debug('WebSocket transport closed: %d %s', ev.code, ev.reason);
-		this.writable = false;
+		this.readyState = WebSocket.CLOSED;
 		this.emit('close', ev);
 	}
 

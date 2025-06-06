@@ -144,6 +144,7 @@ export class Server extends EventEmitter {
 	 * Closes all clients.
 	 */
 	close(terminate: boolean = false) {
+		debug('closing all open clients');
 		for (const client of this.clients.values()) {
 			client.close(terminate);
 		}

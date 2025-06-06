@@ -375,7 +375,8 @@ export class Socket extends EventEmitter {
 	 */
 	close(discard: boolean = false) {
 		if (discard && (this.readyState === WebSocket.OPEN || this.readyState === WebSocket.CLOSING)) {
-			return this.closeTransport(discard);
+			this.closeTransport(discard);
+			return;
 		}
 
 		if (WebSocket.OPEN !== this.readyState) return;
