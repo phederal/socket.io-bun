@@ -114,11 +114,11 @@ export class Socket<
 			address: this.client.conn.ws.raw?.remoteAddress ?? '0.0.0.0',
 			xdomain: !!this.client.conn.ctx.req.header('Origin'),
 			// @ts-ignore
-			secure: !this.client.conn.ctx.req,
+			secure: !this.client.conn.ctx.req.url.startsWith('wss://'),
 			issued: +new Date(),
 			url: this.client.conn.ctx.req.url,
 			// @ts-ignore
-			query: this.client.conn.ctx.req.queries || [],
+			query: Object.fromEntries(new URL(this.client.conn.ctx.req.url).searchParams),
 			auth: auth,
 		};
 	}
