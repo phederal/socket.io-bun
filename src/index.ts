@@ -456,10 +456,9 @@ class Server<
 	 */
 	of(
 		/** namespace */
-		name: string,
+		name: string | RegExp,
 		fn?: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void,
 	): Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
-		// @ts-ignore
 		if (typeof name === 'function' || name instanceof RegExp) {
 			const parentNsp = new ParentNamespace(this);
 			debug('initializing parent namespace %s', parentNsp.name);
@@ -476,6 +475,7 @@ class Server<
 			return parentNsp;
 		}
 
+		name = name as string;
 		if (String(name)[0] !== '/') name = '/' + name;
 
 		let nsp = this._nsps.get(name);
@@ -627,8 +627,7 @@ class Server<
 	 * @return self
 	 */
 	write(...args: EventParams<EmitEvents, 'message'>): this {
-		this.sockets.emit('message' as any, ...args);
-		return this;
+		return this.send(...args);
 	}
 
 	// TODO: add cluster compatibility
