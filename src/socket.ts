@@ -555,6 +555,15 @@ export class Socket<
 		this.emitReserved('disconnecting', reason, description);
 
 		// TODO: add persist session
+		// if (this.server._opts.connectionStateRecovery && RECOVERABLE_DISCONNECT_REASONS.has(reason)) {
+		// 	debug('connection state recovery is enabled for sid %s', this.id);
+		// 	this.adapter.persistSession({
+		// 		sid: this.id,
+		// 		pid: this.pid,
+		// 		rooms: [...this.rooms],
+		// 		data: this.data,
+		// 	});
+		// }
 
 		this._cleanup();
 		this.client._remove(this);
@@ -582,10 +591,7 @@ export class Socket<
 	 * @private
 	 */
 	_error(err: any): void {
-		this.packet({
-			type: PacketType.CONNECT_ERROR,
-			data: err,
-		});
+		this.packet({ type: PacketType.CONNECT_ERROR, data: err });
 	}
 
 	/**

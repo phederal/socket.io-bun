@@ -157,6 +157,7 @@ export class Client<
 	 * @private
 	 */
 	_remove(socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>): void {
+		debug('removing socket %s', socket.id);
 		if (this.sockets.has(socket.id)) {
 			const nsp = this.sockets.get(socket.id)!.nsp.name;
 			this.sockets.delete(socket.id);
