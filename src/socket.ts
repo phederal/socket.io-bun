@@ -584,7 +584,7 @@ export class Socket<
 	_error(err: any): void {
 		this.packet({
 			type: PacketType.CONNECT_ERROR,
-			data: err.message ? { message: err.message, data: err.data } : err,
+			data: err,
 		});
 	}
 
