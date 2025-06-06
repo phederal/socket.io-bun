@@ -512,17 +512,12 @@ class Server<
 				nsp.sockets.forEach((socket) => {
 					socket._onclose('server shutting down');
 				});
-
+				nsp.disconnectSockets(true);
 				await nsp.adapter.close();
 			}),
 		);
 
 		this.engine.close();
-
-		for (const nsp of this._nsps.values()) {
-			nsp.disconnectSockets(true);
-			nsp.adapter.close();
-		}
 
 		this._nsps.clear();
 		this.removeAllListeners();
