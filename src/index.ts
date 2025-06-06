@@ -3,9 +3,8 @@ import base64id from 'base64id';
 import EventEmitter from 'events';
 import { Namespace, type ExtendedError, type ServerReservedEventsMap } from './namespace';
 import { BroadcastOperator } from './broadcast';
-import { Connection } from './connection';
 import { Adapter, SessionAwareAdapter, type Room } from './socket.io-adapter';
-import type { Server as BunServer, ServerWebSocket, ServerWebSocketSendStatus } from 'bun';
+import type { Server as BunServer, ServerWebSocket } from 'bun';
 import type { RESERVED_EVENTS, SocketData as DefaultSocketData, DisconnectReason } from '../types/socket-types';
 import {
 	StrictEventEmitter,
