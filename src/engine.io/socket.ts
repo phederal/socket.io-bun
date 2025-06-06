@@ -326,7 +326,6 @@ export class Socket extends EventEmitter {
 
 			const packet: Packet = {
 				type,
-				// compitibility with bun pub/sub
 				options: options as { compress: boolean },
 			};
 			if (data) packet.data = data;
