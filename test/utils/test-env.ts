@@ -94,27 +94,23 @@ export class TestEnvironment {
 		app.get('/ws', wsUpgrade);
 		app.get('/ws/*', wsUpgrade);
 
-		const serverOptions: any = {
+		this.server = Bun.serve({
 			hostname: this.hostname,
 			port,
 			fetch: app.fetch,
-			publishToSelf: false,
 			websocket: {
 				open: websocket.open,
 				message: websocket.message,
 				close: websocket.close,
+				publishToSelf: false,
+				backpressureLimit: 16 * 1024 * 1024, // 16MB
+				maxPayloadLength: 16 * 1024 * 1024, // 16MB
 			},
-		};
-
-		// Add tls if necessary
-		if (this.usesTLS) {
-			serverOptions.tls = {
+			tls: {
 				key: Bun.file('dev/localhost-key.pem'),
 				cert: Bun.file('dev/localhost.pem'),
-			};
-		}
-
-		this.server = Bun.serve(serverOptions);
+			},
+		});
 		this.serverUrl = `${this.usesTLS ? 'wss' : 'ws'}://${this.hostname}:${port}`;
 
 		// Привязываем Socket.IO к серверу
