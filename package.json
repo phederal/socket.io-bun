@@ -5,18 +5,20 @@
 	"scripts": {
 		"dev": "NODE_ENV=development bun run --watch index.ts",
 		"start": "NODE_ENV=production bun run index.ts",
-		"test": "NODE_ENV=production bun test",
-		"test:live": "NODE_ENV=production bun run test/server/test-server.ts",
-		"test:real": "NODE_ENV=production bun test test/integration/websocket.test.ts",
-		"test:server": "NODE_ENV=production bun run test/run-with-server.ts",
+		"test": "bun test",
+		"test:server": "bun test test/unit/server.test.ts",
+		"test:test": "bun test test/unit/test.test.ts",
+		"test:live": "bun run test/server/test-server.ts",
+		"test:real": "bun test test/integration/websocket.test.ts",
 		"test:unit": "bun test test/unit/",
 		"test:integration": "bun test test/integration/",
 		"test:watch": "bun test --watch --exclude='**/integration/**'",
 		"test:coverage": "bun test --coverage --exclude='**/integration/**'",
-		"test:socket": "NODE_ENV=development bun test test/unit/socket.test.ts --timeout 15000",
-		"test:namespace": "NODE_ENV=test bun test test/unit/namespace.test.ts --timeout 15000",
-		"test:parser": "NODE_ENV=test bun test test/unit/parser.test.ts --timeout 15000",
-		"test:io": "NODE_ENV=development bun test test/example.test.ts --timeout 15000"
+		"test:socket": "bun test test/unit/socket.test.ts --timeout 15000",
+		"test:namespace": "bun test test/unit/namespace.test.ts --timeout 15000",
+		"test:parser": "bun test test/unit/parser.test.ts --timeout 15000",
+		"test:example": "bun test test/example.test.ts --timeout 15000",
+		"test:env": "bun test test/unit/test-env.test.ts --timeout 15000"
 	},
 	"devDependencies": {
 		"@types/base64id": "^2.0.2",
