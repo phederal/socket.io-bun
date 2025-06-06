@@ -155,18 +155,13 @@ export class Transport extends EventEmitter {
 
 			/** callback to send a packet */
 			const send = (data: parser.RawData) => {
-				try {
-					debug('writing "%s"', data);
-					this.socket.send(data, packet.options);
-					if (isLast) {
-						this.emit('drain');
-						this.writable = true;
-						this.emit('ready');
-					}
-				} catch (error) {
-					debug('Error sending packet:', error);
-					this.emit('error', error);
+				debug('writing "%s"', data);
+				this.socket.send(data, packet.options);
+
+				if (isLast) {
+					this.emit('drain');
 					this.writable = true;
+					this.emit('ready');
 				}
 			};
 
