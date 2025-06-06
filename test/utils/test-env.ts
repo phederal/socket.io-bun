@@ -26,8 +26,6 @@ export class TestEnvironment {
 	private serverUrl?: string;
 	private clients: Socket[] = [];
 	private pendingClients: Socket[] = [];
-	private isConnecting = false;
-	private createDelay = 0;
 
 	constructor(config: TestServerConfig = {}) {
 		this.hostname = config.hostname || 'localhost';
@@ -35,6 +33,8 @@ export class TestEnvironment {
 
 		this.createServer = this.createServer.bind(this);
 		this.createClient = this.createClient.bind(this);
+		this.createClients = this.createClients.bind(this);
+		this.createClientsAsync = this.createClientsAsync.bind(this);
 		this.cleanup = this.cleanup.bind(this);
 	}
 
@@ -114,16 +114,99 @@ export class TestEnvironment {
 		this.clients.push(socket);
 		this.pendingClients.push(socket);
 
-		// Run the connection with a small delay
-		if (!this.isConnecting) {
-			this.isConnecting = true;
-
-			setTimeout(async () => {
-				await this._connectPendingClients();
-			}, this.createDelay);
-		}
+		process.nextTick(() => {
+			this._connectPendingClients();
+		});
 
 		return socket;
+	}
+
+	/**
+	 * Creates multiple clients with an optional callback to be executed on every client
+	 *
+	 * @example
+	 * createClients(100, (client, index, clients) => {
+	 * 		client.on('connect', () => console.log(`${index++} |`, client.id));
+	 * });
+	 *
+	 * @param count The number of clients to create
+	 * @param callback An async callback to be executed after client are created
+	 * @param configClient The client configuration
+	 * @param connectedOnly Whether to wait for all clients to be connected
+	 */
+	// Sync
+	createClients(
+		count: number,
+		callback?: (client: Socket, index: number, clients: Socket[]) => void,
+		configClient?: TestClientConfig,
+		connectedOnly?: false,
+	): Socket[];
+	// Async
+	createClients(
+		count: number,
+		callback: (client: Socket, index: number, clients: Socket[]) => void,
+		configClient: TestClientConfig,
+		connectedOnly?: true,
+	): Promise<Socket[]>;
+	createClients(
+		count: number,
+		callback?: (client: Socket, index: number, clients: Socket[]) => void,
+		configClient: TestClientConfig = {},
+		connectedOnly: boolean = false,
+	): any {
+		const clients = Array.from({ length: count }, (_, i) => this.createClient(configClient));
+		if (callback) clients.forEach((client, i, all) => callback(client, i, all));
+
+		if (connectedOnly) {
+			return new Promise<Socket[]>((resolve, reject) => {
+				let connected = 0;
+				for (const client of clients) {
+					client.once('connect', () => {
+						connected++;
+						if (connected === clients.length) resolve(clients);
+					});
+					client.once('connect_error', reject);
+				}
+			});
+		}
+
+		return clients;
+	}
+
+	/**
+	 * Creates multiple clients with an optional ASYNC callback to be executed on every client
+	 *
+	 * @example
+	 * await createClientsAsync(100, async (client, index, clients) => {
+	 * 		client.on('connect', () => console.log(`${index++} |`, client.id));
+	 * });
+	 *
+	 * @param count The number of clients to create
+	 * @param callback An async callback to be executed after client are created
+	 * @param configClient The client configuration
+	 * @param connectedOnly Whether to wait for all clients to be connected
+	 */
+	async createClientsAsync(
+		count: number,
+		callback?: (client: Socket, index: number, clients: Socket[]) => Promise<void>,
+		configClient: TestClientConfig = {},
+		connectedOnly?: false,
+	): Promise<Socket[]> {
+		const clients = Array.from({ length: count }, (_, i) => this.createClient(configClient));
+		if (callback) await Promise.all(clients.map((client, i, all) => callback(client, i, all)));
+
+		await new Promise<void>((resolve, reject) => {
+			let connected = 0;
+			for (const client of clients) {
+				client.once('connect', () => {
+					connected++;
+					if (connected === clients.length) resolve();
+				});
+				client.once('connect_error', reject);
+			}
+		});
+
+		return clients;
 	}
 
 	/**
@@ -132,26 +215,21 @@ export class TestEnvironment {
 	private async _connectPendingClients(): Promise<void> {
 		const clientsToConnect = [...this.pendingClients];
 		this.pendingClients = [];
-		this.isConnecting = false;
+
 		// We connect customers strictly in order, we are waiting for everyone
 		for (const socket of clientsToConnect) {
 			socket.connect();
 			// We are waiting for the connection of the current client before the transition to the next
 			await new Promise<void>((resolve) => {
-				if (socket.connected) {
-					resolve();
-					return;
-				}
+				if (socket.connected) return resolve();
 				socket.once('connect', () => resolve());
 				socket.once('connect_error', () => resolve()); // Even with an error we continue
 			});
-			// Small pause for stability
-			await new Promise((resolve) => setTimeout(resolve, this.createDelay));
 		}
 	}
 
 	/**
-	 * Очищает все ресурсы
+	 * Cleans all resources
 	 */
 	cleanup(): void {
 		// Clear listeners
@@ -166,7 +244,6 @@ export class TestEnvironment {
 		});
 		this.clients = [];
 		this.pendingClients = [];
-		this.isConnecting = false;
 
 		// Stop the server
 		if (this.server) {
