@@ -43,7 +43,7 @@ export class ParentNamespace<
 		this.adapter = new ParentBroadcastAdapter(this as Namespace<any, any, any, any>);
 	}
 
-	public override emit<Ev extends EventNamesWithoutAck<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
+	override emit<Ev extends EventNamesWithoutAck<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
 		this.children.forEach((nsp) => {
 			nsp.emit(ev, ...args);
 		});

@@ -53,10 +53,8 @@ export class Client<
 
 	/**
 	 * @return the reference to the request that originated the Engine.IO connection
-	 *
-	 * @public
 	 */
-	public get ctx() {
+	get ctx() {
 		return this.conn.ctx;
 	}
 

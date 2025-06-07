@@ -198,7 +198,7 @@ export class Socket<
 	 *
 	 * @return a Promise that will be fulfilled when the client acknowledges the event
 	 */
-	public emitWithAck<Ev extends EventNamesWithAck<EmitEvents>>(
+	emitWithAck<Ev extends EventNamesWithAck<EmitEvents>>(
 		ev: Ev,
 		...args: AllButLast<EventParams<EmitEvents, Ev>>
 	): Promise<FirstNonErrorArg<Last<EventParams<EmitEvents, Ev>>>> {

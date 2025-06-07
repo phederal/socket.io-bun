@@ -118,7 +118,7 @@ export class BroadcastOperator<
 	/**
 	 * Main emit method with full Socket.IO compatibility
 	 */
-	public emit<Ev extends EventNames<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
+	emit<Ev extends EventNames<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
 		if (RESERVED_EVENTS.has(ev)) {
 			throw new Error(`"${String(ev)}" is a reserved event name`);
 		}
@@ -194,7 +194,7 @@ export class BroadcastOperator<
 	/**
 	 * Emit with acknowledgement callback
 	 */
-	public emitWithAck<Ev extends EventNamesWithError<EmitEvents>>(
+	emitWithAck<Ev extends EventNamesWithError<EmitEvents>>(
 		ev: Ev,
 		...args: AllButLast<EventParams<EmitEvents, Ev>>
 	): Promise<FirstNonErrorArg<Last<EventParams<EmitEvents, Ev>>>> {
