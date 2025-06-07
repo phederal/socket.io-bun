@@ -437,22 +437,27 @@ export class Socket<
 		debug('got packet %j', packet);
 		switch (packet.type) {
 			case PacketType.EVENT:
+				debug('socket: calling onevent for packet %j', packet);
 				this.onevent(packet);
 				break;
 
 			case PacketType.BINARY_EVENT:
+				debug('socket: calling onevent for packet %j', packet);
 				this.onevent(packet);
 				break;
 
 			case PacketType.ACK:
+				debug('socket: calling onack for packet %j', packet);
 				this.onack(packet);
 				break;
 
 			case PacketType.BINARY_ACK:
+				debug('socket: calling onack for packet %j', packet);
 				this.onack(packet);
 				break;
 
 			case PacketType.DISCONNECT:
+				debug('socket: calling ondisconnect for packet %j', packet);
 				this.ondisconnect();
 				break;
 		}
@@ -492,12 +497,16 @@ export class Socket<
 	private ack(id: number): () => void {
 		const self = this;
 		let sent = false;
+		debug('ack: creating callback for ACK id %d', id);
 		return function () {
 			// prevent double callbacks
+			debug('ack: callback already sent for id %d, ignoring', id);
 			if (sent) return;
-			const args = Array.prototype.slice.call(arguments);
-			debug('sending ack %j', args);
 
+			const args = Array.prototype.slice.call(arguments);
+			debug('ack: callback invoked for id %d with args %j', id, args);
+
+			debug('sending ack %j', args);
 			self.packet({
 				id: id,
 				type: PacketType.ACK,
@@ -505,6 +514,7 @@ export class Socket<
 			});
 
 			sent = true;
+			debug('ack: ACK packet sent for id %d', id);
 		};
 	}
 
@@ -734,10 +744,18 @@ export class Socket<
 	private dispatch(event: Event): void {
 		debug('dispatching an event %j', event);
 		debug('available listeners: %j', this.eventNames());
+		debug('middleware chain length: %d', this.fns.length);
+
 		this.run(event, (err) => {
+			debug('middleware chain completed, err: %j', err);
 			process.nextTick(() => {
-				if (err) return this._onerror(err);
+				if (err) {
+					debug('dispatch: middleware error, calling _onerror');
+					return this._onerror(err);
+				}
 				if (this.connected) {
+					debug('dispatch: emitting event via emitUntyped with args: %j', event);
+					debug('dispatch: event name: %s, args count: %d', event[0], event.length);
 					super.emitUntyped.apply(this, event);
 				} else {
 					debug('ignore packet received after disconnection');
@@ -782,8 +800,13 @@ export class Socket<
 	 * @private
 	 */
 	private run(event: Event, fn: (err?: Error) => void): void {
-		if (!this.fns.length) return fn();
+		debug('run: middleware execution start, chain length: %d', this.fns.length);
+		if (!this.fns.length) {
+			debug('run: no middleware, calling final callback');
+			return fn();
+		}
 		const fns = this.fns.slice(0);
+		debug('run: executing middleware chain with %d functions', fns.length);
 		(function run(i: number) {
 			fns[i]!(event, (err) => {
 				// upon error, short-circuit

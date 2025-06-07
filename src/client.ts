@@ -214,11 +214,12 @@ export class Client<
 	 * @private
 	 */
 	private ondata(data: unknown): void {
+		debug('client: received raw data: %j', data);
 		// try/catch is needed for protocol violations (GH-1880)
 		try {
 			this.decoder.add(data);
 		} catch (e: unknown) {
-			debug('invalid packet format');
+			debug('client: decoder error: %j', e);
 			// @ts-ignore
 			this.onerror(e);
 		}
@@ -230,9 +231,12 @@ export class Client<
 	 * @private
 	 */
 	private ondecoded(packet: Packet): void {
+		debug('client: decoded packet: %j', packet);
 		const namespace = packet.nsp || '/';
 		const authPayload = packet.data || {};
 		const socket = this.nsps.get(namespace);
+
+		debug('client: namespace=%s, socket exists=%s', namespace, !!socket);
 
 		switch (packet.type) {
 			case PacketType.CONNECT:
@@ -250,6 +254,7 @@ export class Client<
 			case PacketType.BINARY_EVENT:
 			case PacketType.ACK:
 			case PacketType.BINARY_ACK:
+				debug('client: routing %s packet to socket', packet.type);
 				if (socket) {
 					debug('routing %s packet to socket %s in namespace %s', packet.type, socket.id, namespace);
 					process.nextTick(() => {
