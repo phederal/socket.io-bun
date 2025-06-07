@@ -285,12 +285,12 @@ export class Namespace<
 		const socket = await this._createSocket(client, auth);
 
 		this.run(socket, (err) => {
-			process.nextTick(() => {
-				if (client.conn.readyState !== WebSocket.OPEN) {
-					debug('next called after client was closed - ignoring socket');
-					return socket._cleanup();
-				}
+			if (client.conn.readyState !== WebSocket.OPEN) {
+				debug('next called after client was closed - ignoring socket');
+				return socket._cleanup();
+			}
 
+			process.nextTick(() => {
 				if (err) {
 					debug('middleware error, sending CONNECT_ERROR packet to the client');
 					socket._cleanup();
