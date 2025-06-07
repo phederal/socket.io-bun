@@ -80,7 +80,7 @@ export class Socket<
 	private readonly server: Server<ListenEvents, EmitEvents, ServerSideEvents, SocketData>;
 	private readonly adapter: Adapter;
 
-	private acks = new Map<number, () => void>();
+	private acks = new Map<number, (...args: any[]) => void>();
 	private fns: Array<(event: Event, next: (err?: Error) => void) => void> = [];
 	private flags: BroadcastFlags = {};
 	private _anyListeners?: Array<(...args: any[]) => void>;
@@ -585,7 +585,7 @@ export class Socket<
 		// clear timeouts on acks
 		this.acks.forEach((callback) => {
 			try {
-				callback();
+				callback(new Error('Socket disconnected'));
 			} catch {}
 		});
 		this.acks.clear(); // clear acks
