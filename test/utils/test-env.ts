@@ -301,27 +301,63 @@ export class TestEnvironment {
 		const io = this.io!;
 
 		// Clear listeners
-		io.removeAllListeners();
 		io.disconnectSockets(true);
+		io.removeAllListeners();
+
+		if (io.engine) {
+			io.engine.close(true);
+		}
 
 		// Clear namespaces
 		for (const [name, nsp] of io._nsps) {
 			nsp.removeAllListeners();
+			for (const [socketId, socket] of nsp.sockets) {
+				socket.disconnect(true);
+				socket.removeAllListeners();
+				socket['acks'].clear();
+				socket['fns'] = [];
+			}
 			nsp.sockets.clear();
 			if (nsp.adapter) {
 				nsp.adapter.removeAllListeners();
+				nsp.adapter['rooms'].clear();
+				nsp.adapter['sids'].clear();
 			}
 			nsp['_fns'] = [];
+			nsp['_ids'] = 0;
 		}
 
-		io.close(); // close io server
-		this.io = undefined; // delete io server
+		io._nsps.clear();
+
+		for (const [matchFn, parentNsp] of io['parentNsps']) {
+			parentNsp.removeAllListeners();
+			parentNsp['children'].clear();
+		}
+		io['parentNsps'].clear();
+		io['parentNamespacesFromRegExp'].clear();
+
+		for (const [clientId, client] of io._clients) {
+			client['_disconnect']();
+			client['decoder'].removeAllListeners();
+			client['sockets'].clear();
+			client['nsps'].clear();
+		}
+		io._clients.clear();
+
+		try {
+			io.close();
+		} catch (error) {
+			console.warn('Warning on server shutdown:', error);
+		}
+
+		this.io = undefined;
 
 		// Disconnect all clients
 		this.clients.forEach((client) => {
 			if (client.connected) {
 				client.disconnect();
 			}
+			client.removeAllListeners();
 		});
 
 		this.clients = [];
@@ -332,6 +368,11 @@ export class TestEnvironment {
 			this.server.stop(true);
 			this.server = undefined;
 			this.serverUrl = undefined;
+		}
+
+		// Free memory
+		if (global.gc) {
+			global.gc();
 		}
 	}
 
