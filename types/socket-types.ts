@@ -27,13 +27,15 @@ export type SocketDataConstraint = SocketData;
 
 type ClientReservedEvents = 'connect_error';
 
-// Disconnect reasons
+// Disconnect reasons for server
 export type DisconnectReason =
+	// Engine.IO close reasons
 	| 'transport error'
 	| 'transport close'
 	| 'forced close'
 	| 'ping timeout'
 	| 'parse error'
+	// Socket.IO disconnect reasons
 	| 'server shutting down'
 	| 'forced server close'
 	| 'client namespace disconnect'
