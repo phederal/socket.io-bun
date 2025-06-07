@@ -99,7 +99,7 @@ export class Socket<
 		this.handshake = this.buildHandshake(auth);
 
 		// prevents crash when the socket receives an "error" event without listener
-		this.on('error', () => {});
+		// this.on('error', () => {});
 	}
 
 	/**
@@ -142,9 +142,16 @@ export class Socket<
 	 * @return Always returns `true`.
 	 */
 	override emit<Ev extends EventNames<EmitEvents>>(ev: Ev, ...args: EventParams<EmitEvents, Ev>): boolean {
+		// Special handling of the 'error' event (improve by socket.io-bun)
+		if (ev === 'error' && args.length > 0 && args[0] instanceof Error) {
+			this.emitReserved('error', args[0] as Error);
+			return true;
+		}
+
 		if (RESERVED_EVENTS.has(ev)) {
 			throw new Error(`"${String(ev)}" is a reserved event name`);
 		}
+
 		const data: any[] = [ev, ...args];
 		const packet: any = {
 			type: PacketType.EVENT,
