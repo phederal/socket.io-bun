@@ -16,6 +16,8 @@ export interface TestServerConfig {
 	namespace?: string;
 	auth?: Record<string, any>;
 	tls?: boolean;
+	pingTimeout?: number;
+	pingInterval?: number;
 }
 
 export interface TestClientConfig {
@@ -35,8 +37,10 @@ export class TestEnvironment {
 	private serverUrl?: string;
 	private clients: Socket[] = [];
 	private pendingClients: Socket[] = [];
+	private config: TestServerConfig = {};
 
 	constructor(config: TestServerConfig = {}) {
+		this.config = config;
 		this.hostname = config.hostname || 'localhost';
 		this.usesTLS = config.tls !== false;
 
@@ -58,7 +62,10 @@ export class TestEnvironment {
 		 * Create wsUpgrade (moved from ws.ts)
 		 */
 		// <Listen, Emit, Reserved, SocketData>
-		this.io = new Server<any, any, DefaultEventsMap, SocketData>();
+		this.io = new Server<any, any, DefaultEventsMap, SocketData>({
+			pingTimeout: this.config.pingTimeout || 10000,
+			pingInterval: this.config.pingInterval || 5000,
+		});
 		const io = this.io; // for use in this fn
 		// Create WebSocket handler
 		const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket<WSContext>>();
@@ -102,6 +109,7 @@ export class TestEnvironment {
 				open: websocket.open,
 				message: websocket.message,
 				close: websocket.close,
+				sendPings: false,
 				publishToSelf: false,
 				backpressureLimit: 16 * 1024 * 1024, // 16MB
 				maxPayloadLength: 16 * 1024 * 1024, // 16MB
