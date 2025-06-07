@@ -72,11 +72,20 @@ export class TestEnvironment {
 		const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket<WSContext>>();
 		// WebSocket upgrade handler
 		const wsUpgrade = upgradeWebSocket((c: Context) => {
-			const user = c.get('user') || 'user_test1';
-			const session = c.get('session') || 'session_test1';
+			const user = c.get('user');
+			const session = c.get('session');
+
 			if (!user || !session) {
-				return Promise.reject({ code: 3000, reason: 'Unauthorized' });
+				// TODO: create io.onerrorconnection for that situation
+				return io.onconnection(c, {
+					// @ts-ignore
+					user: null,
+					// @ts-ignore
+					session: null,
+					authFailure: true,
+				});
 			}
+
 			return io.onconnection(c, {
 				user,
 				session,
@@ -89,8 +98,8 @@ export class TestEnvironment {
 
 		// Middleware for authentication (custom socket data)
 		app.use('/ws/*', async (c, next) => {
-			const user = config.auth?.user || { id: `test_user_${Date.now()}` };
-			const session = config.auth?.session || { id: `test_session_${Date.now()}` };
+			const user = config.auth?.user === false ? null : 'user_test1';
+			const session = config.auth?.session === false ? null : 'session_test1';
 
 			// @ts-ignore
 			c.set('user', user);
@@ -125,6 +134,13 @@ export class TestEnvironment {
 		// Привязываем Socket.IO к серверу
 		io.attach(this.server);
 
+		// For testing error access (auth failed)
+		if (config.auth?.user === false || config.auth?.session === false) {
+			io.use((socket, next) => {
+				next(new Error('Unauthorized - authentication failed'));
+			});
+		}
+
 		return io;
 	}
 
@@ -150,7 +166,9 @@ export class TestEnvironment {
 			transportOptions: {
 				pingTimeout: this.config.pingTimeout || undefined,
 				pingInterval: this.config.pingInterval || undefined,
-			}
+			},
+			withCredentials: true,
+			requestTimeout: clientConfig.timeout || 10000,
 		});
 
 		this.clients.push(socket);
