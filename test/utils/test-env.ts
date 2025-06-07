@@ -63,9 +63,10 @@ export class TestEnvironment {
 		 */
 		// <Listen, Emit, Reserved, SocketData>
 		this.io = new Server<any, any, DefaultEventsMap, SocketData>({
-			pingTimeout: this.config.pingTimeout || 10000,
-			pingInterval: this.config.pingInterval || 5000,
+			pingTimeout: config.pingTimeout || this.config.pingTimeout || 10000,
+			pingInterval: config.pingInterval || this.config.pingInterval || 5000,
 		});
+
 		const io = this.io; // for use in this fn
 		// Create WebSocket handler
 		const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket<WSContext>>();
@@ -146,6 +147,10 @@ export class TestEnvironment {
 			rememberUpgrade: false,
 			reconnection: false,
 			rejectUnauthorized: false,
+			transportOptions: {
+				pingTimeout: this.config.pingTimeout || undefined,
+				pingInterval: this.config.pingInterval || undefined,
+			}
 		});
 
 		this.clients.push(socket);
