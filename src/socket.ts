@@ -581,6 +581,14 @@ export class Socket<
 		this.leaveAll();
 		this.nsp._remove(this);
 		this.join = () => {};
+
+		// clear timeouts on acks
+		this.acks.forEach((callback) => {
+			try {
+				callback();
+			} catch {}
+		});
+		this.acks.clear(); // clear acks
 	}
 
 	/**
