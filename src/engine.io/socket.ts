@@ -191,6 +191,8 @@ export class Socket extends EventEmitter {
 
 			default:
 				debug('Unknown Engine.IO packet type: %s', packet.type);
+				this.onClose('parse error'); // only on socket.io-bun
+				break;
 		}
 	}
 
