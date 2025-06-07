@@ -77,6 +77,17 @@ export class Server extends EventEmitter {
 	 */
 	handleRequest(ctx: Context, data?: any) {
 		debug('Handle request on engine.io layer');
+
+		// TODO: add handler for auth failed on this class or io.onconnection maybe io.onerror() to this
+		// if (data?.authFailure) {
+		// 	// Create transport but immediately trigger auth error
+		// 	const transport = new Transport();
+		// 	setTimeout(() => {
+		// 		transport.onError(new Error('Unauthorized - authentication failed') as unknown as Event);
+		// 	}, 50);
+		// 	return transport;
+		// }
+
 		const query = ctx.req.query();
 		const conn = getConnInfo(ctx);
 
@@ -156,6 +167,5 @@ export class Server extends EventEmitter {
 	 */
 	private cleanup() {
 		this.clients.clear();
-		// TODO: do not clear clients for waiting restore session
 	}
 }
