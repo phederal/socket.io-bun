@@ -18,6 +18,7 @@ export interface TestServerConfig {
 	tls?: boolean;
 	pingTimeout?: number;
 	pingInterval?: number;
+	connectTimeout?: number;
 }
 
 export interface TestClientConfig {
@@ -65,6 +66,7 @@ export class TestEnvironment {
 		this.io = new Server<any, any, DefaultEventsMap, SocketData>({
 			pingTimeout: config.pingTimeout || this.config.pingTimeout || 10000,
 			pingInterval: config.pingInterval || this.config.pingInterval || 5000,
+			connectTimeout: config.connectTimeout || this.config.connectTimeout || 5000,
 		});
 
 		const io = this.io; // for use in this fn
@@ -120,6 +122,7 @@ export class TestEnvironment {
 				message: websocket.message,
 				close: websocket.close,
 				sendPings: false,
+				idleTimeout: 0, // ???
 				publishToSelf: false,
 				backpressureLimit: 16 * 1024 * 1024, // 16MB
 				maxPayloadLength: 16 * 1024 * 1024, // 16MB
