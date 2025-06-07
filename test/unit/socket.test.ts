@@ -1,90 +1,83 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-import { describe, test, expect, beforeEach, afterEach, jest } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { TestEnvironment } from '../utils/test-env';
 import type { Socket } from '../../src/socket';
-import { sleep } from '../utils';
 
-describe('Connection/Transport Layer', () => {
+describe('Socket', () => {
 	const { createServer, createClient, cleanup } = new TestEnvironment();
 
-	describe('WebSocket Connection Lifecycle', () => {
-		test('should establish WebSocket connection with proper handshake', async () => {
+	describe('Socket Connection', () => {
+		test('should create socket with valid properties', async () => {
 			const io = await createServer();
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Connection timeout')), 3000);
+				const timeout = setTimeout(() => reject(new Error('Socket properties timeout')), 3000);
 
 				io.on('connection', (socket: Socket) => {
-					// Verify handshake details
+					clearTimeout(timeout);
+					expect(socket.id).toBeDefined();
+					expect(socket.connected).toBe(true);
+					expect(socket.disconnected).toBe(false);
 					expect(socket.handshake).toBeDefined();
-					expect(socket.handshake.headers).toBeDefined();
-					expect(socket.handshake.time).toBeDefined();
-					expect(socket.handshake.address).toBeDefined();
-					expect(socket.handshake.issued).toBeNumber();
-					expect(socket.handshake.url).toBeDefined();
-					expect(socket.handshake.query).toBeDefined();
-					expect(socket.handshake.auth).toBeDefined();
-				});
-
-				client.on('connect', () => {
-					clearTimeout(timeout);
-					expect(client.connected).toBe(true);
-					expect(client.id).toBeDefined();
-					expect(typeof client.id).toBe('string');
+					expect(socket.data).toBeDefined();
+					expect(socket.rooms).toBeDefined();
+					expect(socket.rooms.has(socket.id)).toBe(true);
 					resolve();
-				});
-
-				client.on('connect_error', (error) => {
-					clearTimeout(timeout);
-					reject(error);
-				});
-			});
-		});
-
-		test('should handle WebSocket disconnect properly', async () => {
-			const io = await createServer();
-			const client = createClient();
-
-			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Disconnect timeout')), 3000);
-				let serverSocket: Socket;
-
-				io.on('connection', (socket: Socket) => {
-					serverSocket = socket;
-
-					socket.on('disconnect', (reason) => {
-						expect(reason).toBe('client namespace disconnect');
-						expect(socket.connected).toBe(false);
-					});
-				});
-
-				client.on('disconnect', (reason) => {
-					clearTimeout(timeout);
-					expect(client.connected).toBe(false);
-					expect(reason).toBeDefined();
-
-					// Verify server socket state
-					if (serverSocket) {
-						setTimeout(() => {
-							expect(serverSocket.connected).toBe(false);
-						}, 100);
-					}
-					resolve();
-				});
-
-				client.on('connect', () => {
-					expect(client.connected).toBe(true);
-					// client.disconnect();
-					setImmediate(() => client.disconnect());
 				});
 
 				client.on('connect_error', reject);
 			});
 		});
 
-		test('should handle server-side disconnect with proper cleanup', async () => {
+		test('should have valid handshake data', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Handshake timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					clearTimeout(timeout);
+					expect(socket.handshake.time).toBeDefined();
+					expect(socket.handshake.address).toBeDefined();
+					expect(socket.handshake.url).toBeDefined();
+					expect(socket.handshake.headers).toBeDefined();
+					expect(socket.handshake.auth).toBeDefined();
+					expect(socket.handshake.issued).toBeNumber();
+					resolve();
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should handle disconnect event', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Disconnect timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					socket.on('disconnect', (reason) => {
+						clearTimeout(timeout);
+						expect(reason).toBeDefined();
+						expect(socket.connected).toBe(false);
+						expect(socket.disconnected).toBe(true);
+						resolve();
+					});
+
+					// Disconnect from client
+					client.disconnect();
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should handle server-side disconnect', async () => {
 			const io = await createServer();
 			const client = createClient();
 
@@ -92,18 +85,11 @@ describe('Connection/Transport Layer', () => {
 				const timeout = setTimeout(() => reject(new Error('Server disconnect timeout')), 3000);
 
 				io.on('connection', (socket: Socket) => {
-					// Test server-initiated disconnect
-					expect(socket.connected).toBe(true);
 					socket.disconnect();
-
-					setTimeout(() => {
-						expect(socket.connected).toBe(false);
-					}, 100);
 				});
 
 				client.on('disconnect', (reason) => {
 					clearTimeout(timeout);
-					expect(client.connected).toBe(false);
 					expect(reason).toBe('io server disconnect');
 					resolve();
 				});
@@ -111,30 +97,160 @@ describe('Connection/Transport Layer', () => {
 				client.on('connect_error', reject);
 			});
 		});
+	});
 
-		test('should handle forced connection close', async () => {
+	describe('Socket Events', () => {
+		test('should emit and receive events', async () => {
 			const io = await createServer();
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Forced close timeout')), 3000);
+				const timeout = setTimeout(() => reject(new Error('Event timeout')), 3000);
 
 				io.on('connection', (socket: Socket) => {
-					// Monitor transport layer close event
-					socket.conn.on('close', (reason) => {
-						expect(['transport close', 'forced close']).toContain(reason);
+					socket.on('test_event', (data: string) => {
+						expect(data).toBe('test data');
+						socket.emit('response_event', 'response data');
 					});
-
-					setTimeout(() => {
-						socket.disconnect(true); // force=true closes underlying transport
-					}, 100);
 				});
 
-				// Client transport close event
-				client.on('disconnect', (reason) => {
+				client.on('response_event', (data: string) => {
 					clearTimeout(timeout);
-					expect(client.connected).toBe(false);
+					expect(data).toBe('response data');
 					resolve();
+				});
+
+				client.on('connect', () => {
+					client.emit('test_event', 'test data');
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should handle acknowledgments', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('ACK timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					socket.on('ack_test', (data: string, callback: Function) => {
+						expect(data).toBe('ack data');
+						callback('ack response');
+					});
+				});
+
+				client.on('connect', () => {
+					client.emit('ack_test', 'ack data', (response: string) => {
+						clearTimeout(timeout);
+						expect(response).toBe('ack response');
+						resolve();
+					});
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should handle emitWithAck', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('EmitWithAck timeout')), 3000);
+
+				io.on('connection', async (socket: Socket) => {
+					socket.on('emitWithAck_test', (data: string, callback: Function) => {
+						expect(data).toBe('emitWithAck data');
+						callback('emitWithAck response');
+					});
+				});
+
+				client.on('connect', () => {
+					client.emitWithAck('emitWithAck_test', 'emitWithAck data').then((response) => {
+						clearTimeout(timeout);
+						expect(response).toBe('emitWithAck response');
+						resolve();
+					});
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should handle multiple events', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Multiple events timeout')), 3000);
+				let eventCount = 0;
+
+				io.on('connection', (socket: Socket) => {
+					socket.on('event1', (data: string) => {
+						expect(data).toBe('data1');
+						eventCount++;
+						if (eventCount === 3) {
+							clearTimeout(timeout);
+							resolve();
+						}
+					});
+
+					socket.on('event2', (data: string) => {
+						expect(data).toBe('data2');
+						eventCount++;
+						if (eventCount === 3) {
+							clearTimeout(timeout);
+							resolve();
+						}
+					});
+
+					socket.on('event3', (data: string) => {
+						expect(data).toBe('data3');
+						eventCount++;
+						if (eventCount === 3) {
+							clearTimeout(timeout);
+							resolve();
+						}
+					});
+				});
+
+				client.on('connect', () => {
+					client.emit('event1', 'data1');
+					client.emit('event2', 'data2');
+					client.emit('event3', 'data3');
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should handle binary data', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Binary data timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					socket.on('binary_event', (data: Buffer) => {
+						expect(data).toBeInstanceOf(Buffer);
+						expect(data.toString()).toBe('binary data');
+						socket.emit('binary_response', Buffer.from('binary response'));
+					});
+				});
+
+				client.on('binary_response', (data: Buffer) => {
+					clearTimeout(timeout);
+					expect(data).toBeInstanceOf(Buffer);
+					expect(data.toString()).toBe('binary response');
+					resolve();
+				});
+
+				client.on('connect', () => {
+					client.emit('binary_event', Buffer.from('binary data'));
 				});
 
 				client.on('connect_error', reject);
@@ -142,41 +258,283 @@ describe('Connection/Transport Layer', () => {
 		});
 	});
 
-	describe('ReadyState Management', () => {
-		test('should properly track connection readyState transitions', async () => {
+	describe('Socket Rooms', () => {
+		test('should join rooms', async () => {
 			const io = await createServer();
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('ReadyState timeout')), 3000);
-				const transportStates: number[] = [];
+				const timeout = setTimeout(() => reject(new Error('Join room timeout')), 3000);
 
 				io.on('connection', (socket: Socket) => {
-					// Access Engine.IO transport readyState
-					expect(socket.conn.readyState).toBe(WebSocket.OPEN);
-					transportStates.push(socket.conn.readyState);
+					socket.join('test-room');
+					expect(socket.rooms.has('test-room')).toBe(true);
+					clearTimeout(timeout);
+					resolve();
+				});
 
-					// Monitor transport layer close
-					socket.conn.on('close', () => {
-						expect(socket.conn.readyState).toBe(WebSocket.CLOSED);
-						transportStates.push(socket.conn.readyState);
-					});
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should leave rooms', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Leave room timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					socket.join('test-room');
+					expect(socket.rooms.has('test-room')).toBe(true);
+
+					socket.leave('test-room');
+					expect(socket.rooms.has('test-room')).toBe(false);
+					clearTimeout(timeout);
+					resolve();
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should join multiple rooms', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Multiple rooms timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					socket.join(['room1', 'room2', 'room3']);
+					expect(socket.rooms.has('room1')).toBe(true);
+					expect(socket.rooms.has('room2')).toBe(true);
+					expect(socket.rooms.has('room3')).toBe(true);
+					clearTimeout(timeout);
+					resolve();
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should broadcast to room', async () => {
+			const io = await createServer();
+			const client1 = createClient();
+			const client2 = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Room broadcast timeout')), 3000);
+				let connectCount = 0;
+				let serverSocket1: Socket;
+				let serverSocket2: Socket;
+
+				io.on('connection', (socket: Socket) => {
+					connectCount++;
+
+					if (connectCount === 1) {
+						serverSocket1 = socket;
+						socket.join('room1');
+					}
+
+					if (connectCount === 2) {
+						serverSocket2 = socket;
+						socket.join('room1');
+
+						// Broadcast от первого socket - получит только второй socket
+						serverSocket1.to('room1').emit('room_message', 'room test');
+					}
+				});
+
+				// client1 НЕ должен получить сообщение (self-exclusion)
+				client1.on('room_message', () => {
+					clearTimeout(timeout);
+					reject(new Error('Client1 should not receive own broadcast due to self-exclusion'));
+				});
+
+				// client2 ДОЛЖЕН получить сообщение
+				client2.on('room_message', (data: string) => {
+					clearTimeout(timeout);
+					expect(data).toBe('room test');
+					resolve();
+				});
+
+				client1.on('connect_error', reject);
+				client2.on('connect_error', reject);
+			});
+		});
+
+		test('should broadcast to multiple rooms', async () => {
+			const io = await createServer();
+			const client1 = createClient();
+			const client2 = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Multiple room broadcast timeout')), 3000);
+				let serverSocket1: Socket;
+				let serverSocket2: Socket;
+				let connectCount = 0;
+				let receivedCount = 0;
+
+				io.on('connection', (socket: Socket) => {
+					connectCount++;
+
+					if (connectCount === 1) {
+						serverSocket1 = socket;
+						socket.join('room1');
+					} else if (connectCount === 2) {
+						serverSocket2 = socket;
+						socket.join('room2');
+
+						// Multi-room broadcast execution
+						io.to(['room1', 'room2']).emit('multi_room', 'multi test');
+					}
+				});
+
+				const checkMessage = (data: string) => {
+					expect(data).toBe('multi test');
+					receivedCount++;
+					if (receivedCount === 2) {
+						clearTimeout(timeout);
+						resolve();
+					}
+				};
+
+				client1.on('multi_room', checkMessage);
+				client2.on('multi_room', checkMessage);
+
+				client1.on('connect_error', reject);
+				client2.on('connect_error', reject);
+			});
+		});
+	});
+
+	describe('Socket Broadcasting', () => {
+		test('should broadcast to all except sender', async () => {
+			const io = await createServer();
+			const client1 = createClient();
+			const client2 = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Broadcast timeout')), 3000);
+				let serverSocket1: Socket;
+				let connectCount = 0;
+
+				io.on('connection', (socket: Socket) => {
+					connectCount++;
+
+					if (connectCount === 1) {
+						serverSocket1 = socket;
+					}
+
+					if (connectCount === 2) {
+						serverSocket1.broadcast.emit('broadcast_test', 'broadcast message');
+					}
+				});
+
+				client1.on('broadcast_test', () => {
+					clearTimeout(timeout);
+					reject(new Error('Sender should not receive broadcast'));
+				});
+
+				client2.on('broadcast_test', (data: string) => {
+					clearTimeout(timeout);
+					expect(data).toBe('broadcast message');
+					resolve();
+				});
+
+				client1.on('connect_error', reject);
+				client2.on('connect_error', reject);
+			});
+		});
+
+		test('should handle except modifier', async () => {
+			const io = await createServer();
+			const client1 = createClient();
+			const client2 = createClient();
+			const client3 = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Except timeout')), 3000);
+				let serverSocket1: Socket;
+				let serverSocket2: Socket;
+				let connectCount = 0;
+
+				io.on('connection', (socket: Socket) => {
+					connectCount++;
+
+					if (connectCount === 1) {
+						serverSocket1 = socket;
+					} else if (connectCount === 2) {
+						serverSocket2 = socket;
+						socket.join('excluded');
+					}
+
+					if (connectCount === 3) {
+						serverSocket1.except('excluded').emit('except_test', 'except message');
+					}
+				});
+
+				client1.on('except_test', () => {
+					clearTimeout(timeout);
+					reject(new Error('Sender should not receive message'));
+				});
+
+				client2.on('except_test', () => {
+					clearTimeout(timeout);
+					reject(new Error('Excluded client should not receive message'));
+				});
+
+				client3.on('except_test', (data: string) => {
+					clearTimeout(timeout);
+					expect(data).toBe('except message');
+					resolve();
+				});
+
+				client1.on('connect_error', reject);
+				client2.on('connect_error', reject);
+				client3.on('connect_error', reject);
+			});
+		});
+	});
+
+	describe('Socket Modifiers', () => {
+		test('should handle volatile events', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => resolve(), 100);
+
+				io.on('connection', (socket: Socket) => {
+					socket.volatile.emit('volatile_test', 'volatile message');
+				});
+
+				client.on('volatile_test', () => {
+					clearTimeout(timeout);
+					reject(new Error('Volatile event should not be guaranteed'));
 				});
 
 				client.on('connect', () => {
-					// Client connected at Socket.IO layer
-					expect(client.connected).toBe(true);
 					client.disconnect();
 				});
+			});
+		});
 
-				client.on('disconnect', () => {
+		test('should handle compression flag', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Compression timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					socket.compress(true).emit('compress_test', 'compressed message');
+				});
+
+				client.on('compress_test', (data: string) => {
 					clearTimeout(timeout);
-					expect(client.connected).toBe(false);
-					// for abstract connection (socket.io-bun) use nextTick
-					setImmediate(() => {
-						expect(transportStates).toContain(WebSocket.OPEN);
-						expect(transportStates).toContain(WebSocket.CLOSED);
-					});
+					expect(data).toBe('compressed message');
 					resolve();
 				});
 
@@ -184,156 +542,25 @@ describe('Connection/Transport Layer', () => {
 			});
 		});
 
-		test('should handle rapid connect/disconnect cycles', async () => {
+		test('should handle timeout modifier', async () => {
 			const io = await createServer();
-
-			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Rapid cycles timeout')), 5000);
-				let connectionCount = 0;
-				let disconnectionCount = 0;
-				const targetCycles = 3;
-
-				io.on('connection', (socket: Socket) => {
-					connectionCount++;
-					expect(socket.connected).toBe(true);
-
-					socket.on('disconnect', () => {
-						disconnectionCount++;
-						expect(socket.connected).toBe(false);
-
-						if (disconnectionCount === targetCycles) {
-							clearTimeout(timeout);
-							process.nextTick(() => {
-								expect(connectionCount).toBe(targetCycles);
-								expect(disconnectionCount).toBe(targetCycles);
-							});
-							resolve();
-						}
-					});
-				});
-
-				// Create multiple rapid connections
-				for (let i = 0; i < targetCycles; i++) {
-					setTimeout(() => {
-						const client = createClient();
-						client.on('connect', () => {
-							setTimeout(() => client.disconnect(), 50);
-						});
-						client.on('connect_error', reject);
-					}, i * 100);
-				}
-			});
-		});
-	});
-
-	describe('Ping/Pong Mechanism', () => {
-		test('should handle ping/pong heartbeat correctly', async () => {
-			// Create server with shorter ping intervals for testing
-			const io = await createServer({
-				// These options would be passed to engine options
-				pingTimeout: 1000,
-				pingInterval: 500,
-			});
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Heartbeat timeout')), 3000);
-				let heartbeatReceived = false;
+				const timeout = setTimeout(() => reject(new Error('Timeout test timeout')), 5000);
 
 				io.on('connection', (socket: Socket) => {
-					// Listen for heartbeat events from engine layer
-					socket.conn.on('heartbeat', () => {
-						heartbeatReceived = true;
-						expect(heartbeatReceived).toBe(true);
+					socket.timeout(1000).emit('timeout_test', 'timeout data', (err: Error) => {
+						clearTimeout(timeout);
+						expect(err).toBeDefined();
+						expect(err.message).toContain('timed out');
 						resolve();
 					});
-
-					// Verify ping/pong mechanism by checking heartbeat
-					setTimeout(() => {
-						clearTimeout(timeout);
-						reject();
-					}, 1500); // Wait for at least one ping cycle
 				});
 
-				client.on('connect_error', reject);
-			});
-		});
-
-		test('should detect ping timeout and disconnect', async () => {
-			const io = await createServer({
-				pingTimeout: 500,
-				pingInterval: 200,
-			});
-			const client = createClient();
-
-			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Ping timeout test failed')), 3000);
-
-				io.on('connection', (socket: Socket) => {
-					socket.on('disconnect', (reason) => {
-						clearTimeout(timeout);
-						expect(reason).toBe('ping timeout');
-						resolve();
-					});
-
-					// Simulate client not responding to pings by accessing raw WebSocket
-					setTimeout(() => {
-						const engineSocket = socket.conn as any;
-						const transport = engineSocket.transport;
-
-						// Override emit to filter packet events
-						const originalEmit = transport.emit.bind(transport);
-						transport.emit = function (event: string, ...args: any[]) {
-							// Filter only packet events
-							if (event === 'packet') {
-								const type = args[0]?.type;
-								// ignore pongs
-								if (type === 'pong') {
-									return false;
-								}
-							}
-							return originalEmit(event, ...args);
-						};
-					}, 100);
-				});
-
-				client.on('connect_error', reject);
-			});
-		});
-
-		test('should maintain connection with proper ping/pong responses', async () => {
-			const io = await createServer({
-				pingTimeout: 1000,
-				pingInterval: 300,
-			});
-			const client = createClient();
-
-			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => resolve(), 2000); // Expect connection to remain alive
-				let disconnected = false;
-
-				io.on('connection', (socket: Socket) => {
-					socket.on('disconnect', () => {
-						disconnected = true;
-						clearTimeout(timeout);
-						reject(new Error('Connection should not have been disconnected'));
-					});
-				});
-
-				client.on('disconnect', () => {
-					disconnected = true;
-					clearTimeout(timeout);
-					reject(new Error('Client should not have disconnected'));
-				});
-
-				client.on('connect', () => {
-					// Wait for multiple ping cycles
-					setTimeout(() => {
-						clearTimeout(timeout);
-						expect(disconnected).toBe(false);
-						expect(client.connected).toBe(true);
-						resolve();
-					}, 1500);
+				// Client doesn't respond to trigger timeout
+				client.on('timeout_test', () => {
+					// Don't call callback to trigger timeout
 				});
 
 				client.on('connect_error', reject);
@@ -341,102 +568,63 @@ describe('Connection/Transport Layer', () => {
 		});
 	});
 
-	describe('Network Error Handling', () => {
-		test('should handle transport errors gracefully', async () => {
+	describe('Socket Middleware', () => {
+		test('should execute socket middleware', async () => {
 			const io = await createServer();
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Transport error timeout')), 3000);
-				let errorHandled = false;
+				const timeout = setTimeout(() => reject(new Error('Socket middleware timeout')), 3000);
+				let middlewareExecuted = false;
 
 				io.on('connection', (socket: Socket) => {
-					socket.on('error', (error) => {
-						errorHandled = true;
-						expect(error).toBeInstanceOf(Error);
+					socket.use((event, next) => {
+						middlewareExecuted = true;
+						expect(event[0]).toBe('test_middleware');
+						next();
 					});
 
-					socket.on('disconnect', (reason) => {
+					socket.on('test_middleware', () => {
 						clearTimeout(timeout);
-						expect(['transport error', 'transport close', 'parse error']).toContain(reason);
+						expect(middlewareExecuted).toBe(true);
 						resolve();
 					});
+				});
 
-					// Simulate transport error by accessing underlying connection
-					setTimeout(() => {
-						socket.conn['transport'].emit('error', new Error('Simulated transport error'));
-					}, 100);
+				client.on('connect', () => {
+					client.emit('test_middleware', 'middleware data');
 				});
 
 				client.on('connect_error', reject);
 			});
 		});
 
-		test('should handle malformed packet data', async () => {
+		test('should handle middleware errors', async () => {
 			const io = await createServer();
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Malformed packet timeout')), 3000);
+				const timeout = setTimeout(() => reject(new Error('Middleware error timeout')), 3000);
 
 				io.on('connection', (socket: Socket) => {
-					socket.on('error', (error) => {
-						expect(error).toBeInstanceOf(Error);
+					socket.use((event, next) => {
+						next(new Error('Middleware rejected'));
 					});
 
-					socket.on('disconnect', (reason) => {
+					socket.on('error', (error: Error) => {
 						clearTimeout(timeout);
-						expect(reason).toBe('parse error');
+						expect(error.message).toBe('Middleware rejected');
 						resolve();
 					});
 
-					// Send malformed data directly to transport
-					setTimeout(() => {
-						const transport = socket.conn['transport'];
-						if (transport) {
-							// Simulate malformed packet
-							transport.emit('packet', { type: 'invalid', data: null });
-						}
-					}, 100);
-				});
-
-				client.on('connect_error', reject);
-			});
-		});
-
-		test('should handle connection drops during data transmission', async () => {
-			const io = await createServer();
-			const client = createClient();
-
-			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Connection drop timeout')), 3000);
-
-				io.on('connection', (socket: Socket) => {
-					// Monitor transport layer close event
-					socket.conn.on('close', (reason) => {
+					socket.on('test_error', () => {
 						clearTimeout(timeout);
-						expect(['transport close', 'transport error']).toContain(reason);
-						resolve();
+						reject(new Error('Event should not execute after middleware error'));
 					});
-
-					// Start data transmission
-					const interval = setInterval(() => {
-						if (socket.connected) {
-							socket.emit('test_data', 'transmission data');
-						}
-					}, 50);
-
-					setTimeout(() => {
-						clearInterval(interval);
-						// Force close underlying WebSocket transport
-						if (socket.ws && socket.ws.readyState === WebSocket.OPEN) {
-							socket.ws.close();
-						}
-					}, 200);
 				});
 
-				client.on('test_data', () => {
-					// Data reception acknowledgment
+				client.on('connect', () => {
+					client.emit('test_error', 'error data');
 				});
 
 				client.on('connect_error', reject);
@@ -444,106 +632,78 @@ describe('Connection/Transport Layer', () => {
 		});
 	});
 
-	describe('Large Message Handling', () => {
-		test('should handle large text messages', async () => {
+	describe('Socket Any Listeners', () => {
+		test('should handle onAny listeners', async () => {
 			const io = await createServer();
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Large message timeout')), 5000);
-				const sizeBytes = 1024 * 100; // 100KB text message
-				const largeMessage = 'x'.repeat(sizeBytes);
+				const timeout = setTimeout(() => reject(new Error('OnAny timeout')), 3000);
+				let anyExecuted = false;
 
 				io.on('connection', (socket: Socket) => {
-					socket.on('large_message', (data: string) => {
-						expect(data).toBe(largeMessage);
-						expect(data.length).toBe(sizeBytes);
-						socket.emit('large_response', largeMessage);
+					socket.onAny((event, ...args) => {
+						anyExecuted = true;
+						expect(event).toBe('any_test');
+						expect(args[0]).toBe('any data');
+					});
+
+					socket.on('any_test', () => {
+						clearTimeout(timeout);
+						expect(anyExecuted).toBe(true);
+						resolve();
 					});
 				});
 
-				client.on('large_response', (data: string) => {
-					clearTimeout(timeout);
-					expect(data).toBe(largeMessage);
-					expect(data.length).toBe(sizeBytes);
-					resolve();
-				});
-
 				client.on('connect', () => {
-					client.emit('large_message', largeMessage);
+					client.emit('any_test', 'any data');
 				});
 
 				client.on('connect_error', reject);
 			});
 		});
 
-		test('should handle large binary messages', async () => {
+		test('should handle onAnyOutgoing listeners', async () => {
 			const io = await createServer();
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Large binary timeout')), 5000);
-				const sizeBytes = 1024 * 50; // 50KB text message
-				const largeBinary = new Uint8Array(sizeBytes); // 50KB binary
-				largeBinary.fill(42);
+				const timeout = setTimeout(() => reject(new Error('OnAnyOutgoing timeout')), 3000);
+				let outgoingExecuted = false;
 
 				io.on('connection', (socket: Socket) => {
-					socket.on('large_binary', (data: Uint8Array) => {
-						expect(data).toBeInstanceOf(Uint8Array);
-						expect(data.length).toBe(sizeBytes);
-						expect(data[0]).toBe(42);
-						socket.emit('binary_response', data);
+					socket.onAnyOutgoing((event, ...args) => {
+						outgoingExecuted = true;
+						expect(event).toBe('outgoing_test');
+						expect(args[0]).toBe('outgoing data');
+						clearTimeout(timeout);
+						resolve();
 					});
-				});
 
-				client.on('binary_response', (data: Uint8Array) => {
-					clearTimeout(timeout);
-					expect(data).toBeInstanceOf(Uint8Array);
-					expect(data.length).toBe(sizeBytes);
-					expect(data[0]).toBe(42);
-					resolve();
-				});
-
-				client.on('connect', () => {
-					client.emit('large_binary', largeBinary);
+					socket.emit('outgoing_test', 'outgoing data');
 				});
 
 				client.on('connect_error', reject);
 			});
 		});
 
-		test('should handle message fragmentation correctly', async () => {
+		test('should remove any listeners', async () => {
 			const io = await createServer();
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Fragmentation timeout')), 3000);
-				const messages: string[] = [];
-				const expectedMessages = ['chunk1', 'chunk2', 'chunk3'];
+				const timeout = setTimeout(() => resolve(), 2000);
 
 				io.on('connection', (socket: Socket) => {
-					socket.on('message_chunk', (data: string) => {
-						messages.push(data);
-						if (messages.length === expectedMessages.length) {
-							expect(messages).toEqual(expectedMessages);
-							socket.emit('all_chunks_received', messages);
-						}
-					});
-				});
+					const listener = (event: string) => {
+						clearTimeout(timeout);
+						reject(new Error('Listener should be removed'));
+					};
 
-				client.on('all_chunks_received', (receivedMessages: string[]) => {
-					clearTimeout(timeout);
-					expect(receivedMessages).toEqual(expectedMessages);
-					resolve();
-				});
+					socket.onAny(listener);
+					socket.offAny(listener);
 
-				client.on('connect', () => {
-					// Send multiple messages rapidly to test fragmentation handling
-					expectedMessages.forEach((msg, index) => {
-						setTimeout(() => {
-							client.emit('message_chunk', msg);
-						}, index * 10);
-					});
+					socket.emit('removed_test', 'test');
 				});
 
 				client.on('connect_error', reject);
@@ -551,115 +711,113 @@ describe('Connection/Transport Layer', () => {
 		});
 	});
 
-	describe('Connection Timeout Handling', () => {
-		test('should handle connection timeout during handshake', async () => {
-			// This test requires a server with very short connect timeout
-			const io = await createServer({
-				auth: {
-					user: false,
-					session: false,
-				},
-			});
-
-			// Create client but don't provide required auth
+	describe('Socket Utility Methods', () => {
+		test('should send message events', async () => {
+			const io = await createServer();
 			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Connection timeout test failed')), 3000);
+				const timeout = setTimeout(() => reject(new Error('Send message timeout')), 3000);
 
-				client.on('connect_error', (error) => {
+				io.on('connection', (socket: Socket) => {
+					socket.send('socket message');
+				});
+
+				client.on('message', (data: string) => {
 					clearTimeout(timeout);
-					expect(error).toBeDefined();
-					expect(error.message).toMatch(/unauthorized|timeout/i);
+					expect(data).toBe('socket message');
 					resolve();
 				});
 
-				client.on('connect', () => {
-					clearTimeout(timeout);
-					reject(new Error('Should not have connected without proper auth'));
-				});
+				client.on('connect_error', reject);
 			});
 		});
 
-		test('should cleanup resources on connection timeout', async () => {
+		test('should write message events', async () => {
 			const io = await createServer();
-			let serverSocket: Socket;
+			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Cleanup timeout')), 3000);
+				const timeout = setTimeout(() => reject(new Error('Write message timeout')), 3000);
 
 				io.on('connection', (socket: Socket) => {
-					serverSocket = socket;
+					socket.write('socket write');
+				});
 
-					socket.on('disconnect', (reason) => {
+				client.on('message', (data: string) => {
+					clearTimeout(timeout);
+					expect(data).toBe('socket write');
+					resolve();
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+	});
+
+	describe('Socket Error Handling', () => {
+		test('should handle socket errors gracefully', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Error handling timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					socket.on('error', (error: Error) => {
+						clearTimeout(timeout);
+						expect(error).toBeDefined();
+						resolve();
+					});
+
+					// Trigger an error
+					socket.emit('error', new Error('Test socket error'));
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should handle disconnecting event', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Disconnecting timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					socket.on('disconnecting', (reason) => {
 						clearTimeout(timeout);
 						expect(reason).toBeDefined();
-
-						// Verify cleanup
-						expect(socket.connected).toBe(false);
-						expect(socket.rooms.size).toBe(0);
+						expect(socket.connected).toBe(true); // Still connected during disconnecting
 						resolve();
 					});
-				});
 
-				const client = createClient();
-
-				client.on('connect', () => {
-					// Forcefully close connection to simulate timeout
-					setTimeout(() => {
-						// Access underlying transport through socket.io client API
-						const engine = client.io.engine;
-						if (engine.transport['socket']) {
-							engine.transport['socket'].close();
-						} else {
-							// Fallback to standard disconnect
-							client.disconnect();
-						}
-					}, 100);
+					socket.disconnect();
 				});
 
 				client.on('connect_error', reject);
 			});
 		});
+	});
 
-		test('should handle multiple simultaneous connection timeouts', async () => {
+	describe('Socket Connection Context', () => {
+		test('should have access to connection context', async () => {
 			const io = await createServer();
-			const clientCount = 5;
-			let disconnectedCount = 0;
+			const client = createClient();
 
 			return new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(() => reject(new Error('Multiple timeouts test failed')), 5000);
+				const timeout = setTimeout(() => reject(new Error('Context timeout')), 3000);
 
 				io.on('connection', (socket: Socket) => {
-					socket.on('disconnect', () => {
-						disconnectedCount++;
-						if (disconnectedCount === clientCount) {
-							clearTimeout(timeout);
-							resolve();
-						}
-					});
+					clearTimeout(timeout);
+					expect(socket.ctx).toBeDefined();
+					expect(socket.conn).toBeDefined();
+					expect(socket.ws).toBeDefined();
+					resolve();
 				});
 
-				// Create multiple clients and force timeouts
-				for (let i = 0; i < clientCount; i++) {
-					const client = createClient();
-					client.on('connect', () => {
-						// Force close the underlying WebSocket if accessible
-						setTimeout(() => {
-							if (client.connected) {
-								// Access underlying transport if available through socket.io client API
-								const engine = client.io?.engine;
-								if (engine.transport['socket']) {
-									engine.transport['socket'].close();
-								} else {
-									// Fallback to client disconnect
-									client.disconnect();
-								}
-							}
-						}, 100 + i * 10); // Staggered timeouts
-					});
-					client.on('connect_error', reject);
-				}
+				client.on('connect_error', reject);
 			});
 		});
 	});

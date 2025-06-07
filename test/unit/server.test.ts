@@ -9,8 +9,6 @@ import { sleep } from 'bun';
 describe('Server', () => {
 	const { createServer, createClient, cleanup } = new TestEnvironment();
 
-	afterEach(() => cleanup());
-
 	describe('Constructor and Configuration', () => {
 		test('should create server with default options', () => {
 			const server = new Server();

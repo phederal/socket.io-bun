@@ -7,8 +7,6 @@ import type { Socket } from '../../src/socket';
 describe('Namespace', () => {
 	const { createServer, createClient, cleanup } = new TestEnvironment();
 
-	afterEach(() => cleanup());
-
 	describe('Basic Namespace Operations', () => {
 		test('should create and connect to namespace', async () => {
 			const io = await createServer();
