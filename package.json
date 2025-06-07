@@ -15,7 +15,7 @@
 		"test:broadcast": "bun test test/unit/broadcast.test.ts",
 		"test:adapter": "bun test test/unit/adapter.test.ts",
 		"test:engine": "bun test test/unit/engine.test.ts",
-		"test:env": "bun test test/unit/test-env.test.ts --timeout 15000"
+		"test:env": "bun test test/utils/test-env.test.ts"
 	},
 	"devDependencies": {
 		"@types/base64id": "^2.0.2",
