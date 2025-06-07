@@ -167,5 +167,7 @@ export class Server extends EventEmitter {
 	 */
 	private cleanup() {
 		this.clients.clear();
+		this.clientsCount = 0;
+		this.removeAllListeners();
 	}
 }
