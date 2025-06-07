@@ -253,7 +253,7 @@ export class TestEnvironment {
 		count: number,
 		callback?: (client: Socket, index: number, clients: Socket[]) => Promise<void>,
 		configClient: TestClientConfig = {},
-		connectedOnly?: false,
+		connectedOnly: boolean = false,
 	): Promise<Socket[]> {
 		const clients = Array.from({ length: count }, (_, i) => this.createClient(configClient));
 		if (callback) await Promise.all(clients.map((client, i, all) => callback(client, i, all)));
