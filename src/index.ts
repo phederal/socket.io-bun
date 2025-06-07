@@ -518,8 +518,6 @@ class Server<
 			}),
 		);
 
-		// await new Promise((resolve) => setTimeout(resolve, 50));
-
 		this.engine.close();
 
 		fn && fn();
