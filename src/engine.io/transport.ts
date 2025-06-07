@@ -46,7 +46,7 @@ export class Transport extends EventEmitter {
 	constructor() {
 		super();
 		this.parser = parser;
-		this.supportsBinary = false; // TODO
+		this.supportsBinary = true;
 	}
 
 	get readyState() {
