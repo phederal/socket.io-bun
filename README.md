@@ -20,9 +20,14 @@ A high-performance, fully-typed Socket.IO implementation for Bun runtime with Ho
 -   **📦 Lightweight**: Single transport architecture eliminates Engine.IO overhead
 -   **🏗️ Hono Integration**: Seamless integration with Hono framework for modern web applications (simple)
 -   **🏠 Namespace Support**: Full namespace isolation with dynamic namespace creation
--   **🏢 Room Management**: Efficient room-based broadcasting with Bun's native pub/sub (in development)
--   **🔌 Adapter Pattern**: Extensible adapter system for scaling across multiple servers (in future)
 -   **🎪 Middleware Support**: Powerful middleware system for authentication and validation
+-   **🏢 Room Management**: Efficient room-based broadcasting with socket.io adapter
+
+## ⌚ In Progress
+
+-   **🏢 Room Management**: Efficient room-based broadcasting with Bun's native pub/sub only (in progress)
+-   **♻️ Session Aware Adapter**: Restore persisted session when disconnecting (in progress)
+-   **🔌 Adapter Pattern**: Extensible adapter for scaling across multiple servers (next major release)
 
 ## 📋 Requirements
 
