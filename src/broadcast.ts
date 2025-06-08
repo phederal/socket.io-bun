@@ -215,7 +215,7 @@ export class BroadcastOperator<
 	/**
 	 * Get all matching socket instances
 	 */
-	fetchSockets(): Promise<Socket<EmitEvents, SocketData>[]> {
+	fetchSockets(): Promise<Socket<EmitEvents, any, any, SocketData>[]> {
 		return this.adapter
 			.fetchSockets({
 				rooms: this.rooms,
@@ -223,7 +223,7 @@ export class BroadcastOperator<
 				flags: this.flags,
 			})
 			.then((sockets) => {
-				return sockets.map((socket) => socket as Socket<EmitEvents, SocketData>);
+				return sockets.map((socket) => socket as Socket<EmitEvents, any, any, SocketData>);
 			});
 	}
 
