@@ -44,11 +44,11 @@ export const server = Bun.serve({
 		open: websocket.open,
 		message: websocket.message,
 		close: websocket.close,
-		publishToSelf: false,
-		// perMessageDeflate: true,
-		idleTimeout: 120, // @default 120
-		maxPayloadLength: 16 * 1024 * 1024,
-		backpressureLimit: 1024 * 1024, // @default 1024KB
+		sendPings: false,
+		idleTimeout: 0, // heartbeat by engine.io
+		publishToSelf: false, // pub/sub default
+		backpressureLimit: 16 * 1024 * 1024, // 16MB
+		maxPayloadLength: 16 * 1024 * 1024, // 16MB
 	},
 
 	tls: {
