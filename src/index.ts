@@ -18,6 +18,7 @@ import {
 	type RemoveAcknowledgements,
 	type EventNamesWithAck,
 	type FirstNonErrorArg,
+	type EmptyEventsMap,
 } from '../types/typed-events';
 import { Socket } from './socket';
 import type { Context } from 'hono';
@@ -31,9 +32,6 @@ import type { WSContext, WSEvents } from 'hono/ws';
 
 const debug = debugModule('socket.io:server');
 debug.enabled = debugConfig.server;
-
-/** instead of {} */
-interface EmptyEventsMap {}
 
 type ParentNspNameMatchFn = (
 	/** strict types */
