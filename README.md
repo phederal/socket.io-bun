@@ -13,27 +13,27 @@ A high-performance, fully-typed Socket.IO implementation for Bun runtime with Ho
 
 ## 🚀 Features
 
--   **🎯 Native Bun WebSocket**: Built exclusively for Bun's native WebSocket API - no HTTP queries (polling not supported)
--   **⚡ Zero-Copy Performance**: Optimized data flow with minimal buffer copying and SharedArrayBuffer support
--   **🔒 Full Type Safety**: Complete TypeScript support with strict event typing and compile-time validation
--   **🌐 Socket.IO Compatible**: Supports Socket.IO protocol v4+ and works with official Socket.IO clients
--   **📦 Lightweight**: Single transport architecture eliminates Engine.IO overhead
--   **🏗️ Hono Integration**: Seamless integration with Hono framework for modern web applications (simple)
--   **🏠 Namespace Support**: Full namespace isolation with dynamic namespace creation
--   **🎪 Middleware Support**: Powerful middleware system for authentication and validation
--   **🏢 Room Management**: Efficient room-based broadcasting with socket.io adapter
+- **🎯 Native Bun WebSocket**: Built exclusively for Bun's native WebSocket API - no HTTP queries (polling not supported)
+- **⚡ Zero-Copy Performance**: Optimized data flow with minimal buffer copying and SharedArrayBuffer support
+- **🔒 Full Type Safety**: Complete TypeScript support with strict event typing and compile-time validation
+- **🌐 Socket.IO Compatible**: Supports Socket.IO protocol v4+ and works with official Socket.IO clients
+- **📦 Lightweight**: Single transport architecture eliminates Engine.IO overhead
+- **🏗️ Hono Integration**: Seamless integration with Hono framework for modern web applications (simple)
+- **🏠 Namespace Support**: Full namespace isolation with dynamic namespace creation
+- **🎪 Middleware Support**: Powerful middleware system for authentication and validation
+- **🏢 Room Management**: Efficient room-based broadcasting with socket.io adapter
 
 ## ⌚ In Progress
 
--   **🏢 Room Management**: Efficient room-based broadcasting with Bun's native pub/sub only (in progress)
--   **♻️ Session Aware Adapter**: Restore persisted session when disconnecting (in progress)
--   **🔌 Adapter Pattern**: Extensible adapter for scaling across multiple servers (next major release)
+- **🏢 Room Management**: Efficient room-based broadcasting with Bun's native pub/sub only (in progress)
+- **♻️ Session Aware Adapter**: Restore persisted session when disconnecting (in progress)
+- **🔌 Adapter Pattern**: Extensible adapter for scaling across multiple servers (next major release)
 
 ## 📋 Requirements
 
--   **Bun**: 1.2 or higher
--   **TypeScript**: 5.0 or higher
--   **Hono**: 4.7 or higher
+- **Bun**: 1.2 or higher
+- **TypeScript**: 5.0 or higher
+- **Hono**: 4.7 or higher
 
 ## 📦 Installation
 
@@ -53,20 +53,20 @@ import { Server } from 'socket.io-bun';
 
 // Define your event types
 interface ClientToServerEvents {
-	message: (content: string) => void;
-	join_room: (room: string, callback: (success: boolean) => void) => void;
+  message: (content: string) => void;
+  join_room: (room: string, callback: (success: boolean) => void) => void;
 }
 
 interface ServerToClientEvents {
-	message: (data: { user: string; content: string; timestamp: string }) => void;
-	user_joined: (user: string) => void;
+  message: (data: { user: string; content: string; timestamp: string }) => void;
+  user_joined: (user: string) => void;
 }
 
 interface SocketData {
-	user: {
-		id: string;
-		name: string;
-	};
+  user: {
+    id: string;
+    name: string;
+  };
 }
 
 // Create Socket.IO server
@@ -77,9 +77,9 @@ const { upgradeWebSocket, websocket } = createBunWebSocket();
 
 // WebSocket upgrade handler
 const wsUpgrade = upgradeWebSocket((c) => {
-	const user = c.get('user') || { id: 'anonymous', name: 'Anonymous' };
+  const user = c.get('user') || { id: 'anonymous', name: 'Anonymous' };
 
-	return io.onconnection(c, { user });
+  return io.onconnection(c, { user });
 });
 
 // Hono app setup
@@ -87,9 +87,9 @@ const app = new Hono();
 
 // Authentication middleware
 app.use('/ws/*', async (c, next) => {
-	// Your authentication logic here
-	c.set('user', { id: 'user123', name: 'John Doe' });
-	await next();
+  // Your authentication logic here
+  c.set('user', { id: 'user123', name: 'John Doe' });
+  await next();
 });
 
 app.get('/ws', wsUpgrade);
@@ -97,19 +97,19 @@ app.get('/ws/*', wsUpgrade);
 
 // Start server
 const server = Bun.serve({
-	hostname: 'localhost',
-	port: 8443,
-	fetch: app.fetch,
-	websocket: {
-		open: websocket.open,
-		message: websocket.message,
-		close: websocket.close,
-		sendPings: false,
-		idleTimeout: 0, // heartbeat by engine.io
-		publishToSelf: false, // pub/sub default
-		backpressureLimit: 16 * 1024 * 1024, // 16MB
-		maxPayloadLength: 16 * 1024 * 1024, // 16MB
-	},
+  hostname: 'localhost',
+  port: 8443,
+  fetch: app.fetch,
+  websocket: {
+    open: websocket.open,
+    message: websocket.message,
+    close: websocket.close,
+    sendPings: false,
+    idleTimeout: 0, // heartbeat by engine.io
+    publishToSelf: false, // pub/sub default
+    backpressureLimit: 16 * 1024 * 1024, // 16MB
+    maxPayloadLength: 16 * 1024 * 1024, // 16MB
+  },
 });
 
 // Attach Socket.IO to Bun server
@@ -117,25 +117,25 @@ io.attach(server);
 
 // Socket.IO event handlers
 io.on('connection', (socket) => {
-	console.log('User connected:', socket.data.user.name);
+  console.log('User connected:', socket.data.user.name);
 
-	socket.on('message', (content) => {
-		io.emit('message', {
-			user: socket.data.user.name,
-			content,
-			timestamp: new Date().toISOString(),
-		});
-	});
+  socket.on('message', (content) => {
+    io.emit('message', {
+      user: socket.data.user.name,
+      content,
+      timestamp: new Date().toISOString(),
+    });
+  });
 
-	socket.on('join_room', (room, callback) => {
-		socket.join(room);
-		socket.to(room).emit('user_joined', socket.data.user.name);
-		callback(true);
-	});
+  socket.on('join_room', (room, callback) => {
+    socket.join(room);
+    socket.to(room).emit('user_joined', socket.data.user.name);
+    callback(true);
+  });
 
-	socket.on('disconnect', (reason) => {
-		console.log('User disconnected:', socket.data.user.name, reason);
-	});
+  socket.on('disconnect', (reason) => {
+    console.log('User disconnected:', socket.data.user.name, reason);
+  });
 });
 
 console.log('🚀 Server running on http://localhost:3000');
@@ -148,30 +148,30 @@ import { io } from 'socket.io-client';
 
 // Type-safe client connection
 const socket = io('ws://localhost:3000', {
-	path: '/ws',
-	transports: ['websocket'],
+  path: '/ws',
+  transports: ['websocket'],
 });
 
 socket.on('connect', () => {
-	console.log('Connected to server');
+  console.log('Connected to server');
 
-	// Send a message
-	socket.emit('message', 'Hello, world!');
+  // Send a message
+  socket.emit('message', 'Hello, world!');
 
-	// Join a room with acknowledgment
-	socket.emit('join_room', 'general', (success) => {
-		if (success) {
-			console.log('Joined room successfully');
-		}
-	});
+  // Join a room with acknowledgment
+  socket.emit('join_room', 'general', (success) => {
+    if (success) {
+      console.log('Joined room successfully');
+    }
+  });
 });
 
 socket.on('message', (data) => {
-	console.log(`${data.user}: ${data.content}`);
+  console.log(`${data.user}: ${data.content}`);
 });
 
 socket.on('user_joined', (user) => {
-	console.log(`${user} joined the room`);
+  console.log(`${user} joined the room`);
 });
 ```
 
@@ -212,13 +212,13 @@ const chatNamespace = io.of('/chat');
 const gameNamespace = io.of('/game');
 
 chatNamespace.on('connection', (socket) => {
-	console.log('Chat connection:', socket.id);
+  console.log('Chat connection:', socket.id);
 });
 
 // Dynamic namespaces with regex
 const dynamicNamespace = io.of(/^\/room-\d+$/);
 dynamicNamespace.on('connection', (socket) => {
-	console.log('Dynamic namespace:', socket.nsp.name);
+  console.log('Dynamic namespace:', socket.nsp.name);
 });
 ```
 
@@ -226,17 +226,17 @@ dynamicNamespace.on('connection', (socket) => {
 
 ```typescript
 io.on('connection', (socket) => {
-	// Join multiple rooms
-	socket.join(['room1', 'room2', 'room3']);
+  // Join multiple rooms
+  socket.join(['room1', 'room2', 'room3']);
 
-	// Broadcast to specific room (self excluded)
-	socket.to('room1').emit('message', 'Hello room1!');
+  // Broadcast to specific room (self excluded)
+  socket.to('room1').emit('message', 'Hello room1!');
 
-	// Broadcast to multiple rooms (self excluded)
-	socket.to(['room1', 'room2']).emit('message', 'Hello multiple rooms!');
+  // Broadcast to multiple rooms (self excluded)
+  socket.to(['room1', 'room2']).emit('message', 'Hello multiple rooms!');
 
-	// Broadcast to all except specific rooms
-	socket.except('room3').emit('message', 'Hello everyone except room3!');
+  // Broadcast to all except specific rooms
+  socket.except('room3').emit('message', 'Hello everyone except room3!');
 });
 ```
 
@@ -245,33 +245,33 @@ io.on('connection', (socket) => {
 ```typescript
 // Global middleware
 io.use((socket, next) => {
-	const token = socket.handshake.auth.token;
-	if (isValidToken(token)) {
-		socket.data.user = getUserFromToken(token);
-		next();
-	} else {
-		next(new Error('Authentication failed'));
-	}
+  const token = socket.handshake.auth.token;
+  if (isValidToken(token)) {
+    socket.data.user = getUserFromToken(token);
+    next();
+  } else {
+    next(new Error('Authentication failed'));
+  }
 });
 
 // Namespace-specific middleware
 chatNamespace.use((socket, next) => {
-	if (socket.data.user.role === 'banned') {
-		next(new Error('User is banned from chat'));
-	} else {
-		next();
-	}
+  if (socket.data.user.role === 'banned') {
+    next(new Error('User is banned from chat'));
+  } else {
+    next();
+  }
 });
 
 // Socket-level middleware
 io.on('connection', (socket) => {
-	socket.use((event, next) => {
-		if (isRateLimited(socket.data.user.id)) {
-			next(new Error('Rate limit exceeded'));
-		} else {
-			next();
-		}
-	});
+  socket.use((event, next) => {
+    if (isRateLimited(socket.data.user.id)) {
+      next(new Error('Rate limit exceeded'));
+    } else {
+      next();
+    }
+  });
 });
 ```
 
@@ -279,29 +279,29 @@ io.on('connection', (socket) => {
 
 ```typescript
 interface GameEventsClientToServer {
-	player_move: (data: { x: number; y: number }) => void;
-	join_game: (gameId: string, callback: (success: boolean) => void) => void;
+  player_move: (data: { x: number; y: number }) => void;
+  join_game: (gameId: string, callback: (success: boolean) => void) => void;
 }
 
 interface GameEventsServerToClient {
-	game_update: (state: GameState) => void;
-	player_joined: (player: Player) => void;
+  game_update: (state: GameState) => void;
+  player_joined: (player: Player) => void;
 }
 
 const gameServer = new Server<GameEventsClientToServer, GameEventsServerToClient>();
 
 gameServer.on('connection', (socket) => {
-	// Fully typed event handlers
-	socket.on('player_move', (data) => {
-		// data is automatically typed as { x: number; y: number }
-		validateMove(data.x, data.y);
-	});
+  // Fully typed event handlers
+  socket.on('player_move', (data) => {
+    // data is automatically typed as { x: number; y: number }
+    validateMove(data.x, data.y);
+  });
 
-	socket.on('join_game', (gameId, callback) => {
-		// gameId is string, callback is (success: boolean) => void
-		const success = addPlayerToGame(gameId, socket.id);
-		callback(success);
-	});
+  socket.on('join_game', (gameId, callback) => {
+    // gameId is string, callback is (success: boolean) => void
+    const success = addPlayerToGame(gameId, socket.id);
+    callback(success);
+  });
 });
 ```
 
@@ -309,21 +309,21 @@ gameServer.on('connection', (socket) => {
 
 ```typescript
 const io = new Server({
-	// Connection timeout (default: 45000ms)
-	connectTimeout: 30000,
+  // Connection timeout (default: 45000ms)
+  connectTimeout: 30000,
 
-	// Path for WebSocket endpoint (default: '/ws')
-	path: '/ws',
+  // Path for WebSocket endpoint (default: '/ws')
+  path: '/ws',
 
-	// Ping settings
-	pingTimeout: 20000,
-	pingInterval: 25000,
+  // Ping settings
+  pingTimeout: 20000,
+  pingInterval: 25000,
 
-	// Custom adapter (for scaling)
-	// adapter: CustomAdapter, (not supported yet)
+  // Custom adapter (for scaling)
+  // adapter: CustomAdapter, (not supported yet)
 
-	// Cleanup empty child namespaces (default: false)
-	cleanupEmptyChildNamespaces: true,
+  // Cleanup empty child namespaces (default: false)
+  cleanupEmptyChildNamespaces: true,
 });
 ```
 
@@ -345,11 +345,11 @@ bun test:chat          # Chat system tests
 
 Socket.IO-Bun is optimized for Bun's strengths:
 
--   **Zero-copy message passing** with direct Uint8Array transfers
--   **Native pub/sub** using Bun's WebSocket topic subscription
--   **Efficient room broadcasting** with parallel client transmission
--   **Optimized packet encoding** with pre-compiled templates
--   **Memory-efficient connection pooling** with automatic cleanup
+- **Zero-copy message passing** with direct Uint8Array transfers
+- **Native pub/sub** using Bun's WebSocket topic subscription
+- **Efficient room broadcasting** with parallel client transmission
+- **Optimized packet encoding** with pre-compiled templates
+- **Memory-efficient connection pooling** with automatic cleanup
 
 ## 🔌 Socket.IO Client Compatibility
 
@@ -380,9 +380,9 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
--   **Socket.IO Team** for the excellent protocol and client library
--   **Bun Team** for the incredible runtime and WebSocket implementation
--   **Hono Team** for the lightweight, fast web framework
+- **Socket.IO Team** for the excellent protocol and client library
+- **Bun Team** for the incredible runtime and WebSocket implementation
+- **Hono Team** for the lightweight, fast web framework
 
 ---
 

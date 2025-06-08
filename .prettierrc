@@ -12,7 +12,8 @@
 		{
 			"files": [
 				"*.yml",
-				"*.yaml"
+				"*.yaml",
+				"*.md"
 			],
 			"options": {
 				"useTabs": false,
