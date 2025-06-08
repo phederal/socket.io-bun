@@ -2,7 +2,7 @@
 	"name": "socket.io-bun",
 	"module": "index.ts",
 	"type": "module",
-	"version": "1.0.18",
+	"version": "1.0.19",
 	"description": "A high-performance, fully-typed Socket.IO implementation for Bun runtime with Hono framework integration.",
 	"main": "index.ts",
 	"types": "index.ts",

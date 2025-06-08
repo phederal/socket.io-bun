@@ -27,11 +27,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node for GitHub Packages
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://npm.pkg.github.com/
+          scope: "@phederal"
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-          registry-url: https://npm.pkg.github.com/
 
       - name: Ensure @phederal scope in package.json
         run: |
@@ -40,11 +46,11 @@ jobs:
 
       - name: Create .npmrc for GitHub Packages
         run: |
-          echo "@phederal:registry=https://npm.pkg.github.com/" > ~/.npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
+          echo "@phederal:registry=https://npm.pkg.github.com/" > .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
 
       - name: Publish to GitHub Packages
-        run: bun publish --access public --registry https://npm.pkg.github.com/
+        run: bun publish
 
   publish-npm:
     needs: build
