@@ -2,10 +2,9 @@ import { EventEmitter } from 'events';
 import debugModule from 'debug';
 import type { Socket } from '../socket';
 import type { Namespace } from '../namespace';
-import type { DefaultEventsMap, EventsMap } from '#types/typed-events';
 import { debugConfig } from '../../config';
 import { yeast } from './yeast';
-import type { Packet } from '@/socket.io-parser';
+import type { Packet } from '../socket.io-parser';
 
 const debug = debugModule('socket.io:adapter');
 debug.enabled = debugConfig.adapter;

@@ -18,7 +18,7 @@ import {
 	type RemoveAcknowledgements,
 	type EventNamesWithAck,
 	type FirstNonErrorArg,
-} from '#types/typed-events';
+} from '../types/typed-events';
 import { Socket } from './socket';
 import type { Context } from 'hono';
 import { Client } from './client';

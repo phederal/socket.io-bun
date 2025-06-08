@@ -11,23 +11,6 @@
     "node_modules/**/*"
   ],
   "compilerOptions": {
-    "paths": {
-      "@/*": [
-        "./src/*"
-      ],
-      "#test/*": [
-        "./test/*"
-      ],
-      "#docs/*": [
-        "./docs/*"
-      ],
-      "#examples/*": [
-        "./examples/*"
-      ],
-      "#types/*": [
-        "./types/*"
-      ]
-    },
     // Environment setup & latest features
     "lib": [
       "ESNext"

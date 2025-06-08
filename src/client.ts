@@ -4,7 +4,7 @@ import type { Socket as RawSocket } from './engine.io';
 import type { Server } from './';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';
-import type { EventsMap } from '#types/typed-events';
+import type { EventsMap } from '../types/typed-events';
 import type { SocketId } from './socket.io-adapter';
 import { debugConfig } from '../config';
 

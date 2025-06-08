@@ -1,6 +1,6 @@
 import base64id from 'base64id';
 import debugModule from 'debug';
-import { RESERVED_EVENTS, type DisconnectReason, type Handshake, type SocketReservedEventsMap } from '#types/socket-types';
+import { RESERVED_EVENTS, type DisconnectReason, type Handshake, type SocketReservedEventsMap } from '../types/socket-types';
 import {
 	StrictEventEmitter,
 	type AllButLast,
@@ -14,7 +14,7 @@ import {
 	type FirstNonErrorArg,
 	type Last,
 	type RemoveAcknowledgements,
-} from '#types/typed-events';
+} from '../types/typed-events';
 import type { Adapter, PrivateSessionId, Session, SocketId, Room } from './socket.io-adapter';
 import type { Client } from './client';
 import type { Namespace, ServerReservedEventsMap } from './namespace';

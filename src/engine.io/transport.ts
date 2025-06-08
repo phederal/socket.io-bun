@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events';
-import type { Context } from 'hono';
 import { encodePacket, decodePacket, type Packet } from 'engine.io-parser';
 import type { WSContext } from 'hono/ws';
 import type { ServerWebSocket, WebSocketReadyState } from 'bun';

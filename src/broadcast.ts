@@ -8,7 +8,7 @@ import type {
 	FirstNonErrorArg,
 	Last,
 	TypedEventBroadcaster,
-} from '#types/typed-events';
+} from '../types/typed-events';
 import { type Handshake, RESERVED_EVENTS } from '../types/socket-types';
 import type { Adapter, SocketId, Room } from './socket.io-adapter';
 import { PacketType, type Packet } from './socket.io-parser';

@@ -1,4 +1,4 @@
-import type { NamespaceReservedEventsMap } from '@/namespace';
+import type { NamespaceReservedEventsMap } from '../src/namespace';
 import type { IncomingHttpHeaders } from 'http';
 import type { ParsedUrlQuery } from 'querystring';
 import type { EventsMap } from './typed-events';

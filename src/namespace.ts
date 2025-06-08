@@ -2,7 +2,7 @@ import debugModule from 'debug';
 import { Socket } from './socket';
 import { BroadcastOperator } from './broadcast';
 import { Adapter, type SocketId, type Room } from './socket.io-adapter';
-import { StrictEventEmitter } from '#types/typed-events';
+import { StrictEventEmitter } from '../types/typed-events';
 import type { Server } from './';
 
 import type { Handshake } from '../types/socket-types';
@@ -13,7 +13,7 @@ import type {
 	DecorateAcknowledgementsWithMultipleResponses,
 	EventNamesWithoutAck,
 	EventParams,
-} from '#types/typed-events';
+} from '../types/typed-events';
 import type { Client } from './client';
 import { debugConfig } from '../config';
 
