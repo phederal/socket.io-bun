@@ -1,4 +1,17 @@
 {
+  "include": [
+    "src/**/*",
+    "types/**/*",
+    "index.ts",
+    "config.ts",
+    "utils.ts"
+  ],
+  "exclude": [
+    "test/**/*",
+    "dev/**/*",
+    "dist/**/*",
+    "node_modules/**/*"
+  ],
   "compilerOptions": {
     "paths": {
       "@/*": [
@@ -31,6 +44,12 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
+    // Build outputs
+    "outDir": "./dist",
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "declarationMap": true,
+    "sourceMap": true,
     // Best practices
     "strict": true,
     "skipLibCheck": true,
