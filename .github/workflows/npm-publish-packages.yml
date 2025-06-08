@@ -1,24 +1,27 @@
-name: Package publish
+name: Publish package
+
 on:
   workflow_dispatch:
   release:
     types: [published]
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+          registry-url: https://npm.pkg.github.com/
+      - run: bun install
 
-      - name: Install deps
-        run: bun install
-
-  publish-gpr:
+  publish:
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -27,20 +30,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Bun
+      - name: Setup Bun for GitHub
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
           registry-url: https://npm.pkg.github.com/
 
-      - name: Publish to NPM
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          echo "//registry.npmjs.org/:_authToken=\${NPM_CONFIG_TOKEN}" > ~/.npmrc
-          bun publish --access public
-
       - name: Publish to GitHub Packages
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bun publish --access public --registry https://npm.pkg.github.com/
+
+      - name: Setup Node.js for npmjs
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: Publish to npmjs.org
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
