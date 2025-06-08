@@ -52,12 +52,9 @@ jobs:
         with:
           bun-version: latest
           registry-url: https://registry.npmjs.org/
-      - name: Create .npmrc for npmjs
-        run: |
-          echo "//registry.npmjs.org/:_authToken=\${NPM_CONFIG_TOKEN}" >> ~/.npmrc
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish to npmjs.org
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: bun publish --access public --registry https://registry.npmjs.org/
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_CONFIG_TOKEN}" > ~/.npmrc
+          bun publish --access public --registry https://registry.npmjs.org/
