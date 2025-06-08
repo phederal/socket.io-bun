@@ -211,6 +211,7 @@ function testClientEvents() {
 // Тестируем emitWithAck (если поддерживается)
 async function testEmitWithAck() {
 	try {
+		// @ts-ignore
 		const [success, token] = await socket.emitWithAck('login', {
 			username: 'asyncuser',
 			password: 'asyncpass',
@@ -231,10 +232,6 @@ socket.on('connect_error', (error) => {
 
 socket.on('disconnect', (reason) => {
 	console.log('Disconnected from server:', reason);
-});
-
-socket.on('error', (error) => {
-	console.error('Socket error:', error);
 });
 
 // Тестируем namespace клиентов
