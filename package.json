@@ -1,5 +1,5 @@
 {
-	"name": "socket.io-bun",
+	"name": "@phederal/socket.io-bun",
 	"module": "index.ts",
 	"type": "module",
 	"version": "1.0.0",
@@ -9,6 +9,13 @@
 		"name": "Romon (Roman Andreevich)",
 		"email": "the@romon.io",
 		"url": "https://romon.io"
+	},
+	"publishConfig": {
+		"registry": "https://npm.pkg.github.com/"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/phederal/socket.io-bun.git"
 	},
 	"keywords": [
 		"socket.io",
