@@ -31,12 +31,6 @@ jobs:
         with:
           bun-version: latest
           registry-url: https://npm.pkg.github.com/
-      - name: Create .npmrc for GitHub
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "@phederal:registry=https://npm.pkg.github.com/" >> ~/.npmrc
-          echo "//npm.pkg.github.com/:_authToken=\${NPM_CONFIG_TOKEN}" >> ~/.npmrc
       - name: Publish to GitHub Packages
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,12 +46,7 @@ jobs:
         with:
           bun-version: latest
           registry-url: https://registry.npmjs.org/
-      - name: Clean .npmrc files
-        run: |
-          rm -f ~/.npmrc .npmrc
       - name: Publish to npmjs.org
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          bunx patch-package-name --name socket.io-bun
-          bun publish --access public --registry https://registry.npmjs.org/
+        run: bun publish --access public --registry https://registry.npmjs.org/
