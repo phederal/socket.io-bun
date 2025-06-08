@@ -9,7 +9,7 @@ import type {
 	Last,
 	TypedEventBroadcaster,
 } from '../types/typed-events';
-import { type Handshake, RESERVED_EVENTS } from '../types/socket-types';
+import { type DefaultSocketData, type Handshake, RESERVED_EVENTS } from '../types/socket-types';
 import type { Adapter, SocketId, Room } from './socket.io-adapter';
 import { PacketType, type Packet } from './socket.io-parser';
 import type { Socket } from './socket';
@@ -29,7 +29,7 @@ export interface BroadcastFlags {
 export class BroadcastOperator<
 	/** {@link TypedEventBroadcaster} */
 	EmitEvents extends EventsMap,
-	SocketData,
+	SocketData extends DefaultSocketData,
 > implements TypedEventBroadcaster<EmitEvents>
 {
 	constructor(

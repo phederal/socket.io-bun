@@ -5,7 +5,7 @@ import { Namespace, type ExtendedError, type ServerReservedEventsMap } from './n
 import { BroadcastOperator } from './broadcast';
 import { Adapter, SessionAwareAdapter, type Room } from './socket.io-adapter';
 import type { Server as BunServer, ServerWebSocket } from 'bun';
-import type { RESERVED_EVENTS, DisconnectReason } from '../types/socket-types';
+import type { RESERVED_EVENTS, DisconnectReason, DefaultSocketData } from '../types/socket-types';
 import {
 	StrictEventEmitter,
 	type EventsMap,
@@ -31,6 +31,9 @@ import type { WSContext, WSEvents } from 'hono/ws';
 
 const debug = debugModule('socket.io:server');
 debug.enabled = debugConfig.server;
+
+/** instead of {} */
+interface EmptyEventsMap {}
 
 type ParentNspNameMatchFn = (
 	/** strict types */
@@ -137,7 +140,7 @@ class Server<
 	 *   });
 	 * });
 	 */
-	ListenEvents extends EventsMap = DefaultEventsMap,
+	ListenEvents extends EventsMap = DefaultEventsMap | EmptyEventsMap,
 	/**
 	 * Types for the events sent to the clients.
 	 *
@@ -150,7 +153,7 @@ class Server<
 	 *
 	 * io.emit("hello", "world");
 	 */
-	EmitEvents extends EventsMap = ListenEvents,
+	EmitEvents extends EventsMap = ListenEvents | EmptyEventsMap,
 	/**
 	 * Types for the events received from and sent to the other servers.
 	 *
@@ -167,7 +170,7 @@ class Server<
 	 *   // `arg` is inferred as number
 	 * });
 	 */
-	ServerSideEvents extends EventsMap = DefaultEventsMap,
+	ServerSideEvents extends EventsMap = DefaultEventsMap | EmptyEventsMap,
 	/**
 	 * Additional properties that can be attached to the socket instance.
 	 *
@@ -183,7 +186,7 @@ class Server<
 	 *   });
 	 * });
 	 */
-	SocketData = any,
+	SocketData extends DefaultSocketData = DefaultSocketData,
 > extends StrictEventEmitter<
 	/** strict typing */
 	ServerSideEvents,

@@ -3,6 +3,8 @@ import type { IncomingHttpHeaders } from 'http';
 import type { ParsedUrlQuery } from 'querystring';
 import type { EventsMap } from './typed-events';
 
+export type DefaultSocketData = Record<string, any>;
+
 /**
  * Next: From socket.io socket-types.ts
  * @link https://github.com/socketio/socket.io/blob/main/packages/socket.io/lib/socket-types.ts

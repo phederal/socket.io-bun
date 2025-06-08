@@ -5,7 +5,7 @@ import { Adapter, type SocketId, type Room } from './socket.io-adapter';
 import { StrictEventEmitter } from '../types/typed-events';
 import type { Server } from './';
 
-import type { Handshake } from '../types/socket-types';
+import type { DefaultSocketData, Handshake } from '../types/socket-types';
 import type {
 	RemoveAcknowledgements,
 	EventsMap,
@@ -29,7 +29,7 @@ export interface NamespaceReservedEventsMap<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData,
+	SocketData extends DefaultSocketData,
 > {
 	connect: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
 	connection: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
@@ -40,7 +40,7 @@ export interface ServerReservedEventsMap<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData,
+	SocketData extends DefaultSocketData,
 > extends NamespaceReservedEventsMap<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
 	new_namespace: (namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
 }
@@ -107,7 +107,7 @@ export class Namespace<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData = any,
+	SocketData extends DefaultSocketData = DefaultSocketData,
 > extends StrictEventEmitter<
 	/** strict typing */
 	ServerSideEvents,
@@ -277,12 +277,12 @@ export class Namespace<
 	 * @private
 	 */
 	async _add(
-		client: Client<ListenEvents, EmitEvents, ServerSideEvents>,
-		auth: Record<string, unknown>,
+		client: Client<ListenEvents, EmitEvents, ServerSideEvents, SocketData>,
+		data: Record<string, unknown>,
 		fn: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void,
 	) {
 		debug('adding socket to nsp %s', this.name);
-		const socket = await this._createSocket(client, auth);
+		const socket = await this._createSocket(client, data);
 
 		this.run(socket, (err) => {
 			if (client.conn.readyState !== WebSocket.OPEN) {
@@ -305,9 +305,9 @@ export class Namespace<
 		});
 	}
 
-	private async _createSocket(client: Client<ListenEvents, EmitEvents, ServerSideEvents>, auth: Record<string, unknown>) {
+	private async _createSocket(client: Client<ListenEvents, EmitEvents, ServerSideEvents, SocketData>, data: Record<string, unknown>) {
 		// TODO: add restoring session
-		return new Socket(this, client, auth);
+		return new Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>(this, client, data);
 	}
 
 	private _doConnect(

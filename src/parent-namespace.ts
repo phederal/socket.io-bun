@@ -4,6 +4,7 @@ import type { EventParams, EventsMap, DefaultEventsMap, EventNamesWithoutAck } f
 import { Adapter } from './socket.io-adapter';
 import type { BroadcastOptions } from './socket.io-adapter';
 import debugModule from 'debug';
+import type { DefaultSocketData } from '../types/socket-types';
 
 const debug = debugModule('socket.io:parent-namespace');
 
@@ -26,7 +27,7 @@ export class ParentNamespace<
 	ListenEvents extends EventsMap = DefaultEventsMap,
 	EmitEvents extends EventsMap = ListenEvents,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData = any,
+	SocketData extends DefaultSocketData = DefaultSocketData,
 > extends Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
 	private static count: number = 0;
 	private readonly children: Set<Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> = new Set();

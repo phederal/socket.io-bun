@@ -1,6 +1,6 @@
 import base64id from 'base64id';
 import debugModule from 'debug';
-import { RESERVED_EVENTS, type DisconnectReason, type Handshake, type SocketReservedEventsMap } from '../types/socket-types';
+import { RESERVED_EVENTS, type DefaultSocketData, type DisconnectReason, type Handshake, type SocketReservedEventsMap } from '../types/socket-types';
 import {
 	StrictEventEmitter,
 	type AllButLast,
@@ -45,7 +45,7 @@ export class Socket<
 	ListenEvents extends EventsMap = DefaultEventsMap,
 	EmitEvents extends EventsMap = ListenEvents,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData = any,
+	SocketData extends DefaultSocketData = DefaultSocketData,
 > extends StrictEventEmitter<ListenEvents, EmitEvents, SocketReservedEventsMap> {
 	/**
 	 * An unique identifier for the session.

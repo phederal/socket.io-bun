@@ -7,6 +7,7 @@ import type { Namespace } from './namespace';
 import type { EventsMap } from '../types/typed-events';
 import type { SocketId } from './socket.io-adapter';
 import { debugConfig } from '../config';
+import type { DefaultSocketData } from '../types/socket-types';
 
 const debug = debugModule('socket.io:client');
 debug.enabled = debugConfig.client;
@@ -25,7 +26,7 @@ export class Client<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData = any,
+	SocketData extends DefaultSocketData = DefaultSocketData,
 > {
 	private readonly id: string;
 	public readonly conn: RawSocket;
@@ -117,14 +118,14 @@ export class Client<
 	 * Connects a client to a namespace.
 	 *
 	 * @param name - the namespace
-	 * @param {Object} auth - the auth parameters
+	 * @param {Object} data - the auth parameters
 	 *
 	 * @private
 	 */
-	private doConnect(name: string, auth: Record<string, unknown>): void {
+	private doConnect(name: string, data: Record<string, unknown>): void {
 		const nsp = this.server.of(name);
 
-		nsp._add(this, auth, (socket) => {
+		nsp._add(this, data, (socket) => {
 			this.sockets.set(socket.id, socket);
 			this.nsps.set(nsp.name, socket);
 			debug('socket %s connected to namespace %s', socket.id, nsp.name);
