@@ -7,7 +7,6 @@ import type { ServerWebSocket } from 'bun';
 import type { WSContext } from 'hono/ws';
 import type { Context } from 'hono';
 import { Server } from '../../src';
-import type { SocketData } from '#types/socket-types';
 import type { DefaultEventsMap, EventsMap } from '#types/typed-events';
 
 export interface TestServerConfig {
@@ -33,7 +32,7 @@ export class TestEnvironment {
 	private readonly hostname: string;
 	private readonly usesTLS: boolean;
 
-	private io?: Server<any, any, DefaultEventsMap, SocketData>;
+	private io?: Server<any, any, DefaultEventsMap, any>;
 	private server?: Bun.Server;
 	private serverUrl?: string;
 	private clients: Socket[] = [];
@@ -57,16 +56,14 @@ export class TestEnvironment {
 	}
 
 	/** strict types */
-	async createServer<E extends EventsMap, L extends EventsMap, R extends DefaultEventsMap, D extends SocketData>(
-		config: TestServerConfig = {},
-	): Promise<typeof io> {
+	async createServer<E extends EventsMap, L extends EventsMap, R extends DefaultEventsMap, D>(config: TestServerConfig = {}): Promise<typeof io> {
 		this.cleanup(); // Clean up previous server if exists
 
 		/**
 		 * Create wsUpgrade (moved from ws.ts)
 		 */
 		// <Listen, Emit, Reserved, SocketData>
-		this.io = new Server({
+		this.io = new Server<E, L, R, D>({
 			pingTimeout: config.pingTimeout || this.config.pingTimeout || 10000,
 			pingInterval: config.pingInterval || this.config.pingInterval || 5000,
 			connectTimeout: config.connectTimeout || this.config.connectTimeout || 5000,
