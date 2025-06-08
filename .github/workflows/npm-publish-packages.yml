@@ -1,5 +1,4 @@
 name: Package publish
-
 on:
   workflow_dispatch:
   release:
@@ -33,6 +32,13 @@ jobs:
         with:
           bun-version: latest
           registry-url: https://npm.pkg.github.com/
+
+      - name: Publish to NPM
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=\${NPM_CONFIG_TOKEN}" > ~/.npmrc
+          bun publish --access public
 
       - name: Publish to GitHub Packages
         env:
