@@ -8,7 +8,7 @@ import type { WSContext } from 'hono/ws';
 import type { Context } from 'hono';
 import { Server } from '../../src';
 import type { SocketData } from '#types/socket-types';
-import type { DefaultEventsMap } from '#types/typed-events';
+import type { DefaultEventsMap, EventsMap } from '#types/typed-events';
 
 export interface TestServerConfig {
 	port?: number;
@@ -56,14 +56,17 @@ export class TestEnvironment {
 		return this;
 	}
 
-	async createServer(config: TestServerConfig = {}): Promise<typeof io> {
+	/** strict types */
+	async createServer<E extends EventsMap, L extends EventsMap, R extends DefaultEventsMap, D extends SocketData>(
+		config: TestServerConfig = {},
+	): Promise<typeof io> {
 		this.cleanup(); // Clean up previous server if exists
 
 		/**
 		 * Create wsUpgrade (moved from ws.ts)
 		 */
 		// <Listen, Emit, Reserved, SocketData>
-		this.io = new Server<any, any, DefaultEventsMap, SocketData>({
+		this.io = new Server({
 			pingTimeout: config.pingTimeout || this.config.pingTimeout || 10000,
 			pingInterval: config.pingInterval || this.config.pingInterval || 5000,
 			connectTimeout: config.connectTimeout || this.config.connectTimeout || 5000,
@@ -350,6 +353,7 @@ export class TestEnvironment {
 			console.warn('Warning on server shutdown:', error);
 		}
 
+		delete this.io;
 		this.io = undefined;
 
 		// Disconnect all clients
