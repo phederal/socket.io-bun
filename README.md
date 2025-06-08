@@ -175,29 +175,26 @@ socket.on('user_joined', (user) => {
 Socket.IO-Bun eliminates the complexity of multiple transports by focusing exclusively on Bun's native WebSocket implementation:
 
 ```mermaid
-graph TD
-    A[Hono App] --> B[wsUpgrade Handler]
-    B --> C[Socket.IO-Bun Server]
+flowchart LR
+   Client[Socket.IO Client] --> Hono[Hono App]
+   Hono --> Middleware[Auth Middleware]
+   Middleware --> WS[wsUpgrade]
+   WS --> SocketIO[Socket.IO-Bun]
 
-    A --> D[Middleware<br/>Auth, Validation]
-    B --> E[Bun WebSocket<br/>Transport]
-    C --> F[Namespaces<br/>& Rooms]
+   SocketIO --> NS[Namespaces]
+   NS --> Adapter[Adapter]
+   Adapter --> Rooms[Rooms]
+   Adapter --> Clients[Clients]
 
-    G[Socket.IO Client] --> B
+   subgraph Bun["🔥 Bun Runtime"]
+       WebSocket[Native WebSocket]
+       PubSub[Pub/Sub System]
+       ZeroCopy[Zero-Copy Buffers]
+   end
 
-    subgraph "Bun Runtime"
-        E
-        H[Native Pub/Sub]
-        I[Zero-Copy Buffers]
-    end
-
-    F --> H
-    E --> I
-
-    style A fill:#ff9999
-    style C fill:#99ccff
-    style E fill:#99ff99
-    style F fill:#ffcc99
+   WS -.-> WebSocket
+   Adapter -.-> PubSub
+   SocketIO -.-> ZeroCopy
 ```
 
 ## 📚 Advanced Features
