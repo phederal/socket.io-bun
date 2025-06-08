@@ -55,13 +55,9 @@ jobs:
       - name: Clean .npmrc files
         run: |
           rm -f ~/.npmrc .npmrc
-      - name: Create .npmrc for NPM
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          echo "@phederal:registry=//registry.npmjs.org/" > ~/.npmrc
-          echo "//registry.npmjs.org/:_authToken=\${NPM_CONFIG_TOKEN}" > ~/.npmrc
       - name: Publish to npmjs.org
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: bun publish --access public --registry https://registry.npmjs.org/
+        run: |
+          bunx patch-package-name --name socket.io-bun
+          bun publish --access public --registry https://registry.npmjs.org/
