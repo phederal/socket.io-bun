@@ -32,9 +32,9 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-          registry-url: https://npm.pkg.github.com/   # 🎯 важный параметр
+          registry-url: https://npm.pkg.github.com/
 
       - name: Publish to GitHub Packages
         env:
-          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Bun ожидает токен именно в этой переменной
+          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bun publish --access public --registry https://npm.pkg.github.com/
