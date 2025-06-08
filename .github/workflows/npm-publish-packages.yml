@@ -27,30 +27,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node for GitHub Packages
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: https://npm.pkg.github.com/
-          scope: "@phederal"
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+          registry-url: https://npm.pkg.github.com/
 
-      - name: Update package.json for GitHub (add scope)
+      - name: Ensure @phederal scope in package.json
         run: |
           jq '.name = "@phederal/socket.io-bun"' package.json > package-github.json
           mv package-github.json package.json
 
       - name: Create .npmrc for GitHub Packages
         run: |
-          echo "@phederal:registry=https://npm.pkg.github.com/" > .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
+          echo "@phederal:registry=https://npm.pkg.github.com/" > ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
 
       - name: Publish to GitHub Packages
-        run: bun publish
+        run: bun publish --access public --registry https://npm.pkg.github.com/
 
   publish-npm:
     needs: build
@@ -58,22 +52,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node for NPM Packages
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: https://registry.npmjs.org
-
-      - name: Setup Bun
+      - name: Setup Bun for npmjs.org
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+          registry-url: https://registry.npmjs.org/
 
-      - name: Install dependencies
+      - name: Strip GitHub publishConfig
+        run: sed -i '/"publishConfig":/,/}/d' package.json
+
+      - name: Install deps
         run: bun install
 
-      - name: Setup npm auth
-        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+      - name: Create .npmrc for npmjs
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish to npm
-        run: bun publish --access public --registry https://registry.npmjs.org
+      - name: Publish to npmjs.org
+        run: bun publish --access public --registry https://registry.npmjs.org/
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
