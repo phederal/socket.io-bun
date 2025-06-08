@@ -19,7 +19,6 @@ jobs:
       - name: Install & Build
         run: |
           bun install
-          bun run build
 
       - name: Publish via Bun
         run: |
