@@ -11,3 +11,6 @@ telemetry = false
 bun = true
 # shell = "bun"
 silent = false
+
+[install.scopes]
+"@phederal" = { url = "https://npm.pkg.github.com/", token = "$NPM_CONFIG_TOKEN" }
