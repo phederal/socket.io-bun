@@ -806,3 +806,4 @@ export default io;
 export { Server, Socket, Namespace, BroadcastOperator };
 export type { DisconnectReason, DefaultEventsMap, ExtendedError }; // RemoteSocket removed
 export type { Event } from './socket';
+export type { EmptyEventsMap, DefaultSocketData };
