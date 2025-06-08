@@ -93,7 +93,7 @@ app.get('/ws/*', wsUpgrade);
 // Start server
 const server = Bun.serve({
 	hostname: 'localhost',
-	port: 3000,
+	port: 8443,
 	fetch: app.fetch,
 	websocket: {
 		open: websocket.open,
@@ -308,7 +308,7 @@ const io = new Server({
 	connectTimeout: 30000,
 
 	// Path for WebSocket endpoint (default: '/ws')
-	path: '/socket-io',
+	path: '/ws',
 
 	// Ping settings
 	pingTimeout: 20000,
