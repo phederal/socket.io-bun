@@ -7,7 +7,8 @@ import type { ServerWebSocket } from 'bun';
 import type { WSContext } from 'hono/ws';
 import type { Context } from 'hono';
 import { Server } from '../../src';
-import type { DefaultEventsMap, EventsMap } from '#types/typed-events';
+import type { DefaultEventsMap, EventsMap } from '../../types/typed-events';
+import type { DefaultSocketData } from '../../types/socket-types';
 
 export interface TestServerConfig {
 	port?: number;
@@ -56,7 +57,9 @@ export class TestEnvironment {
 	}
 
 	/** strict types */
-	async createServer<E extends EventsMap, L extends EventsMap, R extends DefaultEventsMap, D>(config: TestServerConfig = {}): Promise<typeof io> {
+	async createServer<E extends EventsMap, L extends EventsMap, R extends DefaultEventsMap, D extends DefaultSocketData>(
+		config: TestServerConfig = {},
+	): Promise<typeof io> {
 		this.cleanup(); // Clean up previous server if exists
 
 		/**
