@@ -2,7 +2,22 @@
 	"name": "socket.io-bun",
 	"module": "index.ts",
 	"type": "module",
-	"version": "0.8.1",
+	"version": "1.0.0",
+	"description": "A high-performance, fully-typed Socket.IO implementation for Bun runtime with Hono framework integration.",
+	"readme": "README.md",
+	"author": {
+		"name": "Romon (Roman Andreevich)",
+		"email": "the@romon.io",
+		"url": "https://romon.io"
+	},
+	"keywords": [
+		"socket.io",
+		"websocket",
+		"socket",
+		"bun",
+		"hono",
+		"adapter"
+	],
 	"scripts": {
 		"dev": "NODE_ENV=development bun run --watch index.ts",
 		"start": "NODE_ENV=production bun run index.ts",
