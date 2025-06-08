@@ -27,12 +27,10 @@ try {
 	const result = await Bun.build({
 		entrypoints: ['./index.ts'],
 		outdir,
-		format: 'esm',
-		target: 'bun',
 		splitting: true,
 		minify: true,
 		sourcemap: 'none',
-		external: ['hono', 'hono/bun', 'hono/ws', '@msgpack/msgpack', '@socket.io/component-emitter', 'base64id', 'engine.io-parser', 'debug'],
+		// external: ['hono', 'hono/bun', 'hono/ws', '@msgpack/msgpack', '@socket.io/component-emitter', 'base64id', 'engine.io-parser', 'debug'],
 	});
 
 	if (result.success) {
