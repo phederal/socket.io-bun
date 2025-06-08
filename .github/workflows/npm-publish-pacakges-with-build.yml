@@ -59,6 +59,9 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install deps
+        run: bun install
+
       - name: Ensure @phederal scope in package.json
         run: |
           jq '.name = "@phederal/socket.io-bun"' package.json > package-github.json
