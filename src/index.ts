@@ -100,7 +100,7 @@ export interface ServerOptions {
  * @example
  * import { Server } from "socket.io";
  *
- * const io = new Server();
+ * const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>();
  *
  * io.on("connection", (socket) => {
  *   console.log(`socket ${socket.id} connected`);
