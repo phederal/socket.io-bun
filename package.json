@@ -2,7 +2,7 @@
 	"name": "@phederal/socket.io-bun",
 	"module": "index.ts",
 	"type": "module",
-	"version": "1.0.5",
+	"version": "1.0.6",
 	"description": "A high-performance, fully-typed Socket.IO implementation for Bun runtime with Hono framework integration.",
 	"readme": "README.md",
 	"author": {
@@ -10,12 +10,12 @@
 		"email": "the@romon.io",
 		"url": "https://romon.io"
 	},
-	"publishConfig": {
-		"registry": "https://npm.pkg.github.com/"
-	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/phederal/socket.io-bun.git"
+		"url": "git+https://github.com/phederal/socket.io-bun.git"
+	},
+	"publishConfig": {
+		"@phederal:registry": "https://npm.pkg.github.com"
 	},
 	"keywords": [
 		"socket.io",

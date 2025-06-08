@@ -18,10 +18,10 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-          registry-url: https://npm.pkg.github.com/
       - run: bun install
+      - run: bun test
 
-  publish:
+  publish-github:
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -30,20 +30,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Bun for GitHub
+      - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-          registry-url: https://npm.pkg.github.com/
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Configure GitHub registry
+        run: |
+          echo "@${{ github.repository_owner }}:registry=https://npm.pkg.github.com/" >> ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
 
       - name: Publish to GitHub Packages
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bun publish --access public --registry https://npm.pkg.github.com/
 
-      - name: Publish to NPM Packages
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Configure NPM registry
         run: |
-          echo "//registry.npmjs.org/:_authToken=\${NPM_CONFIG_TOKEN}" > ~/.npmrc
-          bun publish --access public
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> ~/.npmrc
+
+      - name: Publish to NPM
+        run: bun publish --access public
