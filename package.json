@@ -7,7 +7,10 @@
 		"dev": "NODE_ENV=development bun run --watch index.ts",
 		"start": "NODE_ENV=production bun run index.ts",
 		"test": "bun test test/",
+		"test:unit": "bun test test/unit/",
+		"test:env": "bun test test/utils/test-env.test.ts",
 		"test:example": "bun test test/example.test.ts",
+		"test:chat": "bun test test/chat.test.ts",
 		"test:server": "bun test test/unit/server.test.ts",
 		"test:transport": "bun test test/unit/transport.test.ts",
 		"test:namespace": "bun test test/unit/namespace.test.ts",
@@ -15,8 +18,7 @@
 		"test:client": "bun test test/unit/client.test.ts",
 		"test:broadcast": "bun test test/unit/broadcast.test.ts",
 		"test:adapter": "bun test test/unit/adapter.test.ts",
-		"test:engine": "bun test test/unit/engine.test.ts",
-		"test:env": "bun test test/utils/test-env.test.ts"
+		"test:engine": "bun test test/unit/engine.test.ts"
 	},
 	"devDependencies": {
 		"@types/base64id": "^2.0.2",
