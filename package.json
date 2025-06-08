@@ -1,29 +1,19 @@
 {
   "name": "socket.io-bun",
+  "version": "1.0.21",
   "type": "module",
-  "version": "1.0.20",
-  "main": "./index.ts",
-  "module": "./index.ts",
-  "types": "./index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "bun": "./index.ts",
-      "import": "./index.ts",
-      "types": "./index.ts"
-    },
-    "./config": {
-      "bun": "./config.ts",
-      "import": "./config.ts",
-      "types": "./config.ts"
+      "bun": "./dist/index.js",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     }
   },
   "files": [
-    "src/",
-    "types/",
-    "index.ts",
-    "ws.ts",
-    "config.ts",
-    "utils.ts",
+    "dist/",
     "README.md"
   ],
   "readme": "README.md",
@@ -57,6 +47,9 @@
     "typescript"
   ],
   "scripts": {
+    "build": "bun build.ts",
+    "build:types": "bunx tsc --project tsconfig.build.json --outDir ./dist",
+    "prepublishOnly": "bun run build",
     "dev": "NODE_ENV=development bun run --watch index.ts",
     "start": "NODE_ENV=production bun run index.ts",
     "test": "bun test test/",
@@ -81,7 +74,7 @@
     "socket.io-client": "^4.8.1"
   },
   "peerDependencies": {
-    "typescript": "^5",
+    "typescript": "^5.8.3",
     "hono": "^4.0.0"
   },
   "dependencies": {
