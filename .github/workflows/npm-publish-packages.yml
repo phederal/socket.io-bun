@@ -32,11 +32,11 @@ jobs:
           bun-version: latest
           registry-url: https://npm.pkg.github.com/
       - name: Create .npmrc for GitHub
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "@phederal:registry=https://npm.pkg.github.com/" >> ~/.npmrc
           echo "//npm.pkg.github.com/:_authToken=\${NPM_CONFIG_TOKEN}" >> ~/.npmrc
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish to GitHub Packages
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,9 +52,13 @@ jobs:
         with:
           bun-version: latest
           registry-url: https://registry.npmjs.org/
-      - name: Publish to npmjs.org
+      - name: Create .npmrc for NPM
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo "@phederal:registry=//registry.npmjs.org/:_authToken=${NPM_CONFIG_TOKEN}" > ~/.npmrc
-          bun publish --access public --registry https://registry.npmjs.org/
+          echo "@phederal:registry=//registry.npmjs.org/" > ~/.npmrc
+          echo "//registry.npmjs.org/:_authToken=\${NPM_CONFIG_TOKEN}" > ~/.npmrc
+      - name: Publish to npmjs.org
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bun publish --access public --registry https://registry.npmjs.org/

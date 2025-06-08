@@ -2,7 +2,7 @@
 	"name": "@phederal/socket.io-bun",
 	"module": "index.ts",
 	"type": "module",
-	"version": "1.0.7",
+	"version": "1.0.8",
 	"description": "A high-performance, fully-typed Socket.IO implementation for Bun runtime with Hono framework integration.",
 	"readme": "README.md",
 	"author": {
