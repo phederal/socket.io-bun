@@ -8,7 +8,7 @@
     "test/**/*",
     "dev/**/*",
     "dist/**/*",
-    "node_modules/**/*"
+    "node_modules/**/*",
   ],
   "compilerOptions": {
     "paths": {
@@ -45,9 +45,9 @@
     // Build outputs
     "outDir": "./dist",
     "declaration": true,
-    "emitDeclarationOnly": true,
-    "declarationMap": true,
-    "sourceMap": true,
+    "emitDeclarationOnly": false,
+    "declarationMap": false,
+    "sourceMap": false,
     // Best practices
     "strict": true,
     "skipLibCheck": true,

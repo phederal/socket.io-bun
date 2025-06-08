@@ -32,7 +32,7 @@ try {
 		splitting: true,
 		minify: true,
 		sourcemap: 'none',
-		external: ['hono', 'hono/bun', 'hono/ws', '@msgpack/msgpack', '@socket.io/component-emitter', 'base64id', 'engine.io-parser', 'debug', 'events'],
+		external: ['hono', 'hono/bun', 'hono/ws', '@msgpack/msgpack', '@socket.io/component-emitter', 'base64id', 'engine.io-parser', 'debug'],
 	});
 
 	if (result.success) {
@@ -54,7 +54,7 @@ try {
 console.log('📝 Generating TypeScript declarations...');
 
 try {
-	const tscProcess = Bun.spawn(['bunx', 'tsc', '--project', 'tsconfig.build.json', '--emitDeclarationOnly', '--outDir', 'dist'], {
+	const tscProcess = Bun.spawn(['bunx', 'tsc', '--project', 'tsconfig.build.json', '--outDir', 'dist'], {
 		stdio: ['inherit', 'pipe', 'pipe'],
 	});
 

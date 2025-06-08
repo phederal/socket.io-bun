@@ -1,6 +1,6 @@
 {
   "name": "socket.io-bun",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
