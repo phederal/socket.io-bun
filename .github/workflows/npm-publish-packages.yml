@@ -7,53 +7,57 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  packages: write # для GitHub Packages
 
 jobs:
-  publish-github:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
-      - name: Install dependencies
+      - name: Install deps
         run: bun install
 
-      - name: Configure GitHub registry
-        run: |
-          echo "@phederal:registry=https://npm.pkg.github.com/" >> ~/.npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
-
-      - name: Publish to GitHub Packages
-        run: npm publish
-
-  publish-npm:
+  publish-gh:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Bun for GitHub
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+          registry-url: https://npm.pkg.github.com/
+      - name: Create .npmrc for GitHub
+        run: |
+          echo "@phederal:registry=https://npm.pkg.github.com/" >> ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=\${NPM_CONFIG_TOKEN}" >> ~/.npmrc
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish to GitHub Packages
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun publish --access public --registry https://npm.pkg.github.com/
 
-      - name: Setup Bun
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun for npmjs
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
           registry-url: https://registry.npmjs.org/
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Modify package.json for NPM
+      - name: Create .npmrc for npmjs
         run: |
-          sed -i 's/"name": "@phederal\/socket.io-bun"/"name": "socket.io-bun"/' package.json
-          sed -i '/"publishConfig"/,/}/d' package.json
-
-      - name: Publish to NPM
+          echo "//registry.npmjs.org/:_authToken=\${NPM_CONFIG_TOKEN}" >> ~/.npmrc
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: bun publish --access public
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npmjs.org
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bun publish --access public --registry https://registry.npmjs.org/
