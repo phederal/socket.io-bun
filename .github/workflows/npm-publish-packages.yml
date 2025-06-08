@@ -52,6 +52,9 @@ jobs:
         with:
           bun-version: latest
           registry-url: https://registry.npmjs.org/
+      - name: Clean .npmrc files
+        run: |
+          rm -f ~/.npmrc .npmrc
       - name: Create .npmrc for NPM
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
