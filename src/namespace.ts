@@ -287,14 +287,14 @@ export class Namespace<
 		this.run(socket, (err) => {
 			if (client.conn.readyState !== WebSocket.OPEN) {
 				debug('next called after client was closed - ignoring socket');
-				return socket._cleanup();
+				return socket['_cleanup']();
 			}
 
 			process.nextTick(() => {
 				if (err) {
 					debug('middleware error, sending CONNECT_ERROR packet to the client');
-					socket._cleanup();
-					return socket._error({
+					socket['_cleanup']();
+					return socket['_error']({
 						message: err.message,
 						data: err.data,
 					});
@@ -324,7 +324,7 @@ export class Namespace<
 		// fires before user-set events to prevent state order
 		// violations (such as a disconnection before the connection
 		// logic is complete)
-		socket._onconnect();
+		socket['_onconnect']();
 		if (fn) fn(socket);
 
 		// fire user-set events

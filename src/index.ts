@@ -514,7 +514,7 @@ class Server<
 		await Promise.allSettled(
 			[...this._nsps.values()].map(async (nsp) => {
 				nsp.sockets.forEach((socket) => {
-					socket._onclose('server shutting down');
+					socket['_onclose']('server shutting down');
 				});
 
 				await nsp.adapter.close();

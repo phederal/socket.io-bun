@@ -418,7 +418,7 @@ export class Socket<
 	 *
 	 * @private
 	 */
-	_onconnect(): void {
+	private _onconnect(): void {
 		debug('socket connected - writing packet');
 		this.connected = true;
 		this.join(this.id);
@@ -434,7 +434,7 @@ export class Socket<
 	 * @param {Object} packet
 	 * @private
 	 */
-	_onpacket(packet: Packet): void {
+	private _onpacket(packet: Packet): void {
 		debug('got packet %j', packet);
 		switch (packet.type) {
 			case PacketType.EVENT:
@@ -550,7 +550,7 @@ export class Socket<
 	 *
 	 * @private
 	 */
-	_onerror(err: Error): void {
+	private _onerror(err: Error): void {
 		// Be fixed (from socket.io repo) the meaning of the "error" event is overloaded:
 		//  - it can be sent by the client (`socket.emit("error")`)
 		//  - it can be emitted when the connection encounters an error (an invalid packet for example)
@@ -567,7 +567,7 @@ export class Socket<
 	 *
 	 * @private
 	 */
-	_onclose(reason: DisconnectReason, description?: any): this | undefined {
+	private _onclose(reason: DisconnectReason, description?: any): this | undefined {
 		if (!this.connected) return this;
 		debug('closing socket - reason %s', reason);
 		this.emitReserved('disconnecting', reason, description);
@@ -595,7 +595,7 @@ export class Socket<
 	 *
 	 * @private
 	 */
-	_cleanup() {
+	private _cleanup() {
 		this.leaveAll();
 		this.nsp._remove(this);
 		this.join = () => {};
@@ -616,7 +616,7 @@ export class Socket<
 	 *
 	 * @private
 	 */
-	_error(err: any): void {
+	private _error(err: any): void {
 		this.packet({ type: PacketType.CONNECT_ERROR, data: err });
 	}
 
@@ -852,7 +852,7 @@ export class Socket<
 		return this.client.conn;
 	}
 
-	get ws() {
+	private get ws() {
 		return this.client.conn.ws.raw!;
 	}
 

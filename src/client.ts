@@ -258,7 +258,7 @@ export class Client<
 				if (socket) {
 					debug('routing %s packet to socket %s in namespace %s', packet.type, socket.id, namespace);
 					process.nextTick(() => {
-						socket._onpacket(packet);
+						socket['_onpacket'](packet);
 					});
 				} else {
 					debug('invalid state - %s packet for non-existent socket in namespace %s', packet.type, namespace);
@@ -270,7 +270,7 @@ export class Client<
 				if (socket) {
 					debug('routing connect_error packet to socket %s in namespace %s', socket.id, namespace);
 					process.nextTick(() => {
-						socket._onpacket(packet);
+						socket['_onpacket'](packet);
 					});
 				} else {
 					debug('connect_error for non-existent socket in namespace %s', namespace);
@@ -296,7 +296,7 @@ export class Client<
 		debug('client error: %s', err.message);
 
 		for (const socket of this.sockets.values()) {
-			socket._onerror(err);
+			socket['_onerror'](err);
 		}
 
 		// Don't auto-close on parser errors, let connection handle it
@@ -323,7 +323,7 @@ export class Client<
 
 		// `nsps` and `sockets` are cleaned up seamlessly
 		for (const socket of this.sockets.values()) {
-			socket._onclose(reason, description);
+			socket['_onclose'](reason, description);
 		}
 
 		this.sockets.clear();

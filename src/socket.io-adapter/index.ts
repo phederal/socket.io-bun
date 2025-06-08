@@ -87,7 +87,7 @@ export class Adapter extends EventEmitter {
 		if (isNew) {
 			this.sids.set(id, new Set());
 			debug('subscribe connection %s to topic %s', socket.id, this.nsp.name);
-			socket.ws.subscribe(this.nsp.name);
+			socket['ws'].subscribe(this.nsp.name);
 		}
 
 		for (const room of rooms) {
@@ -105,9 +105,9 @@ export class Adapter extends EventEmitter {
 				this.emit('join-room', room, id);
 			}
 
-			if (!socket.ws.isSubscribed(topic)) {
+			if (!socket['ws'].isSubscribed(topic)) {
 				debug('subscribe connection %s to topic %s', socket.id, topic);
-				socket.ws.subscribe(topic);
+				socket['ws'].subscribe(topic);
 			}
 		}
 	}
@@ -165,9 +165,9 @@ export class Adapter extends EventEmitter {
 		const socket = this.nsp.sockets.get(id);
 		if (socket) {
 			const topic = `${this.nsp.name}${SEPARATOR}${room}`;
-			if (socket.ws.isSubscribed(topic)) {
+			if (socket['ws'].isSubscribed(topic)) {
 				debug('unsubscribe connection %s from topic %s', socket.id, topic);
-				socket.ws.unsubscribe(topic);
+				socket['ws'].unsubscribe(topic);
 			}
 		}
 	}
