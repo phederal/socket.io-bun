@@ -5,7 +5,7 @@ import { Namespace, type ExtendedError, type ServerReservedEventsMap } from './n
 import { BroadcastOperator } from './broadcast';
 import { Adapter, SessionAwareAdapter, type Room } from './socket.io-adapter';
 import type { Server as BunServer, ServerWebSocket } from 'bun';
-import type { RESERVED_EVENTS, SocketData as DefaultSocketData, DisconnectReason } from '../types/socket-types';
+import type { RESERVED_EVENTS, DisconnectReason } from '../types/socket-types';
 import {
 	StrictEventEmitter,
 	type EventsMap,
@@ -137,7 +137,7 @@ class Server<
 	 *   });
 	 * });
 	 */
-	ListenEvents extends EventsMap,
+	ListenEvents extends EventsMap = DefaultEventsMap,
 	/**
 	 * Types for the events sent to the clients.
 	 *
@@ -150,7 +150,7 @@ class Server<
 	 *
 	 * io.emit("hello", "world");
 	 */
-	EmitEvents extends EventsMap,
+	EmitEvents extends EventsMap = ListenEvents,
 	/**
 	 * Types for the events received from and sent to the other servers.
 	 *
@@ -183,7 +183,7 @@ class Server<
 	 *   });
 	 * });
 	 */
-	SocketData extends DefaultSocketData = DefaultSocketData,
+	SocketData = any,
 > extends StrictEventEmitter<
 	/** strict typing */
 	ServerSideEvents,

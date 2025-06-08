@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
 import debugModule from 'debug';
-import type { SocketData as DefaultSocketData } from '../../types/socket-types';
 import type { Socket } from '../socket';
 import type { Namespace } from '../namespace';
 import type { DefaultEventsMap, EventsMap } from '#types/typed-events';
@@ -61,7 +60,7 @@ export class Adapter extends EventEmitter {
 	 *
 	 * @param {Namespace} nsp
 	 */
-	constructor(readonly nsp: Namespace<any, any, any, DefaultSocketData>) {
+	constructor(readonly nsp: Namespace<any, any, any, any>) {
 		super();
 		this.encoder = nsp.server.encoder;
 	}
@@ -476,7 +475,7 @@ export class SessionAwareAdapter extends Adapter {
 	private sessions: Map<PrivateSessionId, SessionWithTimestamp> = new Map();
 	private packets: PersistedPacket[] = [];
 
-	constructor(override readonly nsp: Namespace<any, any, any, DefaultSocketData>) {
+	constructor(override readonly nsp: Namespace<any, any, any, any>) {
 		super(nsp);
 		this.maxDisconnectionDuration = nsp.server['opts'].connectionStateRecovery!.maxDisconnectionDuration!;
 

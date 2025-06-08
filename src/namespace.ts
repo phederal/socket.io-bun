@@ -5,7 +5,7 @@ import { Adapter, type SocketId, type Room } from './socket.io-adapter';
 import { StrictEventEmitter } from '#types/typed-events';
 import type { Server } from './';
 
-import type { Handshake, SocketData as DefaultSocketData } from '../types/socket-types';
+import type { Handshake } from '../types/socket-types';
 import type {
 	RemoveAcknowledgements,
 	EventsMap,
@@ -29,7 +29,7 @@ export interface NamespaceReservedEventsMap<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData extends DefaultSocketData,
+	SocketData,
 > {
 	connect: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
 	connection: (socket: Socket<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
@@ -40,7 +40,7 @@ export interface ServerReservedEventsMap<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData extends DefaultSocketData,
+	SocketData,
 > extends NamespaceReservedEventsMap<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
 	new_namespace: (namespace: Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>) => void;
 }
@@ -107,7 +107,7 @@ export class Namespace<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData extends DefaultSocketData = DefaultSocketData,
+	SocketData = any,
 > extends StrictEventEmitter<
 	/** strict typing */
 	ServerSideEvents,

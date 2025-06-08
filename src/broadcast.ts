@@ -9,7 +9,7 @@ import type {
 	Last,
 	TypedEventBroadcaster,
 } from '#types/typed-events';
-import { type SocketData as DefaultSocketData, type Handshake, RESERVED_EVENTS } from '../types/socket-types';
+import { type Handshake, RESERVED_EVENTS } from '../types/socket-types';
 import type { Adapter, SocketId, Room } from './socket.io-adapter';
 import { PacketType, type Packet } from './socket.io-parser';
 import type { Socket } from './socket';
@@ -29,7 +29,7 @@ export interface BroadcastFlags {
 export class BroadcastOperator<
 	/** {@link TypedEventBroadcaster} */
 	EmitEvents extends EventsMap,
-	SocketData extends DefaultSocketData = DefaultSocketData,
+	SocketData,
 > implements TypedEventBroadcaster<EmitEvents>
 {
 	constructor(
@@ -102,7 +102,7 @@ export class BroadcastOperator<
 	/**
 	 * Set timeout for acknowledgements
 	 */
-	timeout(timeout: number): BroadcastOperator<EmitEvents, SocketData> {
+	timeout(timeout: number): BroadcastOperator<DecorateAcknowledgements<EmitEvents>, SocketData> {
 		const flags = Object.assign({}, this.flags, { timeout });
 		return new BroadcastOperator<DecorateAcknowledgements<EmitEvents>, SocketData>(this.adapter, this.rooms, this.exceptRooms, flags);
 	}
@@ -269,3 +269,5 @@ export class BroadcastOperator<
 		);
 	}
 }
+
+// TODO: add RemoteSocket type & class

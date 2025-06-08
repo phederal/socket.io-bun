@@ -5,7 +5,6 @@ import type { Server } from './';
 import type { Socket } from './socket';
 import type { Namespace } from './namespace';
 import type { EventsMap } from '#types/typed-events';
-import type { SocketData as DefaultSocketData } from '#types/socket-types';
 import type { SocketId } from './socket.io-adapter';
 import { debugConfig } from '../config';
 
@@ -26,7 +25,7 @@ export class Client<
 	ListenEvents extends EventsMap,
 	EmitEvents extends EventsMap,
 	ServerSideEvents extends EventsMap,
-	SocketData extends DefaultSocketData = any,
+	SocketData = any,
 > {
 	private readonly id: string;
 	public readonly conn: RawSocket;

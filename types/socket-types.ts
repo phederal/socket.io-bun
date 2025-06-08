@@ -3,23 +3,6 @@ import type { IncomingHttpHeaders } from 'http';
 import type { ParsedUrlQuery } from 'querystring';
 import type { EventsMap } from './typed-events';
 
-// Socket data type for socket.data attribute
-export interface SocketData {
-	user?: {
-		id: string;
-		name?: string;
-		email?: string;
-	};
-	session?: {
-		id: string;
-		[key: string]: any;
-	};
-	[key: string]: any;
-}
-
-// Base constraint for socket data - ensures it extends our base SocketData
-export type SocketDataConstraint = SocketData;
-
 /**
  * Next: From socket.io socket-types.ts
  * @link https://github.com/socketio/socket.io/blob/main/packages/socket.io/lib/socket-types.ts

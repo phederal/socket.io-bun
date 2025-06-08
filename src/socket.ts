@@ -1,6 +1,5 @@
 import base64id from 'base64id';
 import debugModule from 'debug';
-import type { SocketData as DefaultSocketData } from '../types/socket-types';
 import { RESERVED_EVENTS, type DisconnectReason, type Handshake, type SocketReservedEventsMap } from '#types/socket-types';
 import {
 	StrictEventEmitter,
@@ -14,10 +13,11 @@ import {
 	type EventsMap,
 	type FirstNonErrorArg,
 	type Last,
+	type RemoveAcknowledgements,
 } from '#types/typed-events';
 import type { Adapter, PrivateSessionId, Session, SocketId, Room } from './socket.io-adapter';
 import type { Client } from './client';
-import type { Namespace } from './namespace';
+import type { Namespace, ServerReservedEventsMap } from './namespace';
 import type { Server } from './';
 import { BroadcastOperator, type BroadcastFlags } from './broadcast';
 import { PacketType, type Packet } from './socket.io-parser';
@@ -26,6 +26,7 @@ import { debugConfig } from '../config';
 const debug = debugModule('socket.io:socket');
 debug.enabled = debugConfig.socket;
 
+// TODO: use for connectionStateRecovery
 const RECOVERABLE_DISCONNECT_REASONS: ReadonlySet<DisconnectReason> = new Set([
 	'transport error',
 	'transport close',
@@ -44,7 +45,7 @@ export class Socket<
 	ListenEvents extends EventsMap = DefaultEventsMap,
 	EmitEvents extends EventsMap = ListenEvents,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData extends DefaultSocketData = DefaultSocketData,
+	SocketData = any,
 > extends StrictEventEmitter<ListenEvents, EmitEvents, SocketReservedEventsMap> {
 	/**
 	 * An unique identifier for the session.

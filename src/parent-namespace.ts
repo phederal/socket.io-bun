@@ -1,7 +1,6 @@
 import { Namespace } from './namespace';
 import type { Server } from './index'; // TODO: add type RemoteSocket
 import type { EventParams, EventsMap, DefaultEventsMap, EventNamesWithoutAck } from '#types/typed-events';
-import type { SocketData as DefaultSocketData } from '#types/socket-types';
 import { Adapter } from './socket.io-adapter';
 import type { BroadcastOptions } from './socket.io-adapter';
 import debugModule from 'debug';
@@ -27,7 +26,7 @@ export class ParentNamespace<
 	ListenEvents extends EventsMap = DefaultEventsMap,
 	EmitEvents extends EventsMap = ListenEvents,
 	ServerSideEvents extends EventsMap = DefaultEventsMap,
-	SocketData extends DefaultSocketData = DefaultSocketData,
+	SocketData = any,
 > extends Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData> {
 	private static count: number = 0;
 	private readonly children: Set<Namespace<ListenEvents, EmitEvents, ServerSideEvents, SocketData>> = new Set();
