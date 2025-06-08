@@ -564,7 +564,7 @@ describe('Adapter', () => {
 				const timeout = setTimeout(() => reject(new Error('Subscription timeout')), 3000);
 
 				io.on('connection', (socket: Socket) => {
-					expect(socket.ws.isSubscribed(socket.nsp.name)).toBe(true);
+					expect(socket['ws'].isSubscribed(socket.nsp.name)).toBe(true);
 					clearTimeout(timeout);
 					resolve();
 				});
@@ -585,11 +585,11 @@ describe('Adapter', () => {
 
 					socket.join('test-room');
 					setTimeout(() => {
-						expect(socket.ws.isSubscribed(roomTopic)).toBe(true);
+						expect(socket['ws'].isSubscribed(roomTopic)).toBe(true);
 
 						socket.leave('test-room');
 						setTimeout(() => {
-							expect(socket.ws.isSubscribed(roomTopic)).toBe(false);
+							expect(socket['ws'].isSubscribed(roomTopic)).toBe(false);
 							clearTimeout(timeout);
 							resolve();
 						}, 50);

@@ -813,7 +813,7 @@ describe('Socket', () => {
 					clearTimeout(timeout);
 					expect(socket.ctx).toBeDefined();
 					expect(socket.conn).toBeDefined();
-					expect(socket.ws).toBeDefined();
+					expect(socket['ws']).toBeDefined();
 					resolve();
 				});
 
