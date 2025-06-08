@@ -1,0 +1,35 @@
+# Development files
+test/
+dev/
+*.test.ts
+*.test.js
+
+# Build artifacts
+node_modules/
+dist/
+build/
+*.tgz
+
+# Development configs
+.github/
+.vscode/
+.idea/
+.editorconfig
+.prettierrc
+.prettierignore
+bunfig.toml
+bun.lock
+
+# Documentation
+llm.md
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env*
+
+# OS
+.DS_Store
+Thumbs.db

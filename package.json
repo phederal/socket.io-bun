@@ -4,7 +4,25 @@
 	"type": "module",
 	"version": "1.0.13",
 	"description": "A high-performance, fully-typed Socket.IO implementation for Bun runtime with Hono framework integration.",
+	"main": "index.ts",
+	"types": "index.ts",
+	"exports": {
+		".": {
+			"import": "./index.ts",
+			"types": "./index.ts"
+		}
+	},
+	"files": [
+		"src/",
+		"types/",
+		"index.ts",
+		"ws.ts",
+		"config.ts",
+		"utils.ts",
+		"README.md"
+	],
 	"readme": "README.md",
+	"license": "MIT",
 	"author": {
 		"name": "Romon (Roman Andreevich)",
 		"email": "the@romon.io",
@@ -14,13 +32,22 @@
 		"type": "git",
 		"url": "git+https://github.com/phederal/socket.io-bun.git"
 	},
+	"bugs": {
+		"url": "https://github.com/phederal/socket.io-bun/issues"
+	},
+	"homepage": "https://github.com/phederal/socket.io-bun#readme",
+	"engines": {
+		"bun": ">=1.2.0"
+	},
 	"keywords": [
 		"socket.io",
 		"websocket",
 		"socket",
 		"bun",
 		"hono",
-		"adapter"
+		"adapter",
+		"realtime",
+		"typescript"
 	],
 	"scripts": {
 		"dev": "NODE_ENV=development bun run --watch index.ts",
@@ -47,13 +74,13 @@
 		"socket.io-client": "^4.8.1"
 	},
 	"peerDependencies": {
-		"typescript": "^5"
+		"typescript": "^5",
+		"hono": "^4.0.0"
 	},
 	"dependencies": {
 		"@msgpack/msgpack": "^3.1.1",
 		"@socket.io/component-emitter": "^3.1.2",
 		"base64id": "^2.0.0",
-		"engine.io-parser": "^5.2.3",
-		"hono": "^4.7.10"
+		"engine.io-parser": "^5.2.3"
 	}
 }
