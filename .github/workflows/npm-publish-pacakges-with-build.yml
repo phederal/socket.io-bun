@@ -1,4 +1,4 @@
-name: Publish package (no build)
+name: Publish package with build
 
 on:
   workflow_dispatch:
@@ -14,18 +14,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Install TypeScript
+        run: bun add -d typescript
+
       - name: Install deps
         run: bun install
+
+      - name: Build package
+        run: bun run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
 
   publish-gh:
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
 
       - name: Setup Node for GitHub Packages
         uses: actions/setup-node@v4
@@ -57,6 +77,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
 
       - name: Setup Bun for npmjs.org
         uses: oven-sh/setup-bun@v2
