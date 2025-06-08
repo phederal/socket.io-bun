@@ -14,10 +14,6 @@ export { Adapter, SessionAwareAdapter } from './src/socket.io-adapter';
 // Engine.IO classes
 export { Server as EngineServer, Socket as RawSocket, Transport } from './src/engine.io/index';
 
-// Test utilities
-export { TestEnvironment, createTestEnv } from './test/utils/test-env';
-
-// === TYPE EXPORTS ===
 // Core types from main server
 export type { DisconnectReason, DefaultEventsMap, ExtendedError, Event, ServerOptions } from './src/index';
 
