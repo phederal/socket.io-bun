@@ -100,7 +100,7 @@ export class Socket<
 		this.handshake = this.buildHandshake(auth);
 
 		// prevents crash when the socket receives an "error" event without listener
-		// this.on('error', () => {});
+		this.on('error', () => {});
 	}
 
 	/**
