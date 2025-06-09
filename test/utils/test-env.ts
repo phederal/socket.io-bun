@@ -102,7 +102,7 @@ export class TestEnvironment {
 		const app = new Hono();
 
 		// Middleware for authentication (custom socket data)
-		app.use('/ws/*', async (c, next) => {
+		app.use('/socket.io/*', async (c, next) => {
 			const user = config.auth?.user === false ? null : 'user_test1';
 			const session = config.auth?.session === false ? null : 'session_test1';
 
@@ -113,8 +113,7 @@ export class TestEnvironment {
 			await next();
 		});
 
-		app.get('/ws', wsUpgrade);
-		app.get('/ws/*', wsUpgrade);
+		app.get('/socket.io/*', wsUpgrade);
 
 		this.server = Bun.serve({
 			hostname: this.hostname,
@@ -160,7 +159,6 @@ export class TestEnvironment {
 
 		const namespace = clientConfig.namespace || '/';
 		const socket = clientIO(this.serverUrl + namespace, {
-			path: '/ws',
 			transports: (clientConfig.transports as any) || ['websocket'],
 			timeout: clientConfig.timeout || 10000,
 			autoConnect: false, // ключевой момент - отключаем автоподключение

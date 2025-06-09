@@ -91,14 +91,13 @@ const wsUpgrade = upgradeWebSocket((c) => {
 const app = new Hono();
 
 // Authentication middleware
-app.use('/ws/*', async (c, next) => {
+app.use('/socket.io/*', async (c, next) => {
   // Your authentication logic here
   c.set('user', { id: 'user123', name: 'John Doe' });
   await next();
 });
 
-app.get('/ws', wsUpgrade);
-app.get('/ws/*', wsUpgrade);
+app.get('/socket.io/*', wsUpgrade);
 
 // Start server
 const server = Bun.serve({
@@ -152,8 +151,7 @@ console.log('🚀 Server running on http://localhost:3000');
 import { io } from 'socket.io-client';
 
 // Type-safe client connection
-const socket = io('ws://localhost:3000', {
-  path: '/ws',
+const socket = io('wss://localhost:3000', {
   transports: ['websocket'],
 });
 
@@ -317,8 +315,8 @@ const io = new Server({
   // Connection timeout (default: 45000ms)
   connectTimeout: 30000,
 
-  // Path for WebSocket endpoint (default: '/ws')
-  path: '/ws',
+  // Path for WebSocket endpoint (default: '/socket.io')
+  path: '/socket.io',
 
   // Ping settings
   pingTimeout: 20000,
@@ -368,11 +366,11 @@ npm install socket.io-client
 ```javascript
 // Browser
 import { io } from 'socket.io-client';
-const socket = io('ws://localhost:3000', { path: '/ws' });
+const socket = io('ws://localhost:3000');
 
 // Node.js
 const { io } = require('socket.io-client');
-const socket = io('ws://localhost:3000', { path: '/ws' });
+const socket = io('ws://localhost:3000');
 ```
 
 ## 🤝 Contributing

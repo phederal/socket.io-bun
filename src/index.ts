@@ -45,7 +45,7 @@ type AdapterConstructor = typeof Adapter | ((nsp: Namespace<any, any, any, any>)
 export interface ServerOptions {
 	/**
 	 * name of the path to capture
-	 * @default "/ws"
+	 * @default "/socket.io"
 	 */
 	path: string;
 	/**
@@ -248,7 +248,7 @@ class Server<
 		},
 	) {
 		super();
-		this.path(opts.path || '/ws');
+		this.path(opts.path || '/socket.io');
 		this.connectTimeout(opts.connectTimeout || 45000);
 		this._parser = opts.parser || parser;
 		this.encoder = new this._parser.Encoder();

@@ -66,7 +66,6 @@ interface ClientToServerEvents {
 
 // Создаем типизированного клиента
 const socket: Socket<ServerToClientEvents, ClientToServerEvents> = clientIO('wss://localhost:8443', {
-	path: '/ws',
 	transports: ['websocket'],
 	auth: {
 		token: 'your-jwt-token',
@@ -236,7 +235,6 @@ socket.on('disconnect', (reason) => {
 
 // Тестируем namespace клиентов
 const chatSocket: Socket<ServerToClientEvents, ClientToServerEvents> = clientIO('wss://localhost:8443/chat', {
-	path: '/ws',
 	transports: ['websocket'],
 	auth: {
 		token: 'your-jwt-token',
@@ -264,7 +262,6 @@ chatSocket.on('new_message', (message) => {
 
 // Dynamic namespace
 const gameSocket: Socket<ServerToClientEvents, ClientToServerEvents> = clientIO('wss://localhost:8443/game-123', {
-	path: '/ws',
 	transports: ['websocket'],
 });
 
@@ -279,7 +276,6 @@ class ChatClient {
 
 	constructor(serverUrl: string, token: string) {
 		this.socket = clientIO(serverUrl, {
-			path: '/ws',
 			transports: ['websocket'],
 			auth: { token },
 		});
