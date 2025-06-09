@@ -26,7 +26,6 @@ export type { SocketId, PrivateSessionId, Room, BroadcastFlags, BroadcastOptions
 // Typed events system
 export type {
 	EventsMap,
-	EmptyEventsMap,
 	DefaultEventsMap as DefaultEvents,
 	EventNames,
 	EventParams,

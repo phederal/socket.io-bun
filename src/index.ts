@@ -18,7 +18,6 @@ import {
 	type RemoveAcknowledgements,
 	type EventNamesWithAck,
 	type FirstNonErrorArg,
-	type EmptyEventsMap,
 } from '../types/typed-events';
 import { Socket } from './socket';
 import type { Context } from 'hono';
@@ -138,7 +137,7 @@ class Server<
 	 *   });
 	 * });
 	 */
-	ListenEvents extends EventsMap = DefaultEventsMap | EmptyEventsMap,
+	ListenEvents extends EventsMap = DefaultEventsMap | {},
 	/**
 	 * Types for the events sent to the clients.
 	 *
@@ -151,7 +150,7 @@ class Server<
 	 *
 	 * io.emit("hello", "world");
 	 */
-	EmitEvents extends EventsMap = ListenEvents | EmptyEventsMap,
+	EmitEvents extends EventsMap = ListenEvents | {},
 	/**
 	 * Types for the events received from and sent to the other servers.
 	 *
@@ -168,7 +167,7 @@ class Server<
 	 *   // `arg` is inferred as number
 	 * });
 	 */
-	ServerSideEvents extends EventsMap = DefaultEventsMap | EmptyEventsMap,
+	ServerSideEvents extends EventsMap = DefaultEventsMap | {},
 	/**
 	 * Additional properties that can be attached to the socket instance.
 	 *
@@ -806,4 +805,3 @@ export default io;
 export { Server, Socket, Namespace, BroadcastOperator };
 export type { DisconnectReason, DefaultEventsMap, ExtendedError }; // RemoteSocket removed
 export type { Event } from './socket';
-export type { EmptyEventsMap, DefaultSocketData };
