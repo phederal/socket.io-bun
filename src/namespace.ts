@@ -18,7 +18,7 @@ import type { Client } from './client';
 import { debugConfig } from '../config';
 
 const debug = debugModule('socket.io:namespace');
-debug.enabled = debugConfig.namespace;
+debug.enabled = debugConfig.namespace || false;
 
 export interface ExtendedError extends Error {
 	data?: any;

@@ -10,7 +10,7 @@ import { debugConfig } from '../../config';
 import { encodePacket, decodePacket, type Packet } from 'engine.io-parser';
 
 const debug = debugModule('engine:server');
-debug.enabled = debugConfig.engine;
+debug.enabled = debugConfig.engine || false;
 
 export interface ServerOptions {
 	/**

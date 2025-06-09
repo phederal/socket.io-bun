@@ -5,8 +5,10 @@ import { Adapter } from './socket.io-adapter';
 import type { BroadcastOptions } from './socket.io-adapter';
 import debugModule from 'debug';
 import type { DefaultSocketData } from '../types/socket-types';
+import { debugConfig } from '../config';
 
 const debug = debugModule('socket.io:parent-namespace');
+debug.enabled = debugConfig.parentNamespace || false;
 
 /**
  * A parent namespace is a special {@link Namespace} that holds a list of child namespaces which were created either

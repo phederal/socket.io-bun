@@ -7,7 +7,7 @@ import { yeast } from './yeast';
 import type { Packet } from '../socket.io-parser';
 
 const debug = debugModule('socket.io:adapter');
-debug.enabled = debugConfig.adapter;
+debug.enabled = debugConfig.adapter || false;
 
 const SEPARATOR = '\x1f'; // see https://en.wikipedia.org/wiki/Delimiter#ASCII_delimited_text
 

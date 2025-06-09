@@ -10,7 +10,7 @@ import { debugConfig } from '../config';
 import type { DefaultSocketData } from '../types/socket-types';
 
 const debug = debugModule('socket.io:client');
-debug.enabled = debugConfig.client;
+debug.enabled = debugConfig.client || false;
 
 type CloseReason = 'transport error' | 'transport close' | 'forced close' | 'ping timeout' | 'parse error';
 

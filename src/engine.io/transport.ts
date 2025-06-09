@@ -7,7 +7,7 @@ import { debugConfig } from '../../config';
 import * as parser from 'engine.io-parser';
 
 const debug = debugModule('engine:transport');
-debug.enabled = debugConfig.engine_transport;
+debug.enabled = debugConfig.engine_transport || false;
 
 export class Transport extends EventEmitter {
 	public name: string = 'websocket';

@@ -24,7 +24,7 @@ import { PacketType, type Packet } from './socket.io-parser';
 import { debugConfig } from '../config';
 
 const debug = debugModule('socket.io:socket');
-debug.enabled = debugConfig.socket;
+debug.enabled = debugConfig.socket || false;
 
 // TODO: use for connectionStateRecovery
 const RECOVERABLE_DISCONNECT_REASONS: ReadonlySet<DisconnectReason> = new Set([

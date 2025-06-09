@@ -9,7 +9,7 @@ import { debugConfig } from '../../config';
 import { getConnInfo } from 'hono/bun';
 
 const debug = debugModule('engine:socket');
-debug.enabled = debugConfig.engine_socket;
+debug.enabled = debugConfig.engine_socket || false;
 
 export interface EngineSocketOptions {
 	pingInterval?: number;

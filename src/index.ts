@@ -31,7 +31,7 @@ import { Server as Engine, Socket as RawSocket } from './engine.io';
 import type { WSContext, WSEvents } from 'hono/ws';
 
 const debug = debugModule('socket.io:server');
-debug.enabled = debugConfig.server;
+debug.enabled = debugConfig.server || false;
 
 type ParentNspNameMatchFn = (
 	/** strict types */
