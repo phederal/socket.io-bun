@@ -11,8 +11,7 @@ export const debugConfig = {
 	engine_transport: as(false),
 };
 
-const enabledAll = false;
-
 function as(bool: boolean) {
+	const enabledAll = false;
 	return enabledAll ?? bool;
 }
