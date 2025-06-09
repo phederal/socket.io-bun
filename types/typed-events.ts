@@ -1,6 +1,11 @@
 import { EventEmitter } from 'events';
 
 /**
+ * An empty events map, used to represent an empty event emitter.
+ */
+export interface Empty {}
+
+/**
  * An events map is an interface that maps event names to their value, which
  * represents the type of the `on` listener.
  */

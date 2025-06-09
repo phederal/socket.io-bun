@@ -15,7 +15,7 @@ export { Adapter, SessionAwareAdapter } from './src/socket.io-adapter';
 export { Server as EngineServer, Socket as RawSocket, Transport } from './src/engine.io/index';
 
 // Core types from main server
-export type { DisconnectReason, DefaultEventsMap, ExtendedError, Event, ServerOptions } from './src/index';
+export type { DisconnectReason, DefaultEventsMap, ExtendedError, Event, ServerOptions, Empty, DefaultSocketData } from './src/index';
 
 // Socket and namespace types
 export type { SocketReservedEventsMap, Handshake } from './types/socket-types';
@@ -26,7 +26,6 @@ export type { SocketId, PrivateSessionId, Room, BroadcastFlags, BroadcastOptions
 // Typed events system
 export type {
 	EventsMap,
-	DefaultEventsMap as DefaultEvents,
 	EventNames,
 	EventParams,
 	EventNamesWithAck,
