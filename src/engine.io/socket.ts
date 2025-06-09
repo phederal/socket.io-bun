@@ -29,7 +29,7 @@ export class Socket extends EventEmitter {
 	/**
 	 * The IP address of the client.
 	 */
-	public readonly remoteAddress: string | null;
+	public readonly remoteAddress: { address: string; family: string; port: number } | null;
 
 	public server: Server;
 	public transport!: Transport;
@@ -49,7 +49,8 @@ export class Socket extends EventEmitter {
 		this.ctx = ctx;
 		this.data = data;
 		this.server = server;
-		this.remoteAddress = getConnInfo(ctx).remote.address ?? null;
+		// this.remoteAddress = getConnInfo(ctx).remote.address ?? null;
+		this.remoteAddress = ctx.env.requestIP(ctx.req.raw) ?? null;
 
 		this.setTransport(transport);
 		this.onOpen();

@@ -5,7 +5,6 @@ import type { Context } from 'hono';
 import { Transport } from './transport';
 import type { Server as BunServer } from 'bun';
 import debugModule from 'debug';
-import { getConnInfo } from 'hono/bun';
 import { debugConfig } from '../../config';
 import { encodePacket, decodePacket, type Packet } from 'engine.io-parser';
 
@@ -88,18 +87,20 @@ export class Server extends EventEmitter {
 		// 	return transport;
 		// }
 
-		const query = ctx.req.query();
-		const conn = getConnInfo(ctx);
-
-		if (query.sid && this.clients.has(query.sid)) {
-			const socket = this.clients.get(query.sid);
-			if (socket) {
-				const clientExist = getConnInfo(socket.ctx);
-				if (clientExist.remote.address === conn.remote.address) {
-					return socket.transport;
-				}
-			}
-		}
+		// TODO: add support for session persistence
+		// const query = ctx.req.query();
+		// const conn = ctx.env.requestIP(ctx.req.raw) as { address: string; family: string; port: number };
+		// if (query.sid && this.clients.has(query.sid)) {
+		// 	const socket = this.clients.get(query.sid);
+		// 	if (socket) {
+		// 		if (socket.remoteAddress && conn) {
+		// 			if (socket.remoteAddress.address === conn.address) {
+		// 				console.log('add pid to socket'); // for todo
+		// 				return socket.transport;
+		// 			}
+		// 		}
+		// 	}
+		// }
 
 		debug('Setting transport for new client');
 		const id = base64id.generateId();
