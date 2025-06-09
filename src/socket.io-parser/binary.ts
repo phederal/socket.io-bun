@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { isBinary } from './is-binary.ts';
+
+import { isBinary } from './is-binary';
 
 /**
  * Replaces every Buffer | ArrayBuffer | Blob | File in packet with a numbered placeholder.

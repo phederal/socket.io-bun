@@ -1,7 +1,8 @@
 // @ts-nocheck
+
 import { Emitter } from '@socket.io/component-emitter';
-import { deconstructPacket, reconstructPacket } from './binary.js';
-import { isBinary, hasBinary } from './is-binary.js';
+import { deconstructPacket, reconstructPacket } from './binary';
+import { isBinary, hasBinary } from './is-binary';
 import debugModule from 'debug'; // debug()
 
 const debug = debugModule('socket.io-parser'); // debug()

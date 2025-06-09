@@ -1,4 +1,5 @@
 // @ts-nocheck
+
 const withNativeArrayBuffer: boolean = typeof ArrayBuffer === 'function';
 
 const isView = (obj: any) => {
