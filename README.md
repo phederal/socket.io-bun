@@ -70,7 +70,12 @@ interface SocketData {
 }
 
 // Create Socket.IO server
-const io = new Server<ClientToServerEvents, ServerToClientEvents, any, SocketData>();
+const io = new Server<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  {}, // do not use "any" (required for ts)
+  SocketData
+>();
 
 // Create WebSocket handler
 const { upgradeWebSocket, websocket } = createBunWebSocket();
