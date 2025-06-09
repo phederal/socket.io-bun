@@ -416,6 +416,9 @@ class Server<
 			// create client if not exist
 			const client = new Client(conn, this);
 			this._clients.set(conn.id, client);
+			conn.on('close', () => {
+				this._clients.delete(conn.id);
+			});
 		});
 		return this;
 	}
