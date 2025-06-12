@@ -83,8 +83,16 @@ const { upgradeWebSocket, websocket } = createBunWebSocket();
 // WebSocket upgrade handler
 const wsUpgrade = upgradeWebSocket((c) => {
   const user = c.get('user') || { id: 'anonymous', name: 'Anonymous' };
+  const session = c.get('session') || { pid: '1234567890', sid: '1234567890' };
 
-  return io.onconnection(c, { user });
+  if (!user || !session) {
+    return io.onconnection(c, false);
+  }
+
+  return io.onconnection(c, {
+    user,
+    session,
+  });
 });
 
 // Hono app setup

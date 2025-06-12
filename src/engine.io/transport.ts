@@ -133,10 +133,18 @@ export class Transport extends EventEmitter {
 
 	/**
 	 * Handle WebSocket error
+	 * @param ev Event binded by bun ws
+	 * @param ws WebSocket instance
+	 * @param opts Optional options for error message and description
+	 * @returns void
 	 */
-	onError(ev: Event) {
-		debug('WebSocket transport error');
-		this.emit('error', new Error('WebSocket transport error'));
+	onError(ev: Event | any, ws: any, opts?: { msg?: string; desc?: string }) {
+		if (this.listeners('error').length) {
+			debug('WebSocket transport error');
+			this.emit('error', new Error(opts?.msg ? opts.msg : 'WebSocket transport error'));
+		} else {
+			debug('ignored transport error %s (%s)', opts?.msg, opts?.desc);
+		}
 	}
 
 	/**

@@ -71,21 +71,21 @@ export class Server extends EventEmitter {
 	 * Handles a request with ctx and return ws context.
 	 * [onOpen, onClose, onMessage, onError]
 	 *
+	 * Set data to false to trigger auth error
+	 *
 	 * @param {Context} ctx Hono Context
-	 * @param {any} data Custom data for socket
+	 * @param {any|false} data Custom data for socket
 	 */
-	handleRequest(ctx: Context, data?: any) {
+	handleRequest(ctx: Context, data?: any | false): Transport {
 		debug('Handle request on engine.io layer');
 
-		// TODO: add handler for auth failed on this class or io.onconnection maybe io.onerror() to this
-		// if (data?.authFailure) {
-		// 	// Create transport but immediately trigger auth error
-		// 	const transport = new Transport();
-		// 	setTimeout(() => {
-		// 		transport.onError(new Error('Unauthorized - authentication failed') as unknown as Event);
-		// 	}, 50);
-		// 	return transport;
-		// }
+		// Auth error
+		if (data === false) {
+			const transport = new Transport();
+			const socket = new Socket('', this, transport, ctx, data);
+			transport.on('ready', () => transport.close());
+			return socket.transport;
+		}
 
 		// TODO: add support for session persistence
 		// const query = ctx.req.query();
@@ -112,6 +112,7 @@ export class Server extends EventEmitter {
 			this.clientsCount--;
 		});
 		this.emit('connection', socket);
+
 		/**
 		 * [onOpen, onClose, onMessage, onError]
 		 * @return {Transport}
