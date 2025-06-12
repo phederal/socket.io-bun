@@ -12,6 +12,6 @@ export const debugConfig = {
 };
 
 function as(bool: boolean) {
-	const enabledAll = false;
-	return enabledAll ?? bool;
+	const all = false;
+	return all ?? bool;
 }
