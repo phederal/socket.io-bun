@@ -387,7 +387,7 @@ class Server<
 	}
 
 	/**
-	 * Initialize engine
+	 * Initialize engine.io and bind socket.io to it
 	 *
 	 * @param srv - the server to attach to
 	 * @param opts - options passed to engine.io
@@ -395,9 +395,7 @@ class Server<
 	 */
 	private initEngine(srv: BunServer, opts: Partial<ServerOptions> = {}): void {
 		debug('creating engine.io instance');
-		// initialize engine
 		this.engine = new Engine(srv, opts);
-		// bind to engine events
 		this.bind(this.engine);
 	}
 
@@ -410,11 +408,10 @@ class Server<
 	bind(engine: any): this {
 		// TODO apply strict types to the engine: "connection" event, `close()` and a method to serve static content
 		//  this would allow to provide any custom engine, like one based on Deno or Bun built-in HTTP server
+		debug('binding to engine.io instance');
 		engine.on('connection', (conn: RawSocket) => {
-			// prevent duplicate clients
-			if (conn.id in this._clients) return this;
-			// create client if not exist
-			const client = new Client(conn, this);
+			if (conn.id in this._clients) return this; // prevent duplicate clients
+			const client = new Client(conn, this); // create client if not exist
 			this._clients.set(conn.id, client);
 			conn.on('close', () => {
 				this._clients.delete(conn.id);

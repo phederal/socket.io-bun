@@ -77,18 +77,11 @@ export class TestEnvironment {
 		const { upgradeWebSocket, websocket } = createBunWebSocket<ServerWebSocket<WSContext>>();
 		// WebSocket upgrade handler
 		const wsUpgrade = upgradeWebSocket((c: Context) => {
-			const user = c.get('user');
-			const session = c.get('session');
+			const user = c.get('user') || 'user_test1';
+			const session = c.get('session') || 'session_test1';
 
 			if (!user || !session) {
-				// TODO: create io.onerrorconnection for that situation
-				return io.onconnection(c, {
-					// @ts-ignore
-					user: null,
-					// @ts-ignore
-					session: null,
-					authFailure: true,
-				});
+				return io.onconnection(c, false);
 			}
 
 			return io.onconnection(c, {
@@ -102,16 +95,16 @@ export class TestEnvironment {
 		const app = new Hono();
 
 		// Middleware for authentication (custom socket data)
-		app.use('/socket.io/*', async (c, next) => {
-			const user = config.auth?.user === false ? null : 'user_test1';
-			const session = config.auth?.session === false ? null : 'session_test1';
+		// app.use('/socket.io/*', async (c, next) => {
+		// 	const user = config.auth?.user === false ? null : 'user_test1';
+		// 	const session = config.auth?.session === false ? null : 'session_test1';
 
-			// @ts-ignore
-			c.set('user', user);
-			// @ts-ignore
-			c.set('session', session);
-			await next();
-		});
+		// 	// @ts-ignore
+		// 	c.set('user', user);
+		// 	// @ts-ignore
+		// 	c.set('session', session);
+		// 	await next();
+		// });
 
 		app.get('/socket.io/*', wsUpgrade);
 

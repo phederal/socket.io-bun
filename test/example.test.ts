@@ -7,8 +7,6 @@ import type { Socket } from '../src/socket';
 describe('Socket.IO Example Tests', () => {
 	const { createServer, createClient, createClients, createClientsAsync, cleanup, testEnv } = new TestEnvironment();
 
-	afterEach(() => cleanup());
-
 	test('should successfully connect client to server', async () => {
 		/** */
 		const io = await createServer();
