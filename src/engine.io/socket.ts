@@ -25,7 +25,6 @@ type SendCallback = (transport: Transport) => void;
 export class Socket extends EventEmitter {
 	public readonly id: string;
 	public readonly ctx: Context;
-	public readonly data: any = {};
 	/**
 	 * The IP address of the client.
 	 */
@@ -43,11 +42,10 @@ export class Socket extends EventEmitter {
 	private pingIntervalTimer!: NodeJS.Timeout;
 	private pingTimeoutTimer!: NodeJS.Timeout;
 
-	constructor(id: string, server: Server, transport: Transport, ctx: Context, data?: any) {
+	constructor(id: string, server: Server, transport: Transport, ctx: Context, private data: unknown = {}) {
 		super();
 		this.id = id;
 		this.ctx = ctx;
-		this.data = data;
 		this.server = server;
 		// this.remoteAddress = getConnInfo(ctx).remote.address ?? null;
 		this.remoteAddress = ctx.env.requestIP(ctx.req.raw) ?? null;
