@@ -21,9 +21,37 @@ describe('Socket', () => {
 					expect(socket.connected).toBe(true);
 					expect(socket.disconnected).toBe(false);
 					expect(socket.handshake).toBeDefined();
-					expect(socket.data).toBeDefined();
 					expect(socket.rooms).toBeDefined();
 					expect(socket.rooms.has(socket.id)).toBe(true);
+					resolve();
+				});
+
+				client.on('connect_error', reject);
+			});
+		});
+
+		test('should create socket with pre-initialized data', async () => {
+			const io = await createServer();
+			const client = createClient();
+
+			io.use((socket, next) => {
+				socket.data = {
+					user: 'set_another_user_data',
+					session: 'set_another_session_data',
+				};
+				next();
+			});
+
+			return new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => reject(new Error('Socket properties timeout')), 3000);
+
+				io.on('connection', (socket: Socket) => {
+					clearTimeout(timeout);
+					expect(socket.data).toBeDefined();
+					expect(socket.data).toEqual({
+						user: 'set_another_user_data',
+						session: 'set_another_session_data',
+					});
 					resolve();
 				});
 
