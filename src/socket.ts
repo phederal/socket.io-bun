@@ -99,6 +99,10 @@ export class Socket<
 		this.id = base64id.generateId();
 		this.handshake = this.buildHandshake(auth);
 
+		// Primitive socket data from io.onconnection
+		// TODO: rework when adding recovery sessions
+		this.data = this.client.conn['data'] as SocketData;
+
 		// prevents crash when the socket receives an "error" event without listener
 		this.on('error', () => {});
 	}
