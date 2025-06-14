@@ -11,7 +11,15 @@ import { Server } from './src';
 
 // Create typed socket server
 // <Listen, Emit, Reserved, SocketData>
-const io = new Server<{}, {}, {}, {}>({
+const io = new Server<
+	{},
+	{},
+	{},
+	{
+		user: string;
+		session: string;
+	}
+>({
 	pingTimeout: 10000,
 	pingInterval: 5000,
 	connectTimeout: 5000,
@@ -39,8 +47,9 @@ const app = new Hono();
 
 // Middleware for authentication (custom socket data)
 app.use('/socket.io/*', async (c, next) => {
-	const user = 'user_test1';
-	const session = 'session_test1';
+	// Check set modified data
+	const user = '__user_test1__';
+	const session = '__session_test1__';
 
 	// @ts-ignore
 	c.set('user', user);
