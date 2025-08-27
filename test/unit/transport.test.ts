@@ -429,8 +429,8 @@ describe('Connection/Transport Layer', () => {
 					setTimeout(() => {
 						clearInterval(interval);
 						// Force close underlying WebSocket transport
-						if (socket.ws && socket.ws.readyState === WebSocket.OPEN) {
-							socket.ws.close();
+						if (socket['ws'] && socket['ws'].readyState === WebSocket.OPEN) {
+							socket['ws'].close();
 						}
 					}, 200);
 				});
