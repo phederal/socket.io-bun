@@ -1,3 +1,8 @@
+# Deprecated
+
+> ## **Warning**: This library is deprecated. Please use [@socket.io/bun-engine](https://github.com/socketio/bun-engine) instead. And read official [docs here](https://socket.io/blog/bun-engine/).
+
+
 # ⚡ Socket.IO-Bun
 
 A high-performance, fully-typed Socket.IO implementation for Bun runtime with Hono framework integration.
