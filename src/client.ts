@@ -69,7 +69,6 @@ export class Client<
 		this.onerror = this.onerror.bind(this);
 		this.ondecoded = this.ondecoded.bind(this);
 
-		// @ts-ignore
 		this.decoder.on('decoded', this.ondecoded);
 		this.conn.on('data', this.ondata);
 		this.conn.on('error', this.onerror);
